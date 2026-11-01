@@ -1,0 +1,43 @@
+name = "catalogo-lite-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-05"
+compatibility_flags = ["nodejs_compat"]
+
+# Desarrollo local
+[vars]
+ENVIRONMENT = "development"
+STORE_NAME = "SneakerHub Lite"
+STORE_CURRENCY = "COP"
+STORE_COUNTRY = "CO"
+ADMIN_EMAIL = "admin@example.com"
+ADMIN_PASSWORD = "admin123"
+JWT_SECRET = "dev-only-secret-change-in-production-32ch"
+
+# Telegram Bot (configurar en .env o secrets)
+# TELEGRAM_BOT_TOKEN = ""
+# TELEGRAM_WEBHOOK_SECRET = ""
+# TELEGRAM_OWNER_ID = ""
+
+# Google Gemini AI (configurar en .env o secrets)
+# GEMINI_API_KEY = ""
+# GEMINI_MODEL = "gemini-2.0-flash"
+
+# Base de datos D1
+[[d1_databases]]
+binding = "DB"
+database_name = "catalogo-lite-db"
+database_id = "local-dev-placeholder" # Reemplazar con ID real en producción
+
+# Almacenamiento R2 (imágenes y assets)
+[[r2_buckets]]
+binding = "ASSETS"
+bucket_name = "catalogo-lite-assets"
+
+# Servidor de desarrollo local (el frontend hace proxy a este puerto)
+[dev]
+port = 8788
+
+# Configuración de producción
+[env.production]
+[env.production.vars]
+ENVIRONMENT = "production"

@@ -1,0 +1,27 @@
+{
+  "name": "catalogo-lite-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:migrate": "wrangler d1 execute catalogo-lite-db --local --file=../database/migrations/0001_initial.sql && wrangler d1 execute catalogo-lite-db --local --file=../database/migrations/0002_agent.sql",
+    "db:seed": "wrangler d1 execute catalogo-lite-db --local --file=../database/seeds/demo-store.sql",
+    "test": "vitest run",
+    "db:reset": "powershell -NoProfile -ExecutionPolicy Bypass -File ../scripts/reset-db.ps1",
+    "types": "wrangler types"
+  },
+  "dependencies": {
+    "@hono/zod-validator": "^0.4.0",
+    "hono": "^4.6.0",
+    "jose": "^5.9.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261023.1",
+    "typescript": "~5.7.0",
+    "wrangler": "^4.156.0",
+    "vitest": "^3.0.0"
+  }
+}

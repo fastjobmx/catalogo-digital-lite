@@ -1,0 +1,56 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+.env
+.env.local
+.env.*.local
+*.log
+.DS_Store
+Thumbs.db
+coverage/
+.vite/
+frontend/dist/
+worker/.wrangler/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+.idea/
+.vscode/
+!docs/**
+# Dependencias
+node_modules/
+.pnpm-store/
+
+# Compilaciones
+dist/
+build/
+coverage/
+.vite/
+
+# Archivos temporales y respaldos
+.tmp/
+*.log
+*.bak
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+
+# Cloudflare local
+.wrangler/
+
+# Variables privadas
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+
+# Claves
+*.pem
+*.key
+
+# Sistema operativo
+.DS_Store
+Thumbs.db

@@ -1,0 +1,375 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================
+   Tokens de diseño — Streetwear Premium
+   ============================================
+   Variables canónicas en el namespace --color-* que exige el sistema de
+   diseño. Las utilidades históricas (--color-canvas, --brand-primary, etc.)
+   quedan como alias para no romper componentes existentes. */
+:root {
+  /* Paleta base (sobrescrita por StoreProvider desde D1) */
+  --color-background: #F7F6F2;
+  --color-surface: #FFFFFF;
+  --color-text: #171717;
+  --color-text-muted: #717171;
+  --color-border: #E5E3DE;
+  --color-primary: #222222;
+  --color-primary-contrast: #F7F6F2;
+  --color-secondary: #D9D0C1;
+  --color-secondary-contrast: #171717;
+  --color-accent: #8D806D;
+  --color-button: #222222;
+  --color-button-text: #F7F6F2;
+
+  /* Alias heredados */
+  --color-canvas: var(--color-background);
+  --color-ink: var(--color-text);
+  --color-muted: var(--color-text-muted);
+  --color-line: var(--color-border);
+  --brand-primary: var(--color-primary);
+  --brand-on-primary: var(--color-primary-contrast);
+  --brand-secondary: var(--color-secondary);
+  --brand-on-secondary: var(--color-secondary-contrast);
+  --brand-accent: var(--color-accent);
+  --brand-button: var(--color-button);
+  --brand-on-button: var(--color-button-text);
+
+  /* Tipografía */
+  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Manrope', 'Inter', system-ui, sans-serif;
+  --font-size-base: 16px;
+  --heading-weight: 700;
+
+  /* Radios */
+  --radius-card: 2px;
+  --radius-btn: 2px;
+  --radius-field: 2px;
+
+  /* Densidad */
+  --section-space: 4.5rem;
+  --card-pad: 1.35rem;
+  --grid-gap: 1.75rem;
+
+  /* Sombras y realces */
+  --shadow-card: none;
+  --shadow-card-hover: 0 18px 40px rgba(23, 23, 23, 0.10);
+  --glow-primary: none;
+  --glow-secondary: none;
+
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html {
+    font-size: var(--font-size-base);
+    scroll-behavior: smooth;
+    scroll-padding-top: 6.5rem;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'ss01';
+  }
+
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    font-weight: var(--heading-weight);
+    letter-spacing: -0.022em;
+    text-wrap: balance;
+  }
+
+  ::selection {
+    background: var(--color-primary);
+    color: var(--color-primary-contrast);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  /* Footer copy sits on the ink surface; explicit color-mix avoids missing
+     Tailwind opacity utilities for colors backed by runtime CSS variables. */
+  .footer-copy {
+    color: color-mix(in srgb, var(--color-background) 82%, transparent);
+  }
+
+  .footer-copy-soft {
+    color: color-mix(in srgb, var(--color-background) 64%, transparent);
+  }
+
+  /* ---------- Contenedores ---------- */
+  .shell {
+    @apply w-full max-w-[86rem] mx-auto px-5 sm:px-8 lg:px-10;
+  }
+
+  .section {
+    padding-top: var(--section-space);
+    padding-bottom: var(--section-space);
+  }
+
+  .section-tight {
+    padding-top: calc(var(--section-space) * 0.62);
+    padding-bottom: calc(var(--section-space) * 0.62);
+  }
+
+  /* ---------- Tipografía editorial ---------- */
+  .font-display {
+    font-family: var(--font-display);
+  }
+
+  .title-section {
+    @apply font-display text-[clamp(1.65rem,1.15rem+1.5vw,2.5rem)] leading-[1.08];
+    letter-spacing: -0.025em;
+  }
+
+  .title-hero {
+    @apply font-display text-[clamp(2.5rem,1.4rem+4.4vw,5rem)] leading-[0.98];
+    letter-spacing: -0.035em;
+  }
+
+  .eyebrow {
+    @apply text-[11px] font-semibold uppercase;
+    letter-spacing: 0.22em;
+  }
+
+  .link-underline {
+    @apply relative inline-flex items-center gap-1.5 text-sm font-medium;
+    color: var(--color-text);
+  }
+  .link-underline::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -3px;
+    height: 1px;
+    background: currentColor;
+    transform: scaleX(1);
+    transform-origin: left;
+    opacity: 0.35;
+    transition: opacity 0.2s ease, transform 0.25s ease;
+  }
+  .link-underline:hover::after {
+    opacity: 1;
+  }
+
+  /* ---------- Botones ---------- */
+  .btn-brand,
+  .btn-accent,
+  .btn-ghost,
+  .btn-dark {
+    @apply inline-flex items-center justify-center gap-2 min-h-[46px] px-6 py-3
+           text-[13px] font-semibold uppercase tracking-[0.08em]
+           transition-all duration-200 active:scale-[0.99]
+           disabled:opacity-40 disabled:pointer-events-none;
+    border-radius: var(--radius-btn);
+  }
+
+  .btn-brand {
+    background: var(--color-button);
+    color: var(--color-button-text);
+    border: 1px solid var(--color-button);
+  }
+  .btn-brand:hover {
+    background: color-mix(in srgb, var(--color-button) 88%, var(--color-background));
+  }
+
+  .btn-accent {
+    background: var(--color-accent);
+    color: var(--color-button-text);
+    border: 1px solid var(--color-accent);
+  }
+  .btn-accent:hover { filter: brightness(0.94); }
+
+  .btn-ghost {
+    background: transparent;
+    border: 1px solid var(--color-border);
+    color: var(--color-text);
+  }
+  .btn-ghost:hover {
+    border-color: var(--color-text);
+  }
+
+  .btn-danger {
+    @apply inline-flex items-center gap-2 px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.08em]
+           transition-colors;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-btn);
+    color: var(--color-text);
+  }
+  .btn-danger:hover { border-color: #b42318; color: #b42318; }
+
+  .btn-dark {
+    background: var(--color-text);
+    color: var(--color-background);
+    border: 1px solid var(--color-text);
+  }
+
+  /* Variante de botón configurable desde el admin */
+  html[data-button='outline'] .btn-brand {
+    background: transparent;
+    border: 1px solid var(--color-button);
+    color: var(--color-button);
+  }
+  html[data-button='outline'] .btn-brand:hover {
+    background: color-mix(in srgb, var(--color-button) 8%, transparent);
+  }
+  html[data-button='soft'] .btn-brand {
+    background: color-mix(in srgb, var(--color-button) 10%, var(--color-background));
+    color: var(--color-button);
+    border-color: transparent;
+  }
+  html[data-button='soft'] .btn-brand:hover {
+    background: color-mix(in srgb, var(--color-button) 16%, var(--color-background));
+  }
+
+  /* ---------- Tarjetas ---------- */
+  .card {
+    background: var(--color-surface);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
+    transition: box-shadow 0.3s ease, transform 0.3s ease, border-color 0.3s ease;
+  }
+  html[data-card='bordered'] .card {
+    box-shadow: none;
+    border: 1px solid var(--color-border);
+  }
+  html[data-card='elevated'] .card {
+    box-shadow: 0 1px 2px rgba(23, 23, 23, 0.04), 0 10px 28px rgba(23, 23, 23, 0.07);
+  }
+  html[data-card='flat'] .card {
+    box-shadow: none;
+    border: 1px solid transparent;
+  }
+
+  .card-hover:hover {
+    box-shadow: var(--shadow-card-hover);
+    border-color: var(--color-border);
+  }
+
+  /* ---------- Formularios ---------- */
+  .input-field {
+    @apply w-full px-4 py-3 bg-surface text-ink placeholder:text-muted
+           focus:outline-none transition-all duration-200;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-field);
+    font-size: 0.9375rem;
+  }
+  .input-field:focus {
+    border-color: var(--color-text);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-text) 8%, transparent);
+  }
+
+  /* ---------- Insignias ---------- */
+  .badge {
+    @apply inline-flex items-center gap-1 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em];
+    border-radius: 999px;
+  }
+  .badge-featured { background: var(--color-text); color: var(--color-background); }
+  .badge-sale { background: var(--color-accent); color: var(--color-button-text); }
+  .badge-new { background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border); }
+  .badge-out { background: var(--color-surface); color: var(--color-text-muted); border: 1px solid var(--color-border); }
+
+  /* ---------- Chips / filtros ---------- */
+  .chip {
+    @apply inline-flex items-center gap-2 whitespace-nowrap px-4 py-2 min-h-[42px]
+           text-[13px] font-medium transition-colors duration-200;
+    border-radius: 999px;
+    border: 1px solid var(--color-border);
+    background: transparent;
+    color: var(--color-text);
+  }
+  .chip:hover { border-color: var(--color-text); }
+  .chip[data-active='true'] {
+    background: var(--color-text);
+    border-color: var(--color-text);
+    color: var(--color-background);
+  }
+
+  /* ---------- Utilidades ---------- */
+  .surface-muted { background: color-mix(in srgb, var(--color-text) 4%, var(--color-background)); }
+
+  .hairline { border-color: var(--color-border); }
+
+  .skeleton {
+    @apply animate-pulse;
+    background: color-mix(in srgb, var(--color-text) 8%, var(--color-background));
+    border-radius: var(--radius-card);
+  }
+
+  /* Enlace de foco visible en fondos fotográficos */
+  .on-image {
+    color: #F7F6F2;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+  .tabular-nums { font-variant-numeric: tabular-nums; }
+
+  .animate-fade-up {
+    animation: fade-up 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .animate-fade-in {
+    animation: fade-in 0.5s ease-out both;
+  }
+  .animate-scale-in {
+    animation: scale-in 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .text-shadow-hero {
+    text-shadow: 0 2px 30px rgba(0, 0, 0, 0.35);
+  }
+
+  .stagger > * { animation: fade-up 0.55s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+  @keyframes fade-up {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes scale-in {
+    from { opacity: 0; transform: scale(0.96); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  @keyframes marquee {
+    from { transform: translateX(0); }
+    to { transform: translateX(-50%); }
+  }
+  .animate-marquee { animation: marquee 28s linear infinite; }
+}
