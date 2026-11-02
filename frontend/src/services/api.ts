@@ -28,13 +28,9 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
 
  const request = (async () => {
   try {
-  const response = await fetch(url, {
- headers: {
- 'Content-Type': 'application/json',
- ...options?.headers,
- },
- ...options,
- })
+  const requestHeaders = new Headers(options?.headers)
+  if (!requestHeaders.has('Content-Type')) requestHeaders.set('Content-Type', 'application/json')
+  const response = await fetch(url, { ...options, headers: requestHeaders })
 
  if (!response.ok) {
  const errorData = await response.json().catch(() => ({ error: 'Unknown error' })) as ApiError
@@ -361,14 +357,19 @@ export interface OrderItemPayload {
   price: number
   size?: string
   color?: string
+  imageUrl?: string
   quantity: number
+  lineSubtotal?: number
 }
 
 export interface CreateOrderPayload {
   customerName?: string
   customerPhone?: string
+  customerEmail?: string
+  customerCity?: string
   deliveryAddress?: string
   deliveryMethod?: string
+  paymentMethod?: string
   notes?: string
   currency?: string
   items: OrderItemPayload[]
@@ -377,13 +378,20 @@ export interface CreateOrderPayload {
 export interface CreateOrderResponse {
   id: number
   displayId: string
-  total: number
+  subtotal: number
+  discountTotal: number
+  total: number | null
   currency: string
+  status: string
+  paymentStatus: string
+  items: OrderItemPayload[]
+  replayed?: boolean
 }
 
-export async function createOrder(payload: CreateOrderPayload): Promise<CreateOrderResponse> {
+export async function createOrder(payload: CreateOrderPayload, idempotencyKey: string): Promise<CreateOrderResponse> {
   return fetchApi<CreateOrderResponse>('/api/orders', {
     method: 'POST',
+    headers: { 'Idempotency-Key': idempotencyKey },
     body: JSON.stringify(payload),
   })
 }
@@ -397,23 +405,45 @@ export interface OrderApi {
   deliveryMethod: string | null
   items: OrderItemPayload[]
   subtotal: number
-  total: number
+  discountTotal: number
+  total: number | null
+  shippingCost: number | null
   currency: string
   status: string
+  paymentStatus: string
+  paymentMethod: string | null
+  customerNotes: string | null
+  customerCity: string | null
+  revision: number
   createdAt: string
 }
 
-export async function getOrders(token: string): Promise<OrderApi[]> {
-  return fetchApi<OrderApi[]>('/api/orders', {
+export interface OrderPageApi { items: OrderApi[]; page: number; pageSize: number; total: number }
+
+export async function getOrders(token: string, params: { page?: number; pageSize?: number; status?: string; from?: string; to?: string; q?: string } = {}): Promise<OrderPageApi> {
+  const query = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => { if (value !== undefined && value !== '') query.set(key, String(value)) })
+  return fetchApi<OrderPageApi>(`/api/orders${query.size ? `?${query.toString()}` : ''}`, {
     headers: { Authorization: `Bearer ${token}` },
   })
 }
 
-export async function updateOrderStatus(id: number, status: string, token: string): Promise<{ success: boolean }> {
-  return fetchApi<{ success: boolean }>(`/api/orders/${id}`, {
-    method: 'PATCH',
-    headers: { Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ status }),
+export interface OrderEventApi { eventType: string; fromValue: string | null; toValue: string | null; note: string | null; performedBy: string; createdAt: string }
+export interface OrderDetailApi extends OrderApi {
+  customerEmail: string | null
+  internalNotes: string
+  deliveryAddress: string | null
+  deliveryMethod: string | null
+  events: OrderEventApi[]
+}
+
+export async function getOrder(id: number, token: string): Promise<OrderDetailApi> {
+  return fetchApi<OrderDetailApi>(`/api/orders/${id}`, { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export async function updateOrder(id: number, patch: { status?: string; paymentStatus?: string; internalNotes?: string; shippingCost?: number | null; expectedRevision: number }, token: string): Promise<{ success: boolean; revision: number }> {
+  return fetchApi<{ success: boolean; revision: number }>(`/api/orders/${id}`, {
+    method: 'PATCH', headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(patch),
   })
 }
 

@@ -7,7 +7,7 @@ import { useStore } from '../contexts/StoreContext'
 import ProductImage from '../components/ProductImage'
 import PriceTag from '../components/PriceTag'
 import ProductCard from '../components/ProductCard'
-import { buildWhatsAppOrderMessage, whatsappLink } from '../lib/whatsapp'
+import { buildWhatsAppOrderMessage, getCheckoutIdempotencyKey, whatsappLink } from '../lib/whatsapp'
 import { createOrder, getProduct, type ProductApi } from '../services/api'
 import { resolveImageUrl } from '../lib/imageSources'
 import { IS_PUBLIC_DEMO } from '../lib/publicDemo'
@@ -178,6 +178,10 @@ export default function ProductPage() {
       setWhatsappNotice('Esta demo no acepta pedidos ni pagos.')
       return
     }
+    if (!backendAvailable) {
+      setWhatsappNotice('No se pudo conectar al registro seguro de pedidos. Inténtalo más tarde.')
+      return
+    }
     if (!variant || soldOut || whatsappBusy) return
     const phone = store.whatsappOrders || store.whatsappPhone
     if (!whatsappLink(phone)) {
@@ -227,13 +231,7 @@ export default function ProductPage() {
         availableStock: currentVariant.stock,
         quantity: qty,
       }
-      const message = buildWhatsAppOrderMessage({ items: [item], currency: store.currency })
-      const url = whatsappLink(phone, message)
-      if (!url) throw new Error('WhatsApp no está configurado para este comercio.')
-      popup.opener = null
-      popup.location.href = url
-      if (backendAvailable) {
-        void createOrder({
+      const payload = {
           currency: store.currency,
           notes: 'Solicitud preparada para WhatsApp; pendiente de confirmación.',
           items: [{
@@ -246,9 +244,15 @@ export default function ProductPage() {
             color: item.color,
             quantity: item.quantity,
           }],
-        }).catch(() => { /* el enlace de WhatsApp queda disponible */ })
       }
-      setWhatsappNotice('WhatsApp está listo. El comercio confirma el pedido en esa conversación.')
+      const idempotencyKey = await getCheckoutIdempotencyKey(JSON.stringify(payload))
+      const registered = await createOrder(payload, idempotencyKey)
+      const message = buildWhatsAppOrderMessage({ items: registered.items.map((orderItem) => ({ productId: String(orderItem.productId || ''), variantId: orderItem.variantId, sku: orderItem.sku, name: orderItem.name, price: orderItem.price, image: orderItem.imageUrl || null, size: orderItem.size, color: orderItem.color, quantity: orderItem.quantity })), currency: registered.currency, storeName: store.name, orderDisplayId: registered.displayId, date: new Date().toLocaleString('es-CO') })
+      const url = whatsappLink(phone, message)
+      if (!url) throw new Error('WhatsApp no está configurado para este comercio.')
+      popup.opener = null
+      popup.location.href = url
+      setWhatsappNotice(`Pedido ${registered.displayId} registrado. WhatsApp está abierto; el mensaje no se envía hasta que pulses Enviar.`)
     } catch {
       popup.close()
       setWhatsappNotice('No pudimos verificar el inventario. Inténtalo de nuevo antes de enviar el pedido.')

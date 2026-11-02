@@ -63,7 +63,7 @@ app.use('*', cors({
  },
  credentials: true,
  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
- allowHeaders: ['Content-Type', 'Authorization'],
+ allowHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key'],
 }))
 
 // Rutas públicas (sin autenticación)

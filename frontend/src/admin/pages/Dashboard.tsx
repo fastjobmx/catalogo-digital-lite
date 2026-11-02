@@ -20,7 +20,7 @@ export default function Dashboard() {
     let active = true
     setOrdersLoading(true)
     setOrdersError('')
-    getOrders(token).then((result) => { if (active) setOrders(result) })
+    getOrders(token, { pageSize: 5 }).then((result) => { if (active) setOrders(result.items) })
       .catch((err: unknown) => { if (active) setOrdersError(err instanceof Error ? err.message : 'No se pudieron cargar pedidos') })
       .finally(() => { if (active) setOrdersLoading(false) })
     return () => { active = false }
@@ -110,7 +110,7 @@ export default function Dashboard() {
       <section className="grid grid-cols-1 xl:grid-cols-2 gap-5" aria-label="Actividad e inventario">
         <div className="card p-6">
           <div className="mb-4 flex items-center justify-between"><div><h2 className="text-lg font-bold text-ink">Pedidos recientes</h2><p className="text-sm text-muted">Registros consultados al servidor</p></div><Link to="/admin/orders" className="text-sm font-semibold text-brand">Ver pedidos</Link></div>
-          {isDemoSession || !backendAvailable ? <p className="text-sm text-muted">Conecta el servidor y una sesión administrativa para consultar pedidos reales.</p> : ordersLoading ? <p className="text-sm text-muted">Cargando pedidos…</p> : ordersError ? <p role="alert" className="text-sm text-red-700">{ordersError}</p> : orders.length === 0 ? <p className="text-sm text-muted">Todavía no hay pedidos registrados.</p> : <ul className="divide-y divide-line">{orders.slice(0, 5).map((order) => <li key={order.id} className="flex items-center justify-between gap-3 py-3"><div className="min-w-0"><p className="truncate text-sm font-semibold text-ink">{order.displayId} · {order.customerName || 'Cliente'}</p><p className="text-xs text-muted">{new Date(order.createdAt).toLocaleDateString('es-CO')} · {order.status}</p></div><span className="shrink-0 text-sm font-semibold tabular-nums">{formatMoney(order.total, order.currency)}</span></li>)}</ul>}
+          {isDemoSession || !backendAvailable ? <p className="text-sm text-muted">Conecta el servidor y una sesión administrativa para consultar pedidos reales.</p> : ordersLoading ? <p className="text-sm text-muted">Cargando pedidos…</p> : ordersError ? <p role="alert" className="text-sm text-red-700">{ordersError}</p> : orders.length === 0 ? <p className="text-sm text-muted">Todavía no hay pedidos registrados.</p> : <ul className="divide-y divide-line">{orders.slice(0, 5).map((order) => <li key={order.id} className="flex items-center justify-between gap-3 py-3"><div className="min-w-0"><p className="truncate text-sm font-semibold text-ink">{order.displayId} · {order.customerName || 'Cliente'}</p><p className="text-xs text-muted">{new Date(order.createdAt).toLocaleDateString('es-CO')} · {order.status}</p></div><span className="shrink-0 text-sm font-semibold tabular-nums">{order.total == null ? 'Por cotizar' : formatMoney(order.total, order.currency)}</span></li>)}</ul>}
         </div>
         <div className="card p-6">
           <div className="mb-4 flex items-center justify-between"><div><h2 className="text-lg font-bold text-ink">Stock bajo</h2><p className="text-sm text-muted">Productos con 1 a 5 unidades disponibles</p></div><Link to="/admin/products" className="text-sm font-semibold text-brand">Administrar inventario</Link></div>

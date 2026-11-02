@@ -6,7 +6,7 @@ import { useStore } from '../../contexts/StoreContext'
 import { useCatalog } from '../../contexts/CatalogContext'
 import { createOrder, getProducts } from '../../services/api'
 import { formatMoney } from '../../lib/format'
-import { buildWhatsAppOrderMessage, whatsappLink } from '../../lib/whatsapp'
+import { buildWhatsAppOrderMessage, getCheckoutIdempotencyKey, whatsappLink } from '../../lib/whatsapp'
 import type { CartItem } from '../../contexts/CartContext'
 import { IS_PUBLIC_DEMO } from '../../lib/publicDemo'
 
@@ -16,7 +16,12 @@ export default function CartDrawer() {
   const { products } = useCatalog()
   const [isOpen, setIsOpen] = useState(false)
   const [customerName, setCustomerName] = useState('')
+  const [customerPhone, setCustomerPhone] = useState('')
+  const [customerEmail, setCustomerEmail] = useState('')
+  const [customerCity, setCustomerCity] = useState('')
   const [deliveryInfo, setDeliveryInfo] = useState('')
+  const [paymentMethod, setPaymentMethod] = useState('')
+  const [customerNotes, setCustomerNotes] = useState('')
   const [checkoutBusy, setCheckoutBusy] = useState(false)
   const [checkoutMessage, setCheckoutMessage] = useState('')
   const [confirmClear, setConfirmClear] = useState(false)
@@ -41,6 +46,14 @@ export default function CartDrawer() {
   const handleWhatsAppCheckout = async () => {
     if (IS_PUBLIC_DEMO) {
       setCheckoutMessage('Esta demo no acepta pedidos ni pagos.')
+      return
+    }
+    if (!backendAvailable) {
+      setCheckoutMessage('No se pudo conectar al registro seguro de pedidos. Inténtalo de nuevo más tarde.')
+      return
+    }
+    if (!customerName.trim() || customerPhone.replace(/\D/g, '').length < 7 || !customerCity.trim() || !deliveryInfo.trim()) {
+      setCheckoutMessage('Completa nombre, teléfono, ciudad y dirección para registrar el pedido.')
       return
     }
     if (checkoutBusy || items.length === 0) return
@@ -107,24 +120,16 @@ export default function CartDrawer() {
         return
       }
 
-      const message = buildWhatsAppOrderMessage({
-        items: currentItems,
-        currency: store.currency,
-        customerName: customerName || undefined,
-        deliveryInfo: deliveryInfo || undefined,
-      })
-      const url = whatsappLink(phone, message)
-      if (!url) throw new Error('No se pudo construir el enlace de WhatsApp.')
-      whatsappWindow.opener = null
-      whatsappWindow.location.href = url
-
-      // Se registra como solicitud pendiente; abrir WhatsApp no confirma compra.
-      if (backendAvailable) {
-        void createOrder({
+      const payload = {
           customerName: customerName || undefined,
+          customerPhone: customerPhone || undefined,
+          customerEmail: customerEmail || undefined,
+          customerCity: customerCity || undefined,
           deliveryAddress: deliveryInfo || undefined,
+          deliveryMethod: 'envío por confirmar',
+          paymentMethod: paymentMethod || undefined,
           currency: store.currency,
-          notes: 'Solicitud preparada para WhatsApp; pendiente de confirmación.',
+          notes: customerNotes.trim(),
           items: currentItems.map((item) => ({
             productId: String(item.productId),
             variantId: item.variantId ? String(item.variantId) : undefined,
@@ -135,9 +140,28 @@ export default function CartDrawer() {
             color: item.color,
             quantity: item.quantity,
           })),
-        }).catch(() => { /* la preparación por WhatsApp sigue disponible */ })
       }
-      setCheckoutMessage('WhatsApp está listo. El comercio confirma el pedido en esa conversación.')
+      const idempotencyKey = await getCheckoutIdempotencyKey(JSON.stringify(payload))
+      const registered = await createOrder(payload, idempotencyKey)
+      const message = buildWhatsAppOrderMessage({
+        items: registered.items.map((item) => ({ productId: String(item.productId || ''), variantId: item.variantId, sku: item.sku, name: item.name, price: item.price, image: item.imageUrl || null, size: item.size, color: item.color, quantity: item.quantity })),
+        currency: registered.currency,
+        storeName: store.name,
+        orderDisplayId: registered.displayId,
+        date: new Date().toLocaleString('es-CO'),
+        customerName: customerName || undefined,
+        customerPhone: customerPhone || undefined,
+        customerEmail: customerEmail || undefined,
+        customerCity: customerCity || undefined,
+        deliveryAddress: deliveryInfo || undefined,
+        paymentMethod: paymentMethod || undefined,
+        customerNotes: customerNotes || undefined,
+      })
+      const url = whatsappLink(phone, message)
+      if (!url) throw new Error('No se pudo construir el enlace de WhatsApp.')
+      whatsappWindow.opener = null
+      whatsappWindow.location.href = url
+      setCheckoutMessage(`Pedido ${registered.displayId} registrado. WhatsApp está abierto; el mensaje solo se envía cuando pulses Enviar.`)
     } catch {
       whatsappWindow.close()
       setCheckoutMessage('No pudimos verificar el inventario. Inténtalo de nuevo antes de enviar el pedido.')
@@ -269,18 +293,26 @@ export default function CartDrawer() {
             {!IS_PUBLIC_DEMO && <div className="space-y-2">
               <input
                 type="text"
-                placeholder="Tu nombre (opcional)"
+                placeholder="Nombre completo"
                 value={customerName}
                 onChange={(e) => setCustomerName(e.target.value)}
                 className="input-field text-sm"
               />
+              <input type="tel" placeholder="Teléfono con indicativo (ej. +57…)" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} className="input-field text-sm" />
+              <input type="email" placeholder="Correo (opcional)" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} className="input-field text-sm" />
+              <input type="text" placeholder="Ciudad" value={customerCity} onChange={(e) => setCustomerCity(e.target.value)} className="input-field text-sm" />
               <input
                 type="text"
-                placeholder="Dirección o ciudad de entrega (opcional)"
+                placeholder="Dirección de entrega"
                 value={deliveryInfo}
                 onChange={(e) => setDeliveryInfo(e.target.value)}
                 className="input-field text-sm"
               />
+              <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} className="input-field text-sm">
+                <option value="">Medio de pago preferido (opcional)</option>
+                {['Transferencia', 'Tarjeta', 'Efectivo contraentrega', 'Otro'].map((method) => <option key={method} value={method}>{method}</option>)}
+              </select>
+              <textarea maxLength={500} placeholder="Observaciones de entrega (opcional)" value={customerNotes} onChange={(e) => setCustomerNotes(e.target.value)} className="input-field text-sm" rows={2} />
             </div>}
 
             <div className="space-y-1">
@@ -289,8 +321,8 @@ export default function CartDrawer() {
                 <span className="font-semibold text-ink tabular-nums">{formatMoney(subtotal, store.currency)}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-ink">Total estimado</span>
-                <span className="text-xl font-bold text-ink tabular-nums">{formatMoney(subtotal, store.currency)}</span>
+                <span className="text-sm font-semibold text-ink">Envío por cotizar</span>
+                <span className="text-xl font-bold text-ink tabular-nums">Por cotizar</span>
               </div>
               {!IS_PUBLIC_DEMO && <p className="text-[11px] text-muted">El valor del envío se confirma con el comercio por WhatsApp.</p>}
             </div>
