@@ -1,8 +1,9 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowDown, ArrowRight } from 'lucide-react'
 import { useStore } from '../../contexts/StoreContext'
 import { useCatalog } from '../../contexts/CatalogContext'
-import { localWebpSource } from '../../lib/imageSources'
+import { localWebpSource, shouldFallbackToOriginal } from '../../lib/imageSources'
 
 export default function HeroSection() {
   const { store } = useStore()
@@ -10,6 +11,9 @@ export default function HeroSection() {
   const hero = store.theme.hero
   const heroWebp = localWebpSource(hero.imageUrl)
   const mobileWebp = localWebpSource(hero.imageUrlMobile)
+  const [webpEnabled, setWebpEnabled] = useState(true)
+
+  useEffect(() => setWebpEnabled(true), [hero.imageUrl, hero.imageUrlMobile])
 
   if (!hero.enabled) return null
 
@@ -102,8 +106,8 @@ export default function HeroSection() {
 
         {hasImage ? (
           <picture className={`relative order-first block min-h-[270px] overflow-hidden bg-[#ECEAE5] sm:min-h-[360px] lg:order-last ${imageHeight}`}>
-            {hero.imageUrlMobile && mobileWebp && <source media="(max-width: 767px)" type="image/webp" srcSet={mobileWebp} />}
-            {heroWebp && <source type="image/webp" srcSet={heroWebp} />}
+            {webpEnabled && hero.imageUrlMobile && mobileWebp && <source media="(max-width: 767px)" type="image/webp" srcSet={mobileWebp} />}
+            {webpEnabled && heroWebp && <source type="image/webp" srcSet={heroWebp} />}
             {hero.imageUrlMobile && (
               <source media="(max-width: 767px)" srcSet={hero.imageUrlMobile} />
             )}
@@ -112,7 +116,13 @@ export default function HeroSection() {
               alt={`${store.name}: imagen principal de la colección`}
               fetchPriority="high"
               className="absolute inset-0 h-full w-full object-contain p-2 sm:p-5 lg:p-8"
-              onError={(event) => { event.currentTarget.style.display = 'none' }}
+              onError={(event) => {
+                if (shouldFallbackToOriginal(event.currentTarget.currentSrc, heroWebp || mobileWebp, webpEnabled)) {
+                  setWebpEnabled(false)
+                  return
+                }
+                event.currentTarget.style.display = 'none'
+              }}
             />
           </picture>
         ) : (

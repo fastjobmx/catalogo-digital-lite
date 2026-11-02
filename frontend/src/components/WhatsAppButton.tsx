@@ -2,9 +2,11 @@ import { MessageCircle } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useStore } from '../contexts/StoreContext'
 import { whatsappLink } from '../lib/whatsapp'
+import { IS_PUBLIC_DEMO } from '../lib/publicDemo'
 
 export default function WhatsAppButton() {
   const { store } = useStore()
+  if (IS_PUBLIC_DEMO) return null
   const [footerVisible, setFooterVisible] = useState(false)
 
   useEffect(() => {

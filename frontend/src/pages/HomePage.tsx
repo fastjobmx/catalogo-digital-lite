@@ -12,7 +12,7 @@ import CtaSection from '../components/home/CtaSection'
 import type { SectionKey } from '../types/theme'
 
 export default function HomePage() {
-  const { store, isDemoMode } = useStore()
+  const { store } = useStore()
   const { products, loading } = useCatalog()
 
   const { featured, offers, newest } = useMemo(() => {
@@ -87,17 +87,6 @@ export default function HomePage() {
 
   return (
     <div className="bg-canvas">
-      {isDemoMode && (
-        <div className="border-b border-line bg-surface">
-          <div className="shell py-2.5 flex flex-wrap items-center justify-center sm:justify-between gap-2 text-[11px] tracking-wide text-muted">
-            <span>Demostración · la apariencia se guarda en este navegador</span>
-            <a href="/admin" className="underline underline-offset-4 hover:text-ink transition-colors">
-              Abrir administrador
-            </a>
-          </div>
-        </div>
-      )}
-
       {order
         .filter((key) => enabled[key])
         .map((key) => sections[key])

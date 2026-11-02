@@ -8,6 +8,7 @@ import { createOrder, getProducts } from '../../services/api'
 import { formatMoney } from '../../lib/format'
 import { buildWhatsAppOrderMessage, whatsappLink } from '../../lib/whatsapp'
 import type { CartItem } from '../../contexts/CartContext'
+import { IS_PUBLIC_DEMO } from '../../lib/publicDemo'
 
 export default function CartDrawer() {
   const { items, removeItem, updateQuantity, subtotal, clearCart, syncItems } = useCart()
@@ -38,6 +39,10 @@ export default function CartDrawer() {
   }, [])
 
   const handleWhatsAppCheckout = async () => {
+    if (IS_PUBLIC_DEMO) {
+      setCheckoutMessage('Esta demo no acepta pedidos ni pagos.')
+      return
+    }
     if (checkoutBusy || items.length === 0) return
     const phone = store.whatsappOrders || store.whatsappPhone
     if (!whatsappLink(phone)) {
@@ -261,7 +266,7 @@ export default function CartDrawer() {
         {/* Pie */}
         {items.length > 0 && (
           <div className="border-t border-line p-5 space-y-4 bg-surface">
-            <div className="space-y-2">
+            {!IS_PUBLIC_DEMO && <div className="space-y-2">
               <input
                 type="text"
                 placeholder="Tu nombre (opcional)"
@@ -276,7 +281,7 @@ export default function CartDrawer() {
                 onChange={(e) => setDeliveryInfo(e.target.value)}
                 className="input-field text-sm"
               />
-            </div>
+            </div>}
 
             <div className="space-y-1">
               <div className="flex items-center justify-between text-sm">
@@ -287,10 +292,10 @@ export default function CartDrawer() {
                 <span className="text-sm font-semibold text-ink">Total estimado</span>
                 <span className="text-xl font-bold text-ink tabular-nums">{formatMoney(subtotal, store.currency)}</span>
               </div>
-              <p className="text-[11px] text-muted">El valor del envío se confirma con el comercio por WhatsApp.</p>
+              {!IS_PUBLIC_DEMO && <p className="text-[11px] text-muted">El valor del envío se confirma con el comercio por WhatsApp.</p>}
             </div>
 
-            <button
+            {!IS_PUBLIC_DEMO && <button
               onClick={handleWhatsAppCheckout}
               disabled={checkoutBusy || containsUnavailableItem}
               className="w-full inline-flex items-center justify-center gap-2 bg-[#25D366] text-white
@@ -299,7 +304,8 @@ export default function CartDrawer() {
             >
               <MessageCircle size={20} fill="currentColor" />
               {checkoutBusy ? 'Verificando…' : 'Enviar pedido por WhatsApp'}
-            </button>
+            </button>}
+            {IS_PUBLIC_DEMO && <p className="rounded-btn bg-canvas px-4 py-3 text-center text-sm font-semibold text-muted" role="status">Demo de catálogo: no se aceptan pedidos ni pagos.</p>}
             {checkoutMessage && <p className="text-xs text-muted" role="status">{checkoutMessage}</p>}
 
             <div className="flex items-center justify-between text-xs">

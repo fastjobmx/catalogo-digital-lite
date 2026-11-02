@@ -1,7 +1,11 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
 import { adminLogin, getAdminStats, type AdminStats } from '../services/api'
+import { storeStorageKey } from '../lib/installation'
+import { isOfflineDemoAuthEnabled } from '../lib/authMode'
+import { IS_PUBLIC_DEMO } from '../lib/publicDemo'
 
 const DEMO_TOKEN = 'demo-local'
+const OFFLINE_DEMO_AUTH = isOfflineDemoAuthEnabled(import.meta.env.DEV, import.meta.env.VITE_ALLOW_DEMO_AUTH)
 
 interface AuthContextValue {
   token: string | null
@@ -17,8 +21,8 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
-const TOKEN_KEY = 'catalogo-lite-admin-token'
-const EMAIL_KEY = 'catalogo-lite-admin-email'
+const TOKEN_KEY = storeStorageKey('catalogo-lite-admin-token')
+const EMAIL_KEY = storeStorageKey('catalogo-lite-admin-email')
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null)
@@ -28,13 +32,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Restore session on mount
   useEffect(() => {
-    const storedToken = localStorage.getItem(TOKEN_KEY)
-    const storedEmail = localStorage.getItem(EMAIL_KEY)
-    if (storedToken && storedEmail) {
-      setToken(storedToken)
-      setEmail(storedEmail)
+    let active = true
+    const restoreSession = async () => {
+      if (IS_PUBLIC_DEMO) {
+        setIsLoading(false)
+        return
+      }
+      const storedToken = localStorage.getItem(TOKEN_KEY)
+      const storedEmail = localStorage.getItem(EMAIL_KEY)
+      if (!storedToken || !storedEmail) {
+        setIsLoading(false)
+        return
+      }
+      if (storedToken === DEMO_TOKEN) {
+        if (OFFLINE_DEMO_AUTH) {
+          setToken(storedToken)
+          setEmail(storedEmail)
+        } else {
+          localStorage.removeItem(TOKEN_KEY)
+          localStorage.removeItem(EMAIL_KEY)
+        }
+        setIsLoading(false)
+        return
+      }
+      try {
+        await getAdminStats(storedToken)
+        if (active) {
+          setToken(storedToken)
+          setEmail(storedEmail)
+        }
+      } catch {
+        localStorage.removeItem(TOKEN_KEY)
+        localStorage.removeItem(EMAIL_KEY)
+      } finally {
+        if (active) setIsLoading(false)
+      }
     }
-    setIsLoading(false)
+    void restoreSession()
+    return () => { active = false }
   }, [])
 
   // Fetch stats when authenticated
@@ -47,6 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [token])
 
   const login = async (loginEmail: string, password: string): Promise<{ error?: string }> => {
+    if (IS_PUBLIC_DEMO) return { error: 'El acceso administrativo está desactivado en esta demo.' }
     try {
       const response = await adminLogin(loginEmail, password)
       setToken(response.token)
@@ -57,7 +93,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Login failed'
       const backendDown = message.includes('Backend no disponible') || message.includes('Failed to fetch') || message.includes('fetch')
-      if (backendDown && loginEmail && password) {
+      if (backendDown && OFFLINE_DEMO_AUTH && loginEmail.trim() && password) {
         setToken(DEMO_TOKEN)
         setEmail(loginEmail)
         localStorage.setItem(TOKEN_KEY, DEMO_TOKEN)

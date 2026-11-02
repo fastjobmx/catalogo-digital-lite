@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useStore } from '../contexts/StoreContext'
+import { isBackendAvailable } from '../services/api'
+import { isOfflineDemoAuthEnabled } from '../lib/authMode'
 import { Store, ShieldCheck, Loader2, ArrowLeft } from 'lucide-react'
 
 export default function LoginPage() {
@@ -11,7 +13,10 @@ export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [connectionMessage, setConnectionMessage] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isCheckingConnection, setIsCheckingConnection] = useState(false)
+  const offlineDemoAuth = isOfflineDemoAuthEnabled(import.meta.env.DEV, import.meta.env.VITE_ALLOW_DEMO_AUTH)
 
   if (isAuthenticated) {
     navigate('/admin', { replace: true })
@@ -21,6 +26,7 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
+    setConnectionMessage('')
     setIsSubmitting(true)
     const result = await login(email, password)
     if (result.error) {
@@ -29,6 +35,16 @@ export default function LoginPage() {
     } else {
       navigate('/admin', { replace: true })
     }
+  }
+
+  const retryConnection = async () => {
+    setIsCheckingConnection(true)
+    setConnectionMessage('')
+    const available = await isBackendAvailable()
+    setConnectionMessage(available
+      ? 'El servidor responde. Vuelve a intentar iniciar sesión.'
+      : 'El servidor sigue sin responder. Revisa el Worker e inténtalo de nuevo.')
+    setIsCheckingConnection(false)
   }
 
   return (
@@ -49,6 +65,11 @@ export default function LoginPage() {
 
         {/* Tarjeta de inicio de sesión */}
         <div className="card p-8">
+          {offlineDemoAuth && (
+            <p className="mb-5 rounded-btn border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="status">
+              Modo demo local activo: los cambios se guardan en este navegador y no llegan al Worker.
+            </p>
+          )}
           <form onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-2">
               <label htmlFor="email" className="block text-xs font-bold uppercase tracking-widest text-muted">
@@ -82,10 +103,11 @@ export default function LoginPage() {
             </div>
 
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-600 text-sm font-medium px-4 py-3 rounded-btn">
+              <div className="bg-red-50 border border-red-200 text-red-600 text-sm font-medium px-4 py-3 rounded-btn" role="alert">
                 {error}
               </div>
             )}
+            {connectionMessage && <p className="text-sm text-muted" role="status">{connectionMessage}</p>}
 
             <button type="submit" disabled={isSubmitting} className="btn-brand w-full">
               {isSubmitting ? (
@@ -97,13 +119,12 @@ export default function LoginPage() {
                 </>
               )}
             </button>
+            <button type="button" onClick={retryConnection} disabled={isCheckingConnection} className="w-full text-sm font-semibold text-muted underline underline-offset-4 disabled:opacity-60">
+              {isCheckingConnection ? 'Comprobando servidor…' : 'Reintentar conexión'}
+            </button>
           </form>
 
-          <div className="mt-6 pt-5 border-t border-line text-center">
-            <p className="text-[11px] text-muted leading-relaxed">
-              Si el servidor no está disponible, el panel funciona en modo demostración y acepta cualquier credencial.
-            </p>
-          </div>
+          {!offlineDemoAuth && <p className="mt-6 border-t border-line pt-5 text-center text-[11px] leading-relaxed text-muted">Se requiere una sesión válida del servidor para acceder al panel.</p>}
         </div>
 
         <div className="text-center mt-6">

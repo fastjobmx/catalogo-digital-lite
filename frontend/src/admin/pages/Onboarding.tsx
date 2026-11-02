@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '../../contexts/StoreContext'
 import { useCatalog } from '../../contexts/CatalogContext'
+import { useAuth } from '../../contexts/AuthContext'
+import { getCategories, updateStoreConfig } from '../../services/api'
+import { storeStorageKey } from '../../lib/installation'
 
 const STEPS = [
   'Nombre del negocio',
@@ -16,12 +19,16 @@ const STEPS = [
   'Confirmación',
 ]
 
-const KEY = 'catalogo-lite-onboarding'
+const KEY = storeStorageKey('catalogo-lite-onboarding')
 
 export default function AdminOnboarding() {
-  const { store, setStore } = useStore()
-  const { createCategory, createProduct } = useCatalog()
+  const { store, isLoading, refreshFromApi } = useStore()
+  const { createCategory, refresh: refreshCatalog } = useCatalog()
+  const { token, isDemoSession } = useAuth()
   const [step, setStep] = useState(0)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
+  const [hydrated, setHydrated] = useState(false)
   const [draft, setDraft] = useState({
     name: store.name,
     businessType: store.businessType,
@@ -38,38 +45,50 @@ export default function AdminOnboarding() {
   })
 
   useEffect(() => {
+    if (isLoading || hydrated) return
     try {
       const saved = localStorage.getItem(KEY)
       if (saved) {
         const parsed = JSON.parse(saved) as { step: number; draft: typeof draft }
         setStep(parsed.step)
         setDraft(parsed.draft)
+      } else {
+        setDraft((current) => ({
+          ...current,
+          name: store.name,
+          businessType: store.businessType,
+          description: store.description,
+          primaryColor: store.primaryColor,
+          secondaryColor: store.secondaryColor,
+          whatsappPhone: store.whatsappPhone,
+          hours: store.hours || '',
+          address: store.address || '',
+          instagram: store.instagram || '',
+          currency: store.currency,
+        }))
       }
     } catch { /* ignore */ }
-  }, [])
+    setHydrated(true)
+  }, [isLoading, store, hydrated])
 
   useEffect(() => {
-    localStorage.setItem(KEY, JSON.stringify({ step, draft }))
-  }, [step, draft])
+    if (!hydrated) return
+    if (draft.published) localStorage.removeItem(KEY)
+    else localStorage.setItem(KEY, JSON.stringify({ step, draft }))
+  }, [step, draft, hydrated])
 
   const skip = () => setStep((s) => Math.min(s + 1, STEPS.length - 1))
   const back = () => setStep((s) => Math.max(s - 1, 0))
 
   const publish = async () => {
-    setStore({
-      name: draft.name,
-      businessType: draft.businessType,
-      description: draft.description,
-      primaryColor: draft.primaryColor,
-      secondaryColor: draft.secondaryColor,
-      whatsappPhone: draft.whatsappPhone,
-      hours: draft.hours,
-      address: draft.address,
-      instagram: draft.instagram,
-      currency: draft.currency,
-      // Los colores elegidos aquí también alimentan la paleta del storefront,
-      // que es la única fuente de verdad visual.
-      theme: {
+    if (!token || isDemoSession) {
+      setSaveError('Inicia sesión con el administrador de esta tienda para guardar la configuración.')
+      return
+    }
+    setSaving(true)
+    setSaveError('')
+    try {
+      const themeConfig = {
         ...store.theme,
         style: {
           ...store.theme.style,
@@ -80,17 +99,38 @@ export default function AdminOnboarding() {
             secondary: draft.secondaryColor,
           },
         },
-      },
-    })
-    await createCategory({ name: draft.category, slug: draft.category.toLowerCase().replace(/\s+/g, '-') })
-    await createProduct({
-      sku: 'DEMO-001',
-      name: 'Producto de bienvenida',
-      price: 10000,
-      description: 'Cámbialo cuando quieras',
-      variants: [{ stock: 10, name: 'Único' }],
-    })
-    setDraft((d) => ({ ...d, published: true }))
+      }
+      await updateStoreConfig({
+        name: draft.name,
+        businessType: draft.businessType,
+        description: draft.description,
+        primaryColor: draft.primaryColor,
+        secondaryColor: draft.secondaryColor,
+        whatsappPhone: draft.whatsappPhone,
+        hours: draft.hours,
+        address: draft.address,
+        instagram: draft.instagram,
+        currency: draft.currency,
+        themeConfig,
+      }, token)
+
+      const categoryName = draft.category.trim()
+      if (categoryName) {
+        const slug = categoryName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+        const existingCategories = await getCategories()
+        if (slug && !existingCategories.some((category) => category.slug === slug)) {
+          await createCategory({ name: categoryName, slug })
+        }
+      }
+      await refreshCatalog()
+      await refreshFromApi()
+      localStorage.removeItem(KEY)
+      setDraft((d) => ({ ...d, published: true }))
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'No se pudo guardar la configuración.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -119,10 +159,12 @@ export default function AdminOnboarding() {
             <p><strong>{draft.name}</strong> · {draft.businessType}</p>
             <p>{draft.description}</p>
             <p>WhatsApp: {draft.whatsappPhone}</p>
-            <p>La tienda no se publica hasta que confirmes.</p>
-            {draft.published ? <p className="text-green-700">Publicada en este navegador.</p> : (
-              <button className="btn-brand" onClick={() => void publish()}>Aprobar y publicar</button>
+            <p>Los cambios se guardarán en la tienda al confirmar; no se despliega automáticamente.</p>
+            {draft.published ? <p className="text-green-700">Configuración guardada en la tienda.</p> : (
+              <button className="btn-brand" disabled={saving} onClick={() => void publish()}>{saving ? 'Guardando…' : 'Guardar configuración'}</button>
             )}
+            {saveError && <p role="alert" className="text-sm text-red-700">{saveError}</p>}
+            <p className="text-xs text-muted">Después puedes completar productos y fotos en <a className="underline" href="/admin/products">Productos</a> y la portada o el logotipo en <a className="underline" href="/admin/appearance">Apariencia</a>.</p>
           </div>
         )}
       </div>

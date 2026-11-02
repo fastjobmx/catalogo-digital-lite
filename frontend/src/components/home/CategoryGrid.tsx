@@ -1,8 +1,41 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowUpRight } from 'lucide-react'
 import { useCatalog } from '../../contexts/CatalogContext'
 import { useStore } from '../../contexts/StoreContext'
-import { localWebpSource } from '../../lib/imageSources'
+import { localWebpSource, shouldFallbackToOriginal } from '../../lib/imageSources'
+
+function CategoryImage({ cover, alt }: { cover: string; alt: string }) {
+  const [webpEnabled, setWebpEnabled] = useState(true)
+  const [failed, setFailed] = useState(false)
+  const webpCover = localWebpSource(cover)
+
+  useEffect(() => {
+    setWebpEnabled(true)
+    setFailed(false)
+  }, [cover])
+
+  if (failed) return null
+  return (
+    <picture className="absolute inset-0 block h-full w-full">
+      {webpEnabled && webpCover && <source type="image/webp" srcSet={webpCover} />}
+      <img
+        src={cover}
+        alt={alt}
+        loading="lazy"
+        decoding="async"
+        className="absolute inset-0 w-full h-full object-cover transition-transform duration-[900ms] ease-out group-hover:scale-[1.04]"
+        onError={(event) => {
+          if (shouldFallbackToOriginal(event.currentTarget.currentSrc, webpCover, webpEnabled)) {
+            setWebpEnabled(false)
+            return
+          }
+          setFailed(true)
+        }}
+      />
+    </picture>
+  )
+}
 
 export default function CategoryGrid() {
   const { categories, products } = useCatalog()
@@ -36,7 +69,6 @@ export default function CategoryGrid() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4 lg:gap-5">
         {visibleCategories.map((cat, index) => {
           const cover = coverFor(cat.slug)
-          const webpCover = localWebpSource(cover)
           // La primera categoría ocupa un bloque editorial doble en escritorio.
           const featured = index === 0
           return (
@@ -49,16 +81,7 @@ export default function CategoryGrid() {
               style={{ animationDelay: `${index * 50}ms`, borderRadius: 'var(--radius-card)' }}
             >
               {cover ? (
-                <picture className="absolute inset-0 block h-full w-full">
-                {webpCover && <source type="image/webp" srcSet={webpCover} />}
-                <img
-                  src={cover}
-                  alt={`Categoría ${cat.name}`}
-                  loading="lazy"
-                  decoding="async"
-                  className="absolute inset-0 w-full h-full object-cover transition-transform duration-[900ms] ease-out group-hover:scale-[1.04]"
-                />
-                </picture>
+                <CategoryImage cover={cover} alt={`Categoría ${cat.name}`} />
               ) : (
                 <div className="absolute inset-0 surface-muted" aria-hidden="true" />
               )}

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import {
   Save, Check, RotateCcw, Palette, Type, LayoutGrid, Sparkles, Truck,
   ChevronUp, ChevronDown, Plus, Trash2, Eye, Star,
-  PanelTop, Image as ImageIcon, Upload, Monitor, Smartphone, X, Store,
+  PanelTop, Image as ImageIcon, Upload, Monitor, Smartphone, X, Store, MessageCircle,
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { useStore } from '../../contexts/StoreContext'
@@ -11,6 +11,7 @@ import { CatalogContext, useCatalog } from '../../contexts/CatalogContext'
 import { StoreContext } from '../../contexts/StoreContext'
 import HomePage from '../../pages/HomePage'
 import { updateStoreConfig, uploadImage } from '../../services/api'
+import { storeStorageKey } from '../../lib/installation'
 import {
   DEFAULT_THEME, THEME_PRESETS, FONT_OPTIONS, SECTION_LABELS, RADIUS_VALUES,
   type ThemeConfig, type SectionKey, type RadiusScale, type DensityScale,
@@ -18,7 +19,7 @@ import {
   type HeadingWeight, type PaletteConfig,
 } from '../../types/theme'
 
-const OVERRIDES_KEY = 'catalogo-lite-store-overrides'
+const OVERRIDES_KEY = storeStorageKey('catalogo-lite-store-overrides')
 
 function Section({ id, icon: Icon, title, subtitle, children }: {
   id?: string
@@ -142,8 +143,8 @@ const PALETTE_FIELDS: { key: keyof PaletteConfig; label: string }[] = [
 ]
 
 export default function Appearance() {
-  const { token } = useAuth()
-  const { store, setStore, backendAvailable, isDemoMode, refreshFromApi } = useStore()
+  const { token, isDemoSession } = useAuth()
+  const { store, setStore, backendAvailable, refreshFromApi } = useStore()
   const catalogState = useCatalog()
   const { products, categories } = catalogState
 
@@ -293,7 +294,7 @@ export default function Appearance() {
         accentColor: palette.accent,
         buttonColor: palette.button,
       }
-      if (backendAvailable && token) {
+      if (backendAvailable && token && !isDemoSession) {
         await updateStoreConfig({
           ...legacy,
           name: brand.name,
@@ -304,6 +305,8 @@ export default function Appearance() {
           themeConfig: theme,
         }, token)
         await refreshFromApi()
+      } else if (!isDemoSession) {
+        throw new Error('El servidor no está disponible; la apariencia no se guardó.')
       }
       const local = {
         ...legacy,
@@ -424,7 +427,7 @@ export default function Appearance() {
         {dirty && <span className="text-muted">La tienda publicada no cambia hasta que guardes.</span>}
       </div>
 
-      {(isDemoMode || !backendAvailable) && (
+      {isDemoSession && (
         <div className="card p-4 bg-surface border-line flex items-center gap-3">
           <span className="text-xl">⚠️</span>
           <p className="text-sm text-ink">
@@ -862,6 +865,21 @@ export default function Appearance() {
             </Field>
           </Section>
 
+          <Section id="cta-copy" icon={MessageCircle} title="Cierre comercial" subtitle="Texto final y llamada al catálogo; evita promesas que la tienda no pueda cumplir.">
+            <Field label="Etiqueta">
+              <input className="input-field" value={theme.cta.eyebrow} onChange={(e) => patch('cta', { ...theme.cta, eyebrow: e.target.value })} />
+            </Field>
+            <Field label="Título">
+              <textarea rows={2} className="input-field resize-none" value={theme.cta.title} onChange={(e) => patch('cta', { ...theme.cta, title: e.target.value })} />
+            </Field>
+            <Field label="Descripción">
+              <textarea rows={3} className="input-field resize-none" value={theme.cta.description} onChange={(e) => patch('cta', { ...theme.cta, description: e.target.value })} />
+            </Field>
+            <Field label="Botón principal">
+              <input className="input-field" value={theme.cta.primaryLabel} onChange={(e) => patch('cta', { ...theme.cta, primaryLabel: e.target.value })} />
+            </Field>
+          </Section>
+
           {/* Beneficios */}
           <Section icon={Truck} title="Beneficios de compra" subtitle="Solo afirmaciones que tu tienda pueda cumplir. Aparecen como una fila sobria.">
             {theme.benefits.map((b, i) => (
@@ -1032,7 +1050,7 @@ export default function Appearance() {
             </div>
 
             <div className={`max-h-[75vh] overflow-y-auto ${previewDevice === 'mobile' ? 'mx-auto w-full max-w-[390px] border-x border-line' : 'w-full'}`} style={previewVars} onClick={(event) => { if ((event.target as HTMLElement).closest('a')) event.preventDefault() }}>
-              <StoreContext.Provider value={{ store: previewStore, setStore: () => undefined, isLoading: false, isDemoMode, backendAvailable, storeLoadError: null, refreshFromApi }}>
+              <StoreContext.Provider value={{ store: previewStore, setStore: () => undefined, isLoading: false, isDemoMode: false, backendAvailable, storeLoadError: null, refreshFromApi }}>
                 <CatalogContext.Provider value={catalogState}>
                   <HomePage />
                 </CatalogContext.Provider>

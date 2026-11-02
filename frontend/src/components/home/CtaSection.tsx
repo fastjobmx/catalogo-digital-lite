@@ -1,11 +1,17 @@
 import { Link } from 'react-router-dom'
 import { MessageCircle, ArrowRight } from 'lucide-react'
 import { useStore } from '../../contexts/StoreContext'
+import { STORE_PRESET_CTA } from '../../data/storePresetCta'
+import { isIndependentInstallation } from '../../lib/installation'
+import { getClosingCtaDefaults } from '../../lib/storeTheme'
 import { whatsappLink } from '../../lib/whatsapp'
+import { IS_PUBLIC_DEMO } from '../../lib/publicDemo'
 
 export default function CtaSection() {
   const { store } = useStore()
-  const whatsapp = whatsappLink(
+  const closing = store.theme?.cta ?? getClosingCtaDefaults(store.name, isIndependentInstallation(), STORE_PRESET_CTA)
+  const [titleFirstLine, titleSecondLine] = closing.title.split('\n', 2)
+  const whatsapp = IS_PUBLIC_DEMO ? null : whatsappLink(
     store.whatsappOrders || store.whatsappPhone,
     store.defaultWhatsappMessage || 'Hola, quiero hacer un pedido:',
   )
@@ -23,13 +29,12 @@ export default function CtaSection() {
         />
         <div className="relative grid lg:grid-cols-12 gap-10 items-end">
           <div className="lg:col-span-8">
-            <p className="eyebrow text-canvas/60 mb-5">Cierre</p>
+            <p className="eyebrow text-canvas/60 mb-5">{closing.eyebrow}</p>
             <h2 className="font-display text-[clamp(2rem,1.3rem+2.6vw,3.6rem)] leading-[1.02] tracking-[-0.03em] text-canvas">
-              Encuentra el par<br className="hidden sm:block" /> que te acompaña.
+              {titleFirstLine}{titleSecondLine && <><br className="hidden sm:block" />{titleSecondLine}</>}
             </h2>
             <p className="mt-5 max-w-xl text-[15px] leading-relaxed text-canvas/70">
-              Explora la selección completa o escríbenos: te asesoramos con tallas, disponibilidad y envío.
-              El pedido se confirma en la conversación de WhatsApp.
+              {closing.description}
             </p>
           </div>
 
@@ -41,7 +46,7 @@ export default function CtaSection() {
                          bg-[var(--color-background)] text-[var(--color-text)] hover:bg-[var(--color-surface)] w-full lg:w-auto"
               style={{ borderRadius: 'var(--radius-btn)' }}
             >
-              Explorar catálogo
+              {closing.primaryLabel}
               <ArrowRight size={15} className="transition-transform group-hover:translate-x-1" aria-hidden="true" />
             </Link>
             {whatsapp && (

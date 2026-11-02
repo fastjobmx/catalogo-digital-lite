@@ -108,6 +108,13 @@ export interface PromoBannerConfig {
   imageUrl: string | null
 }
 
+export interface ClosingCtaConfig {
+  eyebrow: string
+  title: string
+  description: string
+  primaryLabel: string
+}
+
 export interface SectionConfig {
   order: SectionKey[]
   enabled: Record<SectionKey, boolean>
@@ -151,6 +158,7 @@ export interface ThemeConfig {
   hero: HeroConfig
   sections: SectionConfig
   promo: PromoBannerConfig
+  cta: ClosingCtaConfig
   featuredSkus: string[]
   featuredSelectionEnabled: boolean
   featuredCategorySlugs: string[]
@@ -333,6 +341,12 @@ export const DEFAULT_THEME: ThemeConfig = {
     ctaHref: '/category/outdoor',
     imageUrl: '/seed-images/sneakerhub/TERA-15.jpg',
   },
+  cta: {
+    eyebrow: 'Cierre',
+    title: 'Encuentra el par\nque te acompaña.',
+    description: 'Explora la selección completa o escríbenos: te asesoramos con tallas, disponibilidad y envío. El pedido se confirma en la conversación de WhatsApp.',
+    primaryLabel: 'Explorar catálogo',
+  },
   featuredSkus: [],
   featuredSelectionEnabled: false,
   featuredCategorySlugs: [],
@@ -360,7 +374,7 @@ export const DEFAULT_THEME: ThemeConfig = {
 // Migración tolerante: acepta configuraciones antiguas sin perderlas.
 // ------------------------------------------------------------------
 
-interface ThemeFallbacks {
+export interface ThemeFallbacks {
   primary?: string
   secondary?: string
   accent?: string
@@ -439,6 +453,7 @@ export function mergeTheme(partial: unknown, fallbacks: ThemeFallbacks = {}): Th
     hero: { ...DEFAULT_THEME.hero, ...(p.hero || {}) },
     sections: mergeSections(p.sections),
     promo: { ...DEFAULT_THEME.promo, ...(p.promo || {}) },
+    cta: { ...DEFAULT_THEME.cta, ...(p.cta || {}) },
     featuredSkus: Array.isArray(p.featuredSkus) ? p.featuredSkus : DEFAULT_THEME.featuredSkus,
     featuredSelectionEnabled: typeof p.featuredSelectionEnabled === 'boolean' ? p.featuredSelectionEnabled : DEFAULT_THEME.featuredSelectionEnabled,
     featuredCategorySlugs: Array.isArray(p.featuredCategorySlugs) ? p.featuredCategorySlugs : DEFAULT_THEME.featuredCategorySlugs,

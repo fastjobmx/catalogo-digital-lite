@@ -5,6 +5,7 @@ import { useStore } from '../../contexts/StoreContext'
 import { useCart } from '../../contexts/CartContext'
 import { useCatalog } from '../../contexts/CatalogContext'
 import { whatsappLink } from '../../lib/whatsapp'
+import { IS_PUBLIC_DEMO } from '../../lib/publicDemo'
 
 /** Enlace de navegación con estado activo sutil (subrayado fino). */
 function NavLink({ to, children, active }: { to: string; children: React.ReactNode; active?: boolean }) {
@@ -34,7 +35,7 @@ export default function Header() {
 
   const header = store.theme.header
   const navCategories = categories.slice(0, 5)
-  const whatsapp = whatsappLink(store.whatsappPhone, store.defaultWhatsappMessage)
+  const whatsapp = IS_PUBLIC_DEMO ? null : whatsappLink(store.whatsappPhone, store.defaultWhatsappMessage)
 
   // Cierra los paneles al cambiar de ruta
   useEffect(() => {
@@ -89,7 +90,7 @@ export default function Header() {
                   <Clock size={12} aria-hidden="true" /> {store.hours}
                 </span>
               )}
-              {header.showContact && store.phone && (
+              {!IS_PUBLIC_DEMO && header.showContact && store.phone && (
                 <a href={`tel:${store.phone}`} className="flex items-center gap-1.5 hover:text-canvas transition-colors">
                   <Phone size={12} aria-hidden="true" /> {store.phone}
                 </a>
@@ -167,7 +168,7 @@ export default function Header() {
               </div>
             </form>
 
-            {header.showContact && (
+            {!IS_PUBLIC_DEMO && header.showContact && (
               <a
                 href={whatsapp || `tel:${store.phone || ''}`}
                 target={whatsapp ? '_blank' : undefined}
@@ -309,7 +310,7 @@ export default function Header() {
               )}
               <div className="flex flex-wrap items-center justify-between gap-2 text-[12px] text-muted">
                 {store.hours && <span>{store.hours}</span>}
-                {store.phone && (
+              {!IS_PUBLIC_DEMO && store.phone && (
                   <a href={`tel:${store.phone}`} className="hover:text-ink transition-colors">{store.phone}</a>
                 )}
               </div>

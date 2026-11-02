@@ -3,17 +3,18 @@ import { MapPin, Phone, Mail, Clock, Instagram, Facebook, Music2, MessageCircle,
 import { useStore } from '../../contexts/StoreContext'
 import { useCatalog } from '../../contexts/CatalogContext'
 import { whatsappLink } from '../../lib/whatsapp'
+import { IS_PUBLIC_DEMO } from '../../lib/publicDemo'
 
 export default function Footer() {
   const { store } = useStore()
   const { categories } = useCatalog()
   const footer = store.theme.footer
-  const whatsapp = whatsappLink(
+  const whatsapp = IS_PUBLIC_DEMO ? null : whatsappLink(
     store.whatsappOrders || store.whatsappPhone,
     store.defaultWhatsappMessage || 'Hola, quiero información sobre la tienda.',
   )
 
-  const socials = [
+  const socials = IS_PUBLIC_DEMO ? [] : [
     store.instagram && { href: `https://instagram.com/${store.instagram}`, label: 'Instagram', Icon: Instagram },
     store.facebook && { href: `https://facebook.com/${store.facebook}`, label: 'Facebook', Icon: Facebook },
     store.tiktok && { href: `https://tiktok.com/@${store.tiktok}`, label: 'TikTok', Icon: Music2 },
@@ -94,26 +95,26 @@ export default function Footer() {
                   </a>
                 </li>
               )}
-              {store.phone && (
+              {!IS_PUBLIC_DEMO && store.phone && (
                 <li>
                   <a href={`tel:${store.phone}`} className="flex items-center gap-2.5 hover:text-canvas transition-colors">
                     <Phone size={16} className="shrink-0" /> {store.phone}
                   </a>
                 </li>
               )}
-              {store.email && (
+              {!IS_PUBLIC_DEMO && store.email && (
                 <li>
                   <a href={`mailto:${store.email}`} className="flex items-center gap-2.5 hover:text-canvas transition-colors">
                     <Mail size={16} className="shrink-0" /> {store.email}
                   </a>
                 </li>
               )}
-              {store.address && (
+              {!IS_PUBLIC_DEMO && store.address && (
                 <li className="flex items-start gap-2.5">
                   <MapPin size={16} className="shrink-0 mt-0.5" /> <span>{store.address}</span>
                 </li>
               )}
-              {store.hours && (
+              {!IS_PUBLIC_DEMO && store.hours && (
                 <li className="flex items-center gap-2.5">
                   <Clock size={16} className="shrink-0" /> {store.hours}
                 </li>

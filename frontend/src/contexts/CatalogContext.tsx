@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { DEMO_CATALOG_VERSION, DEMO_CATEGORIES, DEMO_PRODUCTS } from '../data/demoCatalog'
+import { DEMO_CATALOG_VERSION } from '../data/catalogVersion'
 import {
   archiveProduct as apiArchive,
   createCategory as apiCreateCategory,
@@ -19,12 +19,14 @@ import {
 } from '../services/api'
 import { slugify } from '../lib/format'
 import { findProductBySku } from '../lib/catalog'
+import { isIndependentInstallation, storeStorageKey } from '../lib/installation'
 import { useAuth } from './AuthContext'
 import { useStore } from './StoreContext'
+import { IS_PUBLIC_DEMO } from '../lib/publicDemo'
 
-const PRODUCTS_KEY = 'catalogo-lite-demo-products'
-const CATEGORIES_KEY = 'catalogo-lite-demo-categories'
-const VERSION_KEY = 'catalogo-lite-demo-version'
+const PRODUCTS_KEY = storeStorageKey('catalogo-lite-demo-products')
+const CATEGORIES_KEY = storeStorageKey('catalogo-lite-demo-categories')
+const VERSION_KEY = storeStorageKey('catalogo-lite-demo-version')
 
 // Si la versión del catálogo demo cambió, descarta la copia local antigua para
 // que el nuevo catálogo se muestre sin que el usuario limpie el navegador.
@@ -57,19 +59,31 @@ export interface CatalogContextValue {
 
 export const CatalogContext = createContext<CatalogContextValue | undefined>(undefined)
 
-function loadLocalProducts(): ProductApi[] {
+async function loadLocalProducts(): Promise<ProductApi[]> {
+  if (IS_PUBLIC_DEMO) {
+    const { DEMO_PRODUCTS } = await import('../data/demoCatalog')
+    return structuredClone(DEMO_PRODUCTS)
+  }
+  if (isIndependentInstallation()) return []
   try {
     const raw = localStorage.getItem(PRODUCTS_KEY)
     if (raw) return JSON.parse(raw) as ProductApi[]
   } catch { /* ignore */ }
+  const { DEMO_PRODUCTS } = await import('../data/demoCatalog')
   return structuredClone(DEMO_PRODUCTS)
 }
 
-function loadLocalCategories(): CategoryApi[] {
+async function loadLocalCategories(): Promise<CategoryApi[]> {
+  if (IS_PUBLIC_DEMO) {
+    const { DEMO_CATEGORIES } = await import('../data/demoCatalog')
+    return structuredClone(DEMO_CATEGORIES)
+  }
+  if (isIndependentInstallation()) return []
   try {
     const raw = localStorage.getItem(CATEGORIES_KEY)
     if (raw) return JSON.parse(raw) as CategoryApi[]
   } catch { /* ignore */ }
+  const { DEMO_CATEGORIES } = await import('../data/demoCatalog')
   return structuredClone(DEMO_CATEGORIES)
 }
 
@@ -94,9 +108,13 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(CATEGORIES_KEY, JSON.stringify(recount(nextCategories, nextProducts)))
   }
 
+  const requireLocalDemo = () => {
+    if (!isDemoSession) throw new Error('El servidor no está disponible; no se guardó el cambio.')
+  }
+
   const refresh = async () => {
     setLoading(true)
-    syncDemoVersion()
+    if (!IS_PUBLIC_DEMO) syncDemoVersion()
     try {
       if (backendAvailable) {
         setProducts([])
@@ -113,8 +131,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
         setArchived([])
       } else {
         setError(null)
-        const localProducts = loadLocalProducts()
-        const localCats = loadLocalCategories()
+        const [localProducts, localCats] = await Promise.all([loadLocalProducts(), loadLocalCategories()])
         setProducts(localProducts.filter((p) => p.isActive !== false))
         setArchived(localProducts.filter((p) => p.isActive === false))
         setCategories(recount(localCats, localProducts.filter((p) => p.isActive !== false)))
@@ -145,6 +162,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
         await refresh()
         return products[0]!
       }
+      requireLocalDemo()
       const id = Date.now()
       const cat = categories.find((c) => c.id === payload.categoryId)
       const product: ProductApi = {
@@ -184,6 +202,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
         await refresh()
         return
       }
+      requireLocalDemo()
       const mapItem = (p: ProductApi): ProductApi => p.id !== id ? p : {
         ...p,
         name: payload.name ?? p.name,
@@ -205,6 +224,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
         await refresh()
         return
       }
+      requireLocalDemo()
       const found = products.find((p) => p.id === id)
       if (!found) return
       const nextActive = products.filter((p) => p.id !== id)
@@ -222,6 +242,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
         await refresh()
         return
       }
+      requireLocalDemo()
       const restored = { ...found, isActive: true }
       const nextActive = [restored, ...products]
       const nextArchived = archived.filter((p) => p.id !== id)
@@ -234,8 +255,6 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
         ...p,
         variants: p.variants.map((v) => v.id === variantId ? { ...v, stock } : v),
       })
-      setProducts(next)
-      persistLocal([...next, ...archived], categories)
       if (backendAvailable && token && !isDemoSession) {
         const product = next.find((p) => p.id === productId)
         await apiUpdateVariants(
@@ -243,7 +262,11 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
           (product?.variants ?? []).map((v) => ({ id: v.id, stock: v.stock })),
           token,
         )
+      } else {
+        requireLocalDemo()
       }
+      setProducts(next)
+      persistLocal([...next, ...archived], categories)
     },
     createCategory: async (payload) => {
       if (backendAvailable && token && !isDemoSession) {
@@ -251,6 +274,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
         await refresh()
         return categories[0]!
       }
+      requireLocalDemo()
       const cat: CategoryApi = {
         id: Date.now(),
         name: payload.name,
@@ -270,6 +294,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
         await refresh()
         return
       }
+      requireLocalDemo()
       const next = categories.filter((c) => c.id !== id)
       setCategories(next)
       persistLocal([...products, ...archived], next)
@@ -280,6 +305,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
         await refresh()
         return
       }
+      requireLocalDemo()
       const next = categories.map((category) => category.id === id ? { ...category, ...payload } : category)
       setCategories(next)
       persistLocal([...products, ...archived], next)

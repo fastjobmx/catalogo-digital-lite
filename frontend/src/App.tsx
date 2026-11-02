@@ -1,4 +1,3 @@
-import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { StoreProvider } from './contexts/StoreContext'
 import { CartProvider } from './contexts/CartContext'
@@ -18,14 +17,10 @@ import AdminDashboard from './admin/pages/Dashboard'
 import AdminProducts from './admin/pages/Products'
 import AdminSettings from './admin/pages/Settings'
 import AdminCategories from './admin/pages/Categories'
+import AdminAppearance from './admin/pages/Appearance'
 import NotFoundPage from './pages/NotFoundPage'
 import RouteScrollManager from './components/RouteScrollManager'
-
-const AdminAppearance = lazy(() => import('./admin/pages/Appearance'))
-
-function AdminSectionFallback() {
-  return <div className="min-h-40 flex items-center justify-center text-sm text-muted" role="status">Cargando sección…</div>
-}
+import { IS_PUBLIC_DEMO } from './lib/publicDemo'
 
 function ProtectedAdminRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth()
@@ -67,28 +62,34 @@ export default function App() {
                 <Route path="*" element={<NotFoundPage />} />
               </Route>
 
-              {/* Admin login (public) */}
-              <Route path="/admin/login" element={<LoginPage />} />
+              {IS_PUBLIC_DEMO ? (
+                <Route path="/admin/*" element={<Navigate to="/" replace />} />
+              ) : (
+                <>
+                  {/* Admin login (public) */}
+                  <Route path="/admin/login" element={<LoginPage />} />
 
-              {/* Admin routes (protected) */}
-              <Route
-                path="/admin"
-                element={
-                  <ProtectedAdminRoute>
-                    <AdminLayout />
-                  </ProtectedAdminRoute>
-                }
-              >
-                <Route index element={<AdminDashboard />} />
-                <Route path="products" element={<AdminProducts />} />
-                <Route path="categories" element={<AdminCategories />} />
-                <Route path="appearance" element={<Suspense fallback={<AdminSectionFallback />}><AdminAppearance /></Suspense>} />
-                <Route path="apariencia" element={<Navigate to="/admin/appearance" replace />} />
-                <Route path="settings" element={<AdminSettings />} />
-                <Route path="onboarding" element={<AdminOnboarding />} />
-                <Route path="simulator" element={<AdminSimulator />} />
-                <Route path="orders" element={<AdminOrders />} />
-              </Route>
+                  {/* Admin routes (protected) */}
+                  <Route
+                    path="/admin"
+                    element={
+                      <ProtectedAdminRoute>
+                        <AdminLayout />
+                      </ProtectedAdminRoute>
+                    }
+                  >
+                    <Route index element={<AdminDashboard />} />
+                    <Route path="products" element={<AdminProducts />} />
+                    <Route path="categories" element={<AdminCategories />} />
+                    <Route path="appearance" element={<AdminAppearance />} />
+                    <Route path="apariencia" element={<Navigate to="/admin/appearance" replace />} />
+                    <Route path="settings" element={<AdminSettings />} />
+                    <Route path="onboarding" element={<AdminOnboarding />} />
+                    <Route path="simulator" element={<AdminSimulator />} />
+                    <Route path="orders" element={<AdminOrders />} />
+                  </Route>
+                </>
+              )}
             </Routes>
           </CartProvider>
           </CatalogProvider>

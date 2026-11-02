@@ -30,6 +30,7 @@ coverage/
 
 # Archivos temporales y respaldos
 .tmp/
+/local-stores/
 *.log
 *.bak
 *.sqlite
@@ -46,6 +47,24 @@ coverage/
 !.env.example
 .dev.vars
 .dev.vars.*
+!.dev.vars.staging.example
+worker/wrangler.remote-staging.toml
+!worker/wrangler.remote-staging.toml.example
+
+# Datos locales, copias de seguridad y credenciales que no deben versionarse.
+*.backup
+*.backup.*
+*.old
+*.orig
+*.swp
+*.token
+*-token.txt
+*-credentials.*
+*.dump
+*.sql.gz
+/data-local/
+/customer-data/
+/clientes-locales/
 
 # Claves
 *.pem

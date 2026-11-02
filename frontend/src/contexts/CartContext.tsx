@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
 import { buildWhatsAppOrderMessage } from '../lib/whatsapp'
+import { storeStorageKey } from '../lib/installation'
 
 export interface CartItem {
   productId: string
@@ -30,22 +31,22 @@ interface CartContextValue {
 
 const CartContext = createContext<CartContextValue | undefined>(undefined)
 
-const CART_STORAGE_KEY = 'catalogo-lite-cart'
+const CART_STORAGE_KEY = storeStorageKey('catalogo-lite-cart')
+
+export function loadCartFromStorage(storage?: Pick<Storage, 'getItem'>): CartItem[] {
+  try {
+    const stored = storage ? storage.getItem(CART_STORAGE_KEY) : localStorage.getItem(CART_STORAGE_KEY)
+    if (!stored) return []
+    const parsed: unknown = JSON.parse(stored)
+    return Array.isArray(parsed) ? parsed as CartItem[] : []
+  } catch {
+    return []
+  }
+}
 
 export function CartProvider({ children }: { children: ReactNode }) {
-  const [items, setItems] = useState<CartItem[]>([])
-
-  // Load cart from localStorage on mount
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem(CART_STORAGE_KEY)
-      if (stored) {
-        setItems(JSON.parse(stored))
-      }
-    } catch {
-      // Ignore parse errors, start with empty cart
-    }
-  }, [])
+  // Hydrate before the persistence effect runs, so an initial [] cannot erase a saved cart.
+  const [items, setItems] = useState<CartItem[]>(loadCartFromStorage)
 
   // Persist cart to localStorage on changes
   useEffect(() => {

@@ -1,4 +1,5 @@
 import type { CategoryApi, ProductApi, ProductVariantApi } from '../services/api'
+export { DEMO_CATALOG_VERSION } from './catalogVersion'
 
 // ============================================
 // Catálogo demo — SNEAKERHUB PREMIUM
@@ -12,7 +13,6 @@ import type { CategoryApi, ProductApi, ProductVariantApi } from '../services/api
 
 // Cambiar esta versión invalida el catálogo demo guardado en el navegador,
 // de modo que los clientes ven el catálogo actual sin limpiar localStorage.
-export const DEMO_CATALOG_VERSION = '2026-11-01-sneakerhub-premium-3'
 
 /** Ruta local de la fotografía principal de cada SKU. */
 const img = (fileName: string) => `/seed-images/sneakerhub/${fileName}.jpg`
@@ -188,6 +188,4 @@ export const DEMO_PRODUCTS: ProductApi[] = SEEDS.map((seed) => {
   }
 })
 
-export function totalStock(product: ProductApi): number {
-  return product.variants.reduce((sum, v) => sum + (v.isActive ? v.stock : 0), 0)
-}
+export { totalStock } from '../lib/catalog'

@@ -69,7 +69,7 @@ export function isAdminLinkActive(pathname: string, hash: string, item: AdminNav
 export default function AdminLayout() {
   const location = useLocation()
   const navigate = useNavigate()
-  const { email, logout } = useAuth()
+  const { email, logout, isDemoSession } = useAuth()
   const { store, backendAvailable } = useStore()
   const [mobileOpen, setMobileOpen] = useState(false)
   const menuTriggerRef = useRef<HTMLButtonElement>(null)
@@ -255,8 +255,8 @@ export default function AdminLayout() {
           <div className="min-w-0">
             <div className="flex items-center gap-1 text-[11px] text-muted"><span>Panel</span><ChevronRight size={13}/><span className="font-semibold text-ink truncate">{pageSection}</span></div>
           </div>
-          <span className={`ml-auto inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium ${backendAvailable ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
-            <span className={`h-1.5 w-1.5 rounded-full ${backendAvailable ? 'bg-emerald-500' : 'bg-amber-500'}`}/>{backendAvailable ? 'Servicio conectado' : 'Modo sin conexión'}
+          <span className={`ml-auto inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium ${backendAvailable && !isDemoSession ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${backendAvailable && !isDemoSession ? 'bg-emerald-500' : 'bg-amber-500'}`}/>{isDemoSession ? 'Demo local' : backendAvailable ? 'Servicio conectado' : 'Modo sin conexión'}
           </span>
           <Link to="/" target="_blank" className="inline-flex items-center gap-2 p-2 rounded-btn text-muted hover:bg-canvas hover:text-ink transition-colors" aria-label="Ver tienda">
             <ExternalLink size={18} /><span className="hidden sm:inline text-xs font-semibold">Ver tienda</span>
@@ -271,6 +271,11 @@ export default function AdminLayout() {
         </header>
 
         <div className="p-5 sm:p-6 lg:p-8 max-w-6xl mx-auto">
+          {isDemoSession && (
+            <p className="mb-6 rounded-card border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950" role="status">
+              Sesión demo local. Los cambios quedan en este navegador; no se enviarán al Worker ni a otra tienda.
+            </p>
+          )}
           <Outlet />
         </div>
       </main>

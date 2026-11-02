@@ -1,6 +1,7 @@
 import { MessageCircle, MapPin, Clock, Phone, Mail, ArrowUpRight } from 'lucide-react'
 import { useStore } from '../../contexts/StoreContext'
 import { whatsappLink } from '../../lib/whatsapp'
+import { IS_PUBLIC_DEMO } from '../../lib/publicDemo'
 
 /**
  * Contacto y WhatsApp: se oculta por completo si el comercio no cargó
@@ -8,7 +9,8 @@ import { whatsappLink } from '../../lib/whatsapp'
  */
 export default function ContactSection() {
   const { store } = useStore()
-  const whatsapp = whatsappLink(store.whatsappPhone, store.defaultWhatsappMessage)
+  if (IS_PUBLIC_DEMO) return null
+  const whatsapp = IS_PUBLIC_DEMO ? null : whatsappLink(store.whatsappPhone, store.defaultWhatsappMessage)
 
   const hasContact = Boolean(whatsapp || store.phone || store.email || store.address || store.hours)
   if (!hasContact) return null

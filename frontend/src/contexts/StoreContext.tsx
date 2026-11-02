@@ -1,6 +1,10 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
 import { getStoreConfig, isBackendAvailable, type StoreConfigApi } from '../services/api'
-import { DEMO_CATALOG_VERSION } from '../data/demoCatalog'
+import { DEMO_CATALOG_VERSION } from '../data/catalogVersion'
+import { STORE_PRESET_CTA } from '../data/storePresetCta'
+import { isIndependentInstallation, storeStorageKey } from '../lib/installation'
+import { getClosingCtaDefaults, normalizeStoreTheme } from '../lib/storeTheme'
+import { IS_PUBLIC_DEMO } from '../lib/publicDemo'
 import {
   DEFAULT_THEME,
   DENSITY_VALUES,
@@ -8,7 +12,6 @@ import {
   RADIUS_VALUES,
   SAFE_FONTS,
   TYPE_SCALE_VALUES,
-  mergeTheme,
   type ThemeConfig,
 } from '../types/theme'
 
@@ -43,35 +46,58 @@ export interface StoreConfig {
  theme: ThemeConfig
 }
 
+const INDEPENDENT_INSTALLATION = isIndependentInstallation()
+
+function getDefaultStoreTheme(): ThemeConfig {
+ const theme = structuredClone(DEFAULT_THEME)
+ if (!INDEPENDENT_INSTALLATION) return theme
+
+ theme.header.topbarEnabled = false
+ theme.hero.eyebrow = ''
+ theme.hero.title = 'Bienvenido'
+ theme.hero.subtitle = ''
+ theme.hero.description = ''
+ theme.hero.imageUrl = null
+ theme.hero.imageUrlMobile = null
+ theme.hero.ctaSecondaryEnabled = false
+ theme.cta = getClosingCtaDefaults('tu tienda', true, STORE_PRESET_CTA)
+ theme.promo.enabled = false
+ theme.sections.enabled.benefits = false
+ theme.benefits = []
+ theme.footer.aboutText = ''
+ theme.footer.showPolicies = false
+ return theme
+}
+
 const DEFAULT_STORE: StoreConfig = {
- name: 'SneakerHub Premium',
- description: 'Sneakers, streetwear y accesorios seleccionados con envío a todo el país.',
+ name: INDEPENDENT_INSTALLATION ? 'Mi tienda' : 'SneakerHub Premium',
+ description: INDEPENDENT_INSTALLATION ? '' : 'Sneakers, streetwear y accesorios seleccionados con envío a todo el país.',
  logo: null,
  favicon: '/favicon.svg',
- slogan: 'Tu estilo, tu ritmo',
- businessType: 'Calzado y streetwear',
+ slogan: INDEPENDENT_INSTALLATION ? null : 'Tu estilo, tu ritmo',
+ businessType: INDEPENDENT_INSTALLATION ? '' : 'Calzado y streetwear',
  primaryColor: '#222222',
  secondaryColor: '#D9D0C1',
  accentColor: '#8D806D',
  buttonColor: '#222222',
  coverImage: null,
- whatsappPhone: '+573001234567',
+ whatsappPhone: INDEPENDENT_INSTALLATION ? '' : '+573001234567',
  whatsappOrders: null,
- phone: '+573001234567',
- email: 'hola@sneakerhub.co',
- address: 'Bogotá, Colombia',
- hours: 'Lun-Sáb 9am-7pm',
- instagram: 'sneakerhub.co',
- facebook: 'sneakerhubco',
- tiktok: 'sneakerhub.co',
- mapsUrl: 'https://maps.google.com/?q=Bogota',
+ phone: INDEPENDENT_INSTALLATION ? null : '+573001234567',
+ email: INDEPENDENT_INSTALLATION ? null : 'hola@sneakerhub.co',
+ address: INDEPENDENT_INSTALLATION ? null : 'Bogotá, Colombia',
+ hours: INDEPENDENT_INSTALLATION ? null : 'Lun-Sáb 9am-7pm',
+ instagram: INDEPENDENT_INSTALLATION ? null : 'sneakerhub.co',
+ facebook: INDEPENDENT_INSTALLATION ? null : 'sneakerhubco',
+ tiktok: INDEPENDENT_INSTALLATION ? null : 'sneakerhub.co',
+ mapsUrl: INDEPENDENT_INSTALLATION ? null : 'https://maps.google.com/?q=Bogota',
  currency: 'COP',
  country: 'CO',
  deliveryMethods: ['envio'],
  pickupAvailable: true,
  paymentInfo: 'Tarjetas, PSE, Nequi y contraentrega',
- defaultWhatsappMessage: 'Hola SneakerHub! Quiero información sobre un producto:',
- theme: DEFAULT_THEME,
+ defaultWhatsappMessage: INDEPENDENT_INSTALLATION ? 'Hola! Quiero hacer un pedido:' : 'Hola SneakerHub! Quiero información sobre un producto:',
+ theme: getDefaultStoreTheme(),
 }
 
 export interface StoreContextValue {
@@ -88,17 +114,33 @@ export const StoreContext = createContext<StoreContextValue | undefined>(undefin
 
 // Map API response to local StoreConfig format
 function mapApiToStoreConfig(api: StoreConfigApi): StoreConfig {
- const theme = mergeTheme(api.themeConfig, {
+ const theme = normalizeStoreTheme(api.themeConfig, api.name, INDEPENDENT_INSTALLATION, {
    primary: api.primaryColor,
    secondary: api.secondaryColor,
    accent: api.accentColor,
    button: api.buttonColor,
- })
+ }, STORE_PRESET_CTA)
 
  // Actualiza solo la portada demo heredada; las portadas configuradas por cada
  // comercio permanecen intactas.
  if (api.name === 'SneakerHub Premium' && theme.hero.imageUrl === '/seed-images/sneakerhub/hero-editorial.jpg') {
    theme.hero.imageUrl = '/seed-images/sneakerhub/TERA-16.jpg'
+ }
+
+ if (INDEPENDENT_INSTALLATION) {
+   theme.header.topbarEnabled = false
+   theme.hero.eyebrow = api.businessType || ''
+   theme.hero.title = api.name || 'Mi tienda'
+   theme.hero.subtitle = api.slogan || ''
+   theme.hero.description = api.description || ''
+   theme.hero.imageUrl = api.coverImageUrl
+   theme.hero.imageUrlMobile = null
+   theme.hero.ctaSecondaryEnabled = false
+   theme.promo.enabled = false
+   theme.sections.enabled.benefits = false
+   theme.benefits = []
+   theme.footer.aboutText = api.description || api.slogan || api.name
+   theme.footer.showPolicies = false
  }
 
  return {
@@ -143,6 +185,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
  const [storeLoadError, setStoreLoadError] = useState<string | null>(null)
 
  const loadFromApi = async () => {
+ if (IS_PUBLIC_DEMO) {
+   setStoreState(DEFAULT_STORE)
+   setBackendAvailable(false)
+   setIsDemoMode(true)
+   setStoreLoadError(null)
+   setIsLoading(false)
+   return
+ }
  let available = false
  try {
  available = await isBackendAvailable()
@@ -172,20 +222,54 @@ export function StoreProvider({ children }: { children: ReactNode }) {
  }
 
  useEffect(() => {
+    if (IS_PUBLIC_DEMO) {
+      void loadFromApi()
+      return
+    }
     try {
       // La versión del catálogo no debe borrar los overrides visuales de la tienda.
-      const versionKey = 'catalogo-lite-store-version'
+      const versionKey = storeStorageKey('catalogo-lite-store-version')
       if (localStorage.getItem(versionKey) !== DEMO_CATALOG_VERSION) {
         localStorage.setItem(versionKey, DEMO_CATALOG_VERSION)
       }
-      const saved = localStorage.getItem('catalogo-lite-store-overrides')
-      if (saved) setStoreState((prev) => ({ ...prev, ...JSON.parse(saved) }))
+      const saved = localStorage.getItem(storeStorageKey('catalogo-lite-store-overrides'))
+      if (saved) {
+        const overrides = JSON.parse(saved) as Partial<StoreConfig>
+        if (overrides.theme) {
+          overrides.theme = normalizeStoreTheme(
+            overrides.theme,
+            overrides.name || 'tu tienda',
+            INDEPENDENT_INSTALLATION,
+            {
+              primary: overrides.primaryColor,
+              secondary: overrides.secondaryColor,
+              accent: overrides.accentColor,
+              button: overrides.buttonColor,
+            },
+            STORE_PRESET_CTA,
+          )
+        }
+        setStoreState((prev) => ({ ...prev, ...overrides }))
+      }
     } catch { /* ignore */ }
     void loadFromApi()
  }, [])
 
  const setStore = (updates: Partial<StoreConfig>) => {
- setStoreState(prev => ({ ...prev, ...updates }))
+ setStoreState((prev) => {
+   const normalized = updates.theme
+     ? {
+         ...updates,
+         theme: normalizeStoreTheme(updates.theme, updates.name || prev.name, INDEPENDENT_INSTALLATION, {
+           primary: updates.primaryColor || prev.primaryColor,
+           secondary: updates.secondaryColor || prev.secondaryColor,
+           accent: updates.accentColor || prev.accentColor,
+           button: updates.buttonColor || prev.buttonColor,
+         }, STORE_PRESET_CTA),
+       }
+     : updates
+   return { ...prev, ...normalized }
+ })
  }
 
  // Aplica la identidad visual como variables CSS.

@@ -4,6 +4,7 @@ import { Save, Link2, Unlink, Copy, Check, Shield, Bot, Store, Phone, Palette, A
 import { useAuth } from '../../contexts/AuthContext'
 import { useStore } from '../../contexts/StoreContext'
 import { updateStoreConfig, type StoreConfigApi } from '../../services/api'
+import { storeStorageKey } from '../../lib/installation'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
 
@@ -20,8 +21,8 @@ interface LinkCodeResponse {
 }
 
 export default function Settings() {
-  const { token } = useAuth()
-  const { store, setStore, backendAvailable, isDemoMode, refreshFromApi } = useStore()
+  const { token, isDemoSession } = useAuth()
+  const { store, setStore, backendAvailable, refreshFromApi } = useStore()
 
   // Form state
   const [name, setName] = useState(store.name)
@@ -143,15 +144,18 @@ export default function Settings() {
         facebook: facebook || null,
         tiktok: tiktok || null,
       }
-      if (backendAvailable && token) {
+      if (backendAvailable && token && !isDemoSession) {
         const payload: Partial<StoreConfigApi> = local
         await updateStoreConfig(payload, token)
         await refreshFromApi()
+      } else if (!isDemoSession) {
+        throw new Error('El servidor no está disponible; la configuración no se guardó.')
       }
       setStore(local)
       try {
-        const existing = JSON.parse(localStorage.getItem('catalogo-lite-store-overrides') || '{}') as Record<string, unknown>
-        localStorage.setItem('catalogo-lite-store-overrides', JSON.stringify({ ...existing, ...local }))
+        const overridesKey = storeStorageKey('catalogo-lite-store-overrides')
+        const existing = JSON.parse(localStorage.getItem(overridesKey) || '{}') as Record<string, unknown>
+        localStorage.setItem(overridesKey, JSON.stringify({ ...existing, ...local }))
       } catch { /* ignore */ }
       setSaveSuccess(true)
       setTimeout(() => setSaveSuccess(false), 3000)
@@ -183,7 +187,7 @@ export default function Settings() {
         </button>
       </div>
 
-      {(isDemoMode || !backendAvailable) && (
+      {isDemoSession && (
         <div className="flex items-center gap-4 p-4 rounded-card bg-brand/5 border border-brand/20">
           <div className="grid place-items-center w-10 h-10 rounded-btn bg-brand/10 shrink-0">
             <Shield size={20} className="text-brand" />

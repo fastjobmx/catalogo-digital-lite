@@ -10,6 +10,7 @@ import ProductCard from '../components/ProductCard'
 import { buildWhatsAppOrderMessage, whatsappLink } from '../lib/whatsapp'
 import { createOrder, getProduct, type ProductApi } from '../services/api'
 import { resolveImageUrl } from '../lib/imageSources'
+import { IS_PUBLIC_DEMO } from '../lib/publicDemo'
 
 type ProductLookup =
   | { sku: string; status: 'loading' }
@@ -173,6 +174,10 @@ export default function ProductPage() {
   }
 
   const handleProductWhatsApp = async () => {
+    if (IS_PUBLIC_DEMO) {
+      setWhatsappNotice('Esta demo no acepta pedidos ni pagos.')
+      return
+    }
     if (!variant || soldOut || whatsappBusy) return
     const phone = store.whatsappOrders || store.whatsappPhone
     if (!whatsappLink(phone)) {
@@ -434,7 +439,7 @@ export default function ProductPage() {
               {added ? (<><Check size={18} /> Añadido al carrito</>) : soldOut ? 'Agotado' : 'Añadir al carrito'}
             </button>
 
-            <button
+            {!IS_PUBLIC_DEMO && <button
               type="button"
               onClick={() => void handleProductWhatsApp()}
               disabled={soldOut || whatsappBusy}
@@ -444,12 +449,14 @@ export default function ProductPage() {
             >
               <MessageCircle size={18} fill="currentColor" />
               <span>{whatsappBusy ? 'Verificando…' : 'Pedir por WhatsApp'}</span>
-            </button>
+            </button>}
           </div>
 
-          <p className="text-xs text-muted">
+          {IS_PUBLIC_DEMO
+            ? <p className="text-xs font-semibold text-muted" role="status">Producto de demostración. No se aceptan pedidos ni pagos.</p>
+            : <p className="text-xs text-muted">
             El pedido se abre en WhatsApp y no se envía hasta que tú lo confirmes en la conversación.
-          </p>
+            </p>}
           {whatsappNotice && <p className="text-xs text-muted" role="status">{whatsappNotice}</p>}
 
           {/* Garantías */}

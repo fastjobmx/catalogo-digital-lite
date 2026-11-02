@@ -1,5 +1,9 @@
 import type { ProductApi } from '../services/api'
 
+export function totalStock(product: ProductApi): number {
+  return product.variants.reduce((sum, variant) => sum + (variant.isActive ? variant.stock : 0), 0)
+}
+
 export interface CatalogFilterValues {
   minPrice: string
   maxPrice: string

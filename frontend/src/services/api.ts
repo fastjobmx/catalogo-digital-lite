@@ -7,6 +7,7 @@
 // En producción se define VITE_API_URL con la URL del Worker desplegado.
 
 import type { ThemeConfig } from '../types/theme'
+import { IS_PUBLIC_DEMO } from '../lib/publicDemo'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
 const inflightGetRequests = new Map<string, Promise<unknown>>()
@@ -17,6 +18,7 @@ interface ApiError {
 }
 
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
+ if (IS_PUBLIC_DEMO) throw new Error('La API está desactivada en esta vista de demostración.')
  const url = `${API_BASE}${path}`
  const method = (options?.method || 'GET').toUpperCase()
  const headers = new Headers(options?.headers)
