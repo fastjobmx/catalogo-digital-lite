@@ -4,7 +4,8 @@
   publish = "dist"
 
 [build.environment]
-  VITE_PUBLIC_DEMO = "true"
+  VITE_PUBLIC_DEMO = "false"
+  VITE_API_URL = "https://catalogo-lite-api.catalogo-lite-worker.workers.dev"
 
 [[redirects]]
   from = "/*"

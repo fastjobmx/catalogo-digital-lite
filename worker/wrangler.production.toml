@@ -10,7 +10,7 @@ STORE_NAME = "SneakerHub Premium"
 STORE_CURRENCY = "COP"
 STORE_COUNTRY = "CO"
 ALLOWED_ORIGIN = "https://catalogo-digital-ia.netlify.app"
-COMMERCE_ENABLED = "false"
+COMMERCE_ENABLED = "true"
 
 [[d1_databases]]
 binding = "DB"
