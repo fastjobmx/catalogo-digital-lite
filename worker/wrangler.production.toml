@@ -1,0 +1,23 @@
+name = "catalogo-lite-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-05"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[vars]
+ENVIRONMENT = "production"
+STORE_NAME = "SneakerHub Premium"
+STORE_CURRENCY = "COP"
+STORE_COUNTRY = "CO"
+ALLOWED_ORIGIN = "https://catalogo-digital-ia.netlify.app"
+COMMERCE_ENABLED = "false"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "catalogo-lite-production-db"
+database_id = "10b10054-9e28-4346-8b2b-a19323ed27f3"
+migrations_dir = "../database/migrations"
+
+[[r2_buckets]]
+binding = "ASSETS"
+bucket_name = "catalogo-lite-production-assets"

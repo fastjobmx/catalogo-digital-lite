@@ -15,17 +15,20 @@ export type Env = {
  Bindings: {
  DB: D1Database
  ASSETS?: R2Bucket
- ENVIRONMENT: string
+ ENVIRONMENT?: string
  STORE_NAME: string
  STORE_CURRENCY: string
  STORE_COUNTRY: string
  JWT_SECRET?: string
  ADMIN_EMAIL?: string
  ADMIN_PASSWORD?: string
+ ADMIN_PASSWORD_HASH?: string
+ COMMERCE_ENABLED?: string
  TELEGRAM_BOT_TOKEN?: string
  TELEGRAM_WEBHOOK_SECRET?: string
  TELEGRAM_WEBHOOK_URL?: string
  TELEGRAM_OWNER_ID?: string
+ TELEGRAM_ENV_LABEL?: string
  GEMINI_API_KEY?: string
  GEMINI_MODEL?: string
  ALLOWED_ORIGIN?: string
@@ -43,7 +46,7 @@ app.use('*', logger())
 app.use('*', prettyJSON())
 app.use('*', cors({
  origin: (origin, c) => {
-   const defaults = [
+   const defaults = String(c.env.ENVIRONMENT || '').toLowerCase() === 'production' ? [] : [
      'http://localhost:5173',
      'http://localhost:5174',
      'http://localhost:8788',

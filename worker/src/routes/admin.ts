@@ -1,27 +1,42 @@
 import { Hono } from 'hono'
 import type { Env } from '../index'
 import { adminAuth } from '../middleware/auth'
-import { createAdminToken, validateCredentials, getJwtSecret } from '../services/auth'
+import { createAdminToken, validateCredentials, getJwtSecret, isAuthConfigurationReady } from '../services/auth'
+import { createCatalogCategory, createCatalogProduct, deactivateCatalogCategory, updateCatalogCategory, updateCatalogProduct, updateStoreConfiguration, updateVariantStocksById } from '../services/business'
 import { normalizeStoreBody } from '../lib/storeMap'
+import { clearAdminLoginFailures, isAdminLoginBlocked, recordAdminLoginFailure } from '../services/loginRateLimit'
 
 const app = new Hono<Env>()
 
 // POST /api/admin/login - Autenticación con JWT real
 app.post('/login', async (c) => {
- const body = await c.req.json().catch(() => null)
- const email = body?.email as string | undefined
- const password = body?.password as string | undefined
+ if (!isAuthConfigurationReady(c.env)) {
+ return c.json({ error: 'Authentication service is not configured' }, 503)
+ }
 
- if (!email || !password) {
+ const body = await c.req.json().catch(() => null)
+ const email = typeof body?.email === 'string' ? body.email : undefined
+ const password = typeof body?.password === 'string' ? body.password : undefined
+
+ if (!email || !password || email.length > 320 || password.length > 1024) {
  return c.json({ error: 'Email and password required' }, 400)
+ }
+
+ const clientIp = c.req.header('CF-Connecting-IP') || 'unknown'
+ if (await isAdminLoginBlocked(c.env.DB, clientIp, email)) {
+ return c.json({ error: 'Too many failed login attempts. Try again later.' }, 429, { 'Retry-After': '900' })
  }
 
  const isValid = await validateCredentials(email, password, c.env)
  if (!isValid) {
+ await recordAdminLoginFailure(c.env.DB, clientIp, email)
  return c.json({ error: 'Invalid credentials' }, 401)
  }
 
+ await clearAdminLoginFailures(c.env.DB, clientIp, email)
+
  const secret = getJwtSecret(c.env)
+ if (!secret) return c.json({ error: 'Authentication service is not configured' }, 503)
  const token = await createAdminToken(email, secret)
 
  // Audit log
@@ -63,45 +78,14 @@ app.put('/store', adminAuth, async (c) => {
  return c.json({ error: 'Invalid JSON body' }, 400)
  }
 
- const db = c.env.DB
- const allowedFields = [
- 'name', 'description', 'slogan', 'business_type', 'logo_url', 'favicon_url',
- 'cover_image_url', 'primary_color', 'secondary_color', 'accent_color',
- 'button_color', 'whatsapp_phone', 'whatsapp_orders', 'phone', 'email',
- 'address', 'hours', 'instagram', 'facebook', 'tiktok', 'maps_url',
- 'currency', 'country', 'delivery_methods', 'pickup_available',
- 'payment_info', 'default_whatsapp_message', 'theme_config',
- ]
-
  const normalized = normalizeStoreBody(body as Record<string, unknown>)
- const updates: string[] = []
- const values: any[] = []
-
- for (const field of allowedFields) {
- if (field in normalized) {
- updates.push(`${field} = ?`)
- values.push(normalized[field])
- }
- }
-
- if (updates.length === 0) {
+ const updated = await updateStoreConfiguration(c.env.DB, normalized, {
+ actor: c.get('adminEmail') || 'unknown', source: 'admin',
+ })
+ if (updated === 0) {
  return c.json({ error: 'No valid fields to update' }, 400)
  }
-
- updates.push("updated_at = datetime('now')")
- values.push(1)
-
- await db.prepare(
- `UPDATE store_config SET ${updates.join(', ')} WHERE id = ?`
- ).bind(...values).run()
-
- const adminEmail = c.get('adminEmail') || 'unknown'
- await db.prepare(
- `INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source)
- VALUES ('store_updated', 'store', '1', ?, ?, 'admin')`
- ).bind(JSON.stringify(body), adminEmail).run()
-
- return c.json({ success: true, updated: updates.length - 1 })
+ return c.json({ success: true, updated })
 })
 
 // ============================================
@@ -112,12 +96,8 @@ app.put('/store', adminAuth, async (c) => {
 app.post('/telegram/link-code', adminAuth, async (c) => {
  const db = c.env.DB
 
- // Generate a 6-character alphanumeric code
- const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789' // No ambiguous chars (0/O, 1/I)
- let code = ''
- for (let i = 0; i < 6; i++) {
- code += chars[Math.floor(Math.random() * chars.length)]
- }
+ // Generate a short-lived, high-entropy code using the platform CSPRNG.
+ const code = crypto.randomUUID().replaceAll('-', '')
 
  // Code expires in 10 minutes
  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString()
@@ -165,58 +145,15 @@ app.post('/products', adminAuth, async (c) => {
  return c.json({ error: 'SKU and name are required' }, 400)
  }
 
- const db = c.env.DB
-
- // Verificar SKU único
- const existing = await db.prepare('SELECT id FROM products WHERE sku = ?').bind(body.sku).first()
- if (existing) {
- return c.json({ error: 'SKU already exists' }, 409)
+ try {
+ const product = await createCatalogProduct(c.env.DB, body, {
+ actor: c.get('adminEmail') || 'unknown', source: 'admin',
+ })
+ return c.json(product, 201)
+ } catch (error) {
+ if (error instanceof Error && error.message === 'SKU_ALREADY_EXISTS') return c.json({ error: 'SKU already exists' }, 409)
+ throw error
  }
-
- const result = await db.prepare(`
- INSERT INTO products (sku, name, description, brand, category_id, price, compare_at_price, is_featured, image_urls)
- VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
- `).bind(
- body.sku,
- body.name,
- body.description || '',
- body.brand || null,
- body.categoryId || null,
- body.price || 0,
- body.compareAtPrice || null,
- body.isFeatured ? 1 : 0,
- JSON.stringify(body.imageUrls || [])
- ).run()
-
- const productId = result.meta.last_row_id as number
-
- // Insertar variantes si se proporcionan
- if (body.variants && Array.isArray(body.variants)) {
- for (let i = 0; i < body.variants.length; i++) {
- const v = body.variants[i]
- await db.prepare(`
- INSERT INTO product_variants (product_id, sku, name, size, color, price_override, stock, sort_order)
- VALUES (?, ?, ?, ?, ?, ?, ?, ?)
- `).bind(
- productId,
- v.sku || `${body.sku}-${i + 1}`,
- v.name || '',
- v.size || null,
- v.color || null,
- v.priceOverride || null,
- v.stock || 0,
- v.sortOrder || i
- ).run()
- }
- }
-
- const adminEmail = c.get('adminEmail') || 'unknown'
- await db.prepare(
- `INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source)
- VALUES ('product_created', 'product', ?, ?, ?, 'admin')`
- ).bind(String(productId), JSON.stringify({ sku: body.sku }), adminEmail).run()
-
- return c.json({ id: productId, sku: body.sku }, 201)
 })
 
 // PUT /api/admin/products/:id - Actualizar producto
@@ -227,37 +164,12 @@ app.put('/products/:id', adminAuth, async (c) => {
  return c.json({ error: 'Invalid request' }, 400)
  }
 
- const db = c.env.DB
- const allowedFields = ['name', 'description', 'brand', 'category_id', 'price', 'compare_at_price', 'is_featured', 'image_urls', 'is_active']
- const updates: string[] = []
- const values: any[] = []
-
- for (const field of allowedFields) {
- if (field in body) {
- const snakeField = field.replace(/([A-Z])/g, '_$1').toLowerCase()
- updates.push(`${snakeField} = ?`)
- let val = body[field]
- if (field === 'image_urls' && Array.isArray(val)) val = JSON.stringify(val)
- if (field === 'is_featured' || field === 'is_active') val = val ? 1 : 0
- values.push(val)
- }
- }
-
- if (updates.length === 0) {
+ const updated = await updateCatalogProduct(c.env.DB, { id }, body as Record<string, unknown>, {
+ actor: c.get('adminEmail') || 'unknown', source: 'admin',
+ })
+ if (!updated) {
  return c.json({ error: 'No valid fields to update' }, 400)
  }
-
- updates.push("updated_at = datetime('now')")
- values.push(id)
-
- await db.prepare(`UPDATE products SET ${updates.join(', ')} WHERE id = ?`).bind(...values).run()
-
- const adminEmail = c.get('adminEmail') || 'unknown'
- await db.prepare(
- `INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source)
- VALUES ('product_updated', 'product', ?, ?, ?, 'admin')`
- ).bind(String(id), JSON.stringify(body), adminEmail).run()
-
  return c.json({ success: true, id })
 })
 
@@ -290,23 +202,15 @@ app.post('/categories', adminAuth, async (c) => {
  return c.json({ error: 'Name and slug are required' }, 400)
  }
 
- const db = c.env.DB
- const existing = await db.prepare('SELECT id FROM categories WHERE slug = ?').bind(body.slug).first()
- if (existing) {
- return c.json({ error: 'Slug already exists' }, 409)
+ try {
+ const category = await createCatalogCategory(c.env.DB, body, {
+ actor: c.get('adminEmail') || 'unknown', source: 'admin',
+ })
+ return c.json(category, 201)
+ } catch (error) {
+ if (error instanceof Error && error.message === 'CATEGORY_SLUG_EXISTS') return c.json({ error: 'Slug already exists' }, 409)
+ throw error
  }
-
- const result = await db.prepare(
- `INSERT INTO categories (name, slug, description, sort_order) VALUES (?, ?, ?, ?)`
- ).bind(body.name, body.slug, body.description || '', body.sortOrder || 0).run()
-
- const adminEmail = c.get('adminEmail') || 'unknown'
- await db.prepare(
- `INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source)
- VALUES ('category_created', 'category', ?, ?, ?, 'admin')`
- ).bind(String(result.meta.last_row_id), JSON.stringify({ slug: body.slug }), adminEmail).run()
-
- return c.json({ id: result.meta.last_row_id, slug: body.slug }, 201)
 })
 
 // DELETE /api/admin/categories/:id - Desactivar categoría
@@ -316,31 +220,20 @@ app.put('/categories/:id', adminAuth, async (c) => {
  const name = typeof body?.name === 'string' ? body.name.trim() : ''
  const slug = typeof body?.slug === 'string' ? body.slug.trim() : ''
  if (!Number.isInteger(id) || id <= 0 || !name || !slug) return c.json({ error: 'Valid category name and slug are required' }, 400)
- const db = c.env.DB
- const current = await db.prepare('SELECT id FROM categories WHERE id = ? AND is_active = 1').bind(id).first()
- if (!current) return c.json({ error: 'Category not found' }, 404)
- const duplicate = await db.prepare('SELECT id FROM categories WHERE slug = ? AND id != ?').bind(slug, id).first()
- if (duplicate) return c.json({ error: 'Slug already exists' }, 409)
- await db.prepare("UPDATE categories SET name = ?, slug = ?, updated_at = datetime('now') WHERE id = ?").bind(name, slug, id).run()
- const adminEmail = c.get('adminEmail') || 'unknown'
- await db.prepare(`INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source) VALUES ('category_updated', 'category', ?, ?, ?, 'admin')`).bind(String(id), JSON.stringify({ name, slug }), adminEmail).run()
+ try {
+ await updateCatalogCategory(c.env.DB, id, { name, slug }, { actor: c.get('adminEmail') || 'unknown', source: 'admin' })
+ } catch (error) {
+ if (error instanceof Error && error.message === 'CATEGORY_NOT_FOUND') return c.json({ error: 'Category not found' }, 404)
+ if (error instanceof Error && error.message === 'CATEGORY_SLUG_EXISTS') return c.json({ error: 'Slug already exists' }, 409)
+ throw error
+ }
  return c.json({ success: true, id, slug })
 })
 
 app.delete('/categories/:id', adminAuth, async (c) => {
  const id = parseInt(c.req.param('id'))
  if (isNaN(id)) return c.json({ error: 'Invalid ID' }, 400)
-
- await c.env.DB.prepare(
- `UPDATE categories SET is_active = 0, updated_at = datetime('now') WHERE id = ?`
- ).bind(id).run()
-
- const adminEmail = c.get('adminEmail') || 'unknown'
- await c.env.DB.prepare(
- `INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source)
- VALUES ('category_deactivated', 'category', ?, '{}', ?, 'admin')`
- ).bind(String(id), adminEmail).run()
-
+ await deactivateCatalogCategory(c.env.DB, id, { actor: c.get('adminEmail') || 'unknown', source: 'admin' })
  return c.json({ success: true, deactivated: id })
 })
 
@@ -348,11 +241,15 @@ app.put('/products/:id/variants', adminAuth, async (c) => {
   const id = parseInt(c.req.param('id'))
   const body = await c.req.json().catch(() => null)
   if (!body?.variants || isNaN(id)) return c.json({ error: 'Invalid request' }, 400)
-  const db = c.env.DB
-  const statements = (body.variants as Array<{ id: number; stock: number }>).map((v) =>
-    db.prepare('UPDATE product_variants SET stock = ?, updated_at = datetime(\'now\') WHERE id = ? AND product_id = ?').bind(v.stock, v.id, id),
-  )
-  await db.batch(statements)
+  const updates = body.variants as Array<{ id: number; stock: number }>
+  const variants = await c.env.DB.prepare('SELECT id FROM product_variants WHERE product_id = ?').bind(id).all<{ id: number }>()
+  const ownedIds = new Set((variants.results || []).map((variant) => variant.id))
+  if (updates.some((variant) => !ownedIds.has(variant.id) || !Number.isInteger(variant.stock) || variant.stock < 0)) {
+    return c.json({ error: 'Invalid variant or stock value' }, 400)
+  }
+  await updateVariantStocksById(c.env.DB, updates, {
+    actor: c.get('adminEmail') || 'unknown', source: 'admin',
+  }, { productId: id, variants: updates })
   return c.json({ success: true })
 })
 

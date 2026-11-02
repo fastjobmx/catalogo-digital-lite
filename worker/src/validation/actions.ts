@@ -33,7 +33,7 @@ export const actionSchemas = {
   restore_product: z.object({ sku: z.string().min(1) }),
   update_stock: z.object({
     sku: z.string().min(1),
-    size: z.string().optional(),
+    size: z.string().min(1),
     stock: z.number().int().nonnegative(),
   }),
   update_price: z.object({

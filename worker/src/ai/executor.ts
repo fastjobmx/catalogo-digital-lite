@@ -1,4 +1,5 @@
 import { actionSchemas, type ActionName } from '../validation/actions'
+import { createCatalogCategory, createCatalogProduct, deactivateCatalogCategory, updateCatalogCategory, updateCatalogProduct, updateProductInventory, updateProductPrice, updateStoreConfiguration } from '../services/business'
 
 export async function executeAction(
   db: D1Database,
@@ -11,6 +12,7 @@ export async function executeAction(
     return { ok: false, message: parsed.error.issues.map((i) => i.message).join(', ') }
   }
   const p = parsed.data as Record<string, unknown>
+  const context = { actor, source: 'telegram' as const }
 
   const audit = async (entity: string, id: string, payload: unknown) => {
     await db.prepare(
@@ -21,51 +23,29 @@ export async function executeAction(
   switch (action) {
     case 'create_product': {
       const sku = String(p.sku)
-      const existing = await db.prepare('SELECT id, name FROM products WHERE sku = ?').bind(sku).first()
-      if (existing) {
-        return { ok: false, message: `El SKU ${sku} ya existe (${(existing as { name: string }).name}). Ofrece actualizarlo en lugar de duplicarlo.` }
+      try {
+        const result = await createCatalogProduct(db, p as Parameters<typeof createCatalogProduct>[1], context)
+        const variants = (p.variants as Array<{ stock: number }>) || []
+        const total = variants.reduce((sum, variant) => sum + variant.stock, 0)
+        return { ok: true, message: `Producto ${sku} publicado con ${variants.length} variantes y ${total} unidades.`, data: result }
+      } catch (error) {
+        if (error instanceof Error && error.message === 'SKU_ALREADY_EXISTS') {
+          const existing = await db.prepare('SELECT name FROM products WHERE sku = ?').bind(sku).first()
+          return { ok: false, message: `El SKU ${sku} ya existe (${(existing as { name: string } | null)?.name || 'sin nombre'}). Ofrece actualizarlo en lugar de duplicarlo.` }
+        }
+        throw error
       }
-      const result = await db.prepare(
-        `INSERT INTO products (sku, name, description, brand, category_id, price, compare_at_price, is_featured, image_urls)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).bind(
-        sku,
-        String(p.name),
-        String(p.description || ''),
-        p.brand ? String(p.brand) : null,
-        typeof p.categoryId === 'number' ? p.categoryId : null,
-        Number(p.price),
-        p.compareAtPrice ?? null,
-        p.isFeatured ? 1 : 0,
-        JSON.stringify(p.imageUrls || []),
-      ).run()
-      const productId = result.meta.last_row_id as number
-      const variants = (p.variants as Array<{ sku?: string; name?: string; size?: string; color?: string; stock: number }>) || []
-      const statements = variants.map((v, i) =>
-        db.prepare(
-          `INSERT INTO product_variants (product_id, sku, name, size, color, stock, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        ).bind(productId, v.sku || `${sku}-${i + 1}`, v.name || v.size || '', v.size || null, v.color || null, v.stock, i),
-      )
-      if (statements.length) await db.batch(statements)
-      await audit('product', String(productId), { sku })
-      const total = variants.reduce((s, v) => s + v.stock, 0)
-      return { ok: true, message: `Producto ${sku} publicado con ${variants.length} variantes y ${total} unidades.` }
     }
-    case 'update_product':
     case 'update_price': {
       const sku = String(p.sku)
-      const fields: string[] = []
-      const values: unknown[] = []
-      if (p.name) { fields.push('name = ?'); values.push(p.name) }
-      if (p.description) { fields.push('description = ?'); values.push(p.description) }
-      if (p.price !== undefined) { fields.push('price = ?'); values.push(p.price) }
-      if (p.isFeatured !== undefined) { fields.push('is_featured = ?'); values.push(p.isFeatured ? 1 : 0) }
-      if (!fields.length) return { ok: false, message: 'Nada que actualizar' }
-      fields.push("updated_at = datetime('now')")
-      values.push(sku)
-      await db.prepare(`UPDATE products SET ${fields.join(', ')} WHERE sku = ?`).bind(...values).run()
-      await audit('product', sku, p)
-      return { ok: true, message: `Producto ${sku} actualizado.` }
+      const updated = await updateProductPrice(db, sku, Number(p.price), context)
+      return updated ? { ok: true, message: `Precio de ${sku} actualizado.` } : { ok: false, message: `No se encontró un producto activo con SKU ${sku}.` }
+    }
+    case 'update_product': {
+      const sku = String(p.sku)
+      const fields = Object.fromEntries(Object.entries(p).filter(([key]) => key !== 'sku'))
+      const updated = await updateCatalogProduct(db, { sku }, fields, context)
+      return updated ? { ok: true, message: `Producto ${sku} actualizado.` } : { ok: false, message: 'Producto no encontrado o sin campos válidos.' }
     }
     case 'archive_product':
       await db.prepare(`UPDATE products SET is_archived = 1, is_active = 0, updated_at = datetime('now') WHERE sku = ?`).bind(String(p.sku)).run()
@@ -76,32 +56,33 @@ export async function executeAction(
       await audit('product', String(p.sku), p)
       return { ok: true, message: `Producto ${p.sku} restaurado.` }
     case 'update_stock': {
-      if (p.size) {
-        await db.prepare(
-          `UPDATE product_variants SET stock = ?, updated_at = datetime('now')
-           WHERE sku = ? OR (size = ? AND product_id = (SELECT id FROM products WHERE sku = ?))`,
-        ).bind(p.stock, `${p.sku}-${p.size}`, p.size, p.sku).run()
-      } else {
-        await db.prepare(
-          `UPDATE product_variants SET stock = ?, updated_at = datetime('now') WHERE product_id = (SELECT id FROM products WHERE sku = ?)`,
-        ).bind(p.stock, p.sku).run()
-      }
-      await audit('variant', String(p.sku), p)
-      return { ok: true, message: 'Stock actualizado.' }
+      const changes = await updateProductInventory(db, String(p.sku), Number(p.stock), context, p.size ? String(p.size) : undefined)
+      return changes ? { ok: true, message: 'Stock actualizado.', data: { variants: changes } } : { ok: false, message: 'No se encontró el producto o variante solicitados.' }
     }
     case 'create_category': {
       const name = String(p.name)
       const slug = String(p.slug || name.toLowerCase().replace(/[^a-z0-9]+/g, '-'))
-      await db.prepare('INSERT INTO categories (name, slug) VALUES (?, ?)').bind(name, slug).run()
-      await audit('category', slug, p)
-      return { ok: true, message: `Categoría ${name} creada.` }
+      try {
+        await createCatalogCategory(db, { name, slug }, context)
+        return { ok: true, message: `Categoría ${name} creada.` }
+      } catch (error) {
+        if (error instanceof Error && error.message === 'CATEGORY_SLUG_EXISTS') return { ok: false, message: `La categoría ${slug} ya existe.` }
+        throw error
+      }
     }
-    case 'update_category':
-      await db.prepare('UPDATE categories SET name = ?, updated_at = datetime(\'now\') WHERE id = ?').bind(p.name, p.id).run()
-      return { ok: true, message: 'Categoría actualizada.' }
-    case 'delete_category':
-      await db.prepare('UPDATE categories SET is_active = 0 WHERE id = ?').bind(p.id).run()
-      return { ok: true, message: 'Categoría desactivada.' }
+    case 'update_category': {
+      try {
+        await updateCatalogCategory(db, Number(p.id), { name: String(p.name) }, context)
+        return { ok: true, message: 'Categoría actualizada.' }
+      } catch (error) {
+        if (error instanceof Error && error.message === 'CATEGORY_NOT_FOUND') return { ok: false, message: 'Categoría no encontrada.' }
+        throw error
+      }
+    }
+    case 'delete_category': {
+      const changed = await deactivateCatalogCategory(db, Number(p.id), context)
+      return changed ? { ok: true, message: 'Categoría desactivada.' } : { ok: false, message: 'Categoría no encontrada o ya inactiva.' }
+    }
     case 'set_featured_products': {
       const skus = p.skus as string[]
       await db.prepare('UPDATE products SET is_featured = 0').run()
@@ -111,35 +92,44 @@ export async function executeAction(
       return { ok: true, message: 'Destacados actualizados.' }
     }
     case 'update_store_name':
-      await db.prepare('UPDATE store_config SET name = ?, updated_at = datetime(\'now\') WHERE id = 1').bind(p.name).run()
+      await updateStoreConfiguration(db, { name: p.name }, context)
       return { ok: true, message: 'Nombre de tienda actualizado.' }
     case 'update_store_colors': {
-      if (p.primaryColor) await db.prepare('UPDATE store_config SET primary_color = ? WHERE id = 1').bind(normalizeHex(String(p.primaryColor))).run()
-      if (p.secondaryColor) await db.prepare('UPDATE store_config SET secondary_color = ? WHERE id = 1').bind(normalizeHex(String(p.secondaryColor))).run()
+      await updateStoreConfiguration(db, {
+        ...(p.primaryColor ? { primary_color: normalizeHex(String(p.primaryColor)) } : {}),
+        ...(p.secondaryColor ? { secondary_color: normalizeHex(String(p.secondaryColor)) } : {}),
+        ...(p.accentColor ? { accent_color: normalizeHex(String(p.accentColor)) } : {}),
+      }, context)
       return { ok: true, message: 'Colores actualizados.' }
     }
     case 'update_store_logo':
-      await db.prepare('UPDATE store_config SET logo_url = ? WHERE id = 1').bind(p.logoUrl).run()
+      await updateStoreConfiguration(db, { logo_url: p.logoUrl }, context)
       return { ok: true, message: 'Logotipo actualizado.' }
     case 'update_store_banner':
-      await db.prepare('UPDATE store_config SET cover_image_url = ? WHERE id = 1').bind(p.coverImageUrl).run()
+      await updateStoreConfiguration(db, { cover_image_url: p.coverImageUrl }, context)
       return { ok: true, message: 'Portada actualizada.' }
     case 'update_whatsapp':
-      await db.prepare('UPDATE store_config SET whatsapp_phone = ?, whatsapp_orders = ? WHERE id = 1').bind(p.whatsappPhone, p.whatsappPhone).run()
+      await updateStoreConfiguration(db, { whatsapp_phone: p.whatsappPhone, whatsapp_orders: p.whatsappPhone }, context)
       return { ok: true, message: 'WhatsApp actualizado.' }
     case 'update_business_hours':
-      await db.prepare('UPDATE store_config SET hours = ? WHERE id = 1').bind(p.hours).run()
+      await updateStoreConfiguration(db, { hours: p.hours }, context)
       return { ok: true, message: 'Horarios actualizados.' }
     case 'update_business_info': {
-      if (p.address) await db.prepare('UPDATE store_config SET address = ? WHERE id = 1').bind(p.address).run()
-      if (p.phone) await db.prepare('UPDATE store_config SET phone = ? WHERE id = 1').bind(p.phone).run()
-      if (p.email) await db.prepare('UPDATE store_config SET email = ? WHERE id = 1').bind(p.email).run()
+      await updateStoreConfiguration(db, {
+        ...(p.address ? { address: p.address } : {}),
+        ...(p.phone ? { phone: p.phone } : {}),
+        ...(p.email ? { email: p.email } : {}),
+      }, context)
       return { ok: true, message: 'Datos comerciales actualizados.' }
     }
     case 'get_inventory': {
       const rows = await db.prepare(
-        `SELECT p.sku as product_sku, p.name, v.sku, v.size, v.stock FROM product_variants v JOIN products p ON p.id = v.product_id WHERE p.is_archived = 0 LIMIT 50`,
-      ).all()
+        `SELECT p.sku as product_sku, p.name, v.sku, v.size, v.stock
+         FROM product_variants v JOIN products p ON p.id = v.product_id
+         WHERE p.is_active = 1 AND p.is_archived = 0 AND v.is_active = 1
+           AND (? IS NULL OR p.sku = ?)
+         ORDER BY p.sku, v.size, v.sku LIMIT 50`,
+      ).bind(p.sku ?? null, p.sku ?? null).all()
       return { ok: true, message: JSON.stringify(rows.results || [], null, 2) }
     }
     case 'get_products': {

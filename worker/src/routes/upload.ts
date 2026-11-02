@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import type { Env } from '../index'
 import { adminAuth } from '../middleware/auth'
+import { uploadStoreImage } from '../services/business'
 
 const app = new Hono<Env>()
 
@@ -25,34 +26,21 @@ app.post('/image', adminAuth, async (c) => {
  return c.json({ error: 'File too large. Max 5MB' }, 400)
  }
 
- // Generar nombre único
- const ext = file.name.split('.').pop() || 'jpg'
- const timestamp = Date.now()
- const random = Math.random().toString(36).substring(2, 8)
- const key = `${folder}/${timestamp}-${random}.${ext}`
-
  try {
  // Intentar subir a R2 si está disponible
  if (c.env.ASSETS) {
- const arrayBuffer = await file.arrayBuffer()
- await c.env.ASSETS.put(key, arrayBuffer, {
- httpMetadata: { contentType: file.type },
- customMetadata: {
- originalName: file.name,
- uploadedAt: new Date().toISOString(),
- },
- })
+ const asset = await uploadStoreImage(c.env.ASSETS, file, folder)
 
  // URL pública via R2 public bucket o worker proxy
- const url = `/api/assets/${key}`
- return c.json({ url, key, size: file.size, type: file.type })
+ const url = `/api/assets/${asset.key}`
+ return c.json({ url, ...asset })
  }
 
  // Fallback para desarrollo sin R2: retornar URL mock
  // En producción siempre se requiere R2 configurado
  return c.json({
  url: `https://placehold.co/800x800/0057FF/FFFFFF?text=${encodeURIComponent(file.name)}`,
- key,
+ key: `${folder}/${file.name}`,
  size: file.size,
  type: file.type,
  warning: 'R2 not configured. Using placeholder URL. Configure ASSETS binding for production.',

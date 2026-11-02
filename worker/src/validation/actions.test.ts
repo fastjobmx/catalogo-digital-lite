@@ -52,8 +52,13 @@ describe('actionSchemas / parseActionPayload', () => {
   })
 
   it('rechaza stock negativo', () => {
-    const parsed = actionSchemas.update_stock.safeParse({ sku: 'X', stock: -5 })
+    const parsed = actionSchemas.update_stock.safeParse({ sku: 'X', size: '38', stock: -5 })
     expect(parsed.success).toBe(false)
+  })
+
+  it('requires a specific variant size for stock changes', () => {
+    expect(actionSchemas.update_stock.safeParse({ sku: 'X', stock: 6 }).success).toBe(false)
+    expect(actionSchemas.update_stock.safeParse({ sku: 'X', size: '38', stock: 6 }).success).toBe(true)
   })
 
   it('valida el formato hexadecimal de los colores de marca', () => {

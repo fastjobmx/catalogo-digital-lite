@@ -16,7 +16,16 @@ function appWithDb(duplicateSlug: boolean) {
       run: async () => ({ success: true }),
     }),
   }
-  return { app, env: { DB: db, JWT_SECRET: SECRET } as unknown as Env['Bindings'] }
+  return {
+    app,
+    env: {
+      DB: db,
+      JWT_SECRET: SECRET,
+      ADMIN_EMAIL: 'admin@local.test',
+      ADMIN_PASSWORD: 'test-password',
+      ENVIRONMENT: 'test',
+    } as unknown as Env['Bindings'],
+  }
 }
 
 describe('PUT /api/admin/categories/:id', () => {
