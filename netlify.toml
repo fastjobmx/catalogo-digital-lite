@@ -8,6 +8,12 @@
   VITE_API_URL = "https://catalogo-lite-api.catalogo-lite-worker.workers.dev"
 
 [[redirects]]
+  from = "/api/assets/*"
+  to = "https://catalogo-lite-api.catalogo-lite-worker.workers.dev/api/assets/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
