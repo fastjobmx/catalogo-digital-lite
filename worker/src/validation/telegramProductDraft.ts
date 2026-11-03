@@ -114,6 +114,8 @@ export function parseProductDraftFieldReply(
   draft: TelegramProductDraft,
 ): { draft: TelegramProductDraft; error?: string } {
   const value = text.trim()
+  // Codes, prices and stock lists often arrive with a closing period or emoji-free punctuation.
+  const compact = value.replace(/[\s.!¡¿?]+$/u, '')
   const next = structuredClone(draft)
   delete next.awaiting
   delete next.editField
@@ -121,28 +123,31 @@ export function parseProductDraftFieldReply(
     if (value.length < 2 || value.length > 120) return { draft, error: 'El nombre debe tener entre 2 y 120 caracteres.' }
     next.fields.name = value
   } else if (field === 'sku') {
-    const sku = value.replace(/^(?:sku|referencia)\s*[:#-]?\s*/i, '').toUpperCase()
+    const sku = compact.replace(/^(?:sku|referencia|c[oó]digo)\s*[:#-]?\s*/i, '').toUpperCase()
     if (!/^[A-Z0-9][A-Z0-9._-]{2,63}$/.test(sku)) return { draft, error: 'Escribe un SKU de 3 a 64 caracteres con letras, números, guion, punto o guion bajo.' }
     next.fields.sku = sku
   } else if (field === 'description') {
     if (value.length < 3 || value.length > 2000) return { draft, error: 'La descripción debe tener entre 3 y 2000 caracteres.' }
     next.fields.description = value
   } else if (field === 'price') {
-    const thousands = value.match(/^\$?\s*(\d{1,4})\s*mil(?:\s*pesos)?$/i)
+    const thousands = compact.match(/^\$?\s*(\d{1,4})\s*mil(?:\s*pesos)?$/i)
     if (thousands) {
       next.fields.price = Number(thousands[1]) * 1000
       return { draft: next }
     }
-    const formatted = value.replace(/(?:pesos|peso|cop|\$|\s)/gi, '')
+    const formatted = compact.replace(/(?:pesos|peso|cop|\$|\s)/gi, '')
     if (!/^(?:\d+|\d{1,3}(?:[.,]\d{3})+)$/.test(formatted)) return { draft, error: 'Indica un precio entero válido, por ejemplo 250000 o 250.000.' }
     const digits = formatted.replace(/[.,]/g, '')
     const price = Number(digits)
     if (!Number.isSafeInteger(price) || price <= 0) return { draft, error: 'Indica un precio entero válido, por ejemplo 250000.' }
     next.fields.price = price
   } else if (field === 'variants') {
-    const variants = parseVariantStockReply(value, draft.variants, draft.defaultColor)
-    if (!variants) return { draft, error: 'Usa el formato talla:stock, por ejemplo 38:3, 39:2. Si hay varios colores, indica “Negro talla 38:3”.' }
-    next.variants = variants
+    const fallbackColor = draft.defaultColor || inferColor(`${draft.fields.name || ''} ${draft.hint || ''}`)
+    const result = parseVariantStockReply(compact, draft.variants, fallbackColor)
+    if ('unreadable' in result) {
+      return { draft, error: `No entendí “${result.unreadable}”. Escribe cada talla con sus unidades, por ejemplo: 38:3, 39:2 (o Negro talla 38:3 si hay varios colores). Si es talla única, escribe solo la cantidad.` }
+    }
+    next.variants = result.variants
   } else if (field === 'category') {
     const categoryName = value.replace(/^categor[ií]a\s*[:=-]?\s*/i, '').trim()
     if (categoryName.length < 1 || categoryName.length > 80) return { draft, error: 'Indica el nombre de una categoría existente.' }
@@ -152,12 +157,33 @@ export function parseProductDraftFieldReply(
   return { draft: next }
 }
 
-function parseVariantStockReply(text: string, previous: TelegramProductDraft['variants'], defaultColor?: string): TelegramProductDraft['variants'] | null {
+const COLOR_WORDS: Array<[RegExp, string]> = [
+  [/\bnegr[oa]s?\b/i, 'Negro'], [/\bblanc[oa]s?\b/i, 'Blanco'], [/\bazul(?:es)?\b/i, 'Azul'], [/\broj[oa]s?\b/i, 'Rojo'],
+  [/\bverdes?\b/i, 'Verde'], [/\bgris(?:es)?\b/i, 'Gris'], [/\bbeige\b/i, 'Beige'], [/\b(?:caf[eé]|marr[oó]n(?:es)?)\b/i, 'Café'],
+  [/\b(?:rosad[oa]s?|rosas?)\b/i, 'Rosado'], [/\bmorad[oa]s?\b/i, 'Morado'], [/\bamarill[oa]s?\b/i, 'Amarillo'],
+  [/\bnaranjas?\b/i, 'Naranja'], [/\bdorad[oa]s?\b/i, 'Dorado'], [/\bplatead[oa]s?\b/i, 'Plateado'],
+]
+
+/** Color mentioned in the product name or the owner's words (only when exactly one). */
+export function inferColor(text: string): string | undefined {
+  const found = COLOR_WORDS.filter(([pattern]) => pattern.test(text)).map(([, color]) => color)
+  return found.length === 1 ? found[0] : undefined
+}
+
+function capitalize(value: string): string {
+  const clean = value.trim().replace(/\s+/g, ' ')
+  return clean.charAt(0).toLocaleUpperCase('es') + clean.slice(1)
+}
+
+function parseVariantStockReply(text: string, previous: TelegramProductDraft['variants'], defaultColor?: string): { variants: TelegramProductDraft['variants'] } | { unreadable: string } {
+  const knownColor = () => {
+    const colors = new Set(previous.map((variant) => variant.color).filter(Boolean))
+    return (colors.size === 1 ? previous.find((variant) => variant.color)?.color : undefined) || defaultColor || 'Único'
+  }
   // Single-size products: "10", "10 unidades", "talla única 10".
   const single = text.trim().match(/^(?:(?:talla\s+)?[uú]nica\s*[:=]?\s*)?(\d{1,6})\s*(?:unidades?|u\.?|pares?|piezas?)?$/i)
   if (single) {
-    const color = previous.find((variant) => variant.color)?.color || defaultColor || 'Único'
-    return [{ size: 'Única', color, stock: Number(single[1]) }]
+    return { variants: [{ size: 'Única', color: knownColor(), stock: Number(single[1]) }] }
   }
   // Accept explicit compact instructions such as “color: negro; tallas 38, 39
   // y 40; stock inicial: 2 unidades por talla” without asking the owner to
@@ -166,29 +192,30 @@ function parseVariantStockReply(text: string, previous: TelegramProductDraft['va
   const naturalSizes = text.match(/tallas?\s*[:=]?\s*([\d\s,;/y.-]+?)(?=\s*(?:stock|$))/iu)
   const uniformStock = text.match(/(?:stock(?:\s+inicial)?\s*[:=]?\s*)(\d+)\s*(?:unidades?\s+)?por\s+talla/iu)
   if (naturalSizes && uniformStock) {
-    const color = natural?.[1]?.replace(/^color\s*[:=]?\s*/i, '').trim()
-      || (new Set(previous.map((variant) => variant.color).filter(Boolean)).size === 1 ? previous.find((variant) => variant.color)?.color : undefined)
-      || defaultColor
+    const explicit = natural?.[1]?.replace(/^color\s*[:=]?\s*/i, '').trim()
+    const color = explicit ? capitalize(explicit) : knownColor()
     const sizes = naturalSizes[1]!.split(/[\s,;/y.-]+/i).filter(Boolean)
     const stock = Number(uniformStock[1])
-    if (color && sizes.length && Number.isSafeInteger(stock) && stock >= 0 && sizes.every((size) => /^\d{1,3}[a-z]?$/i.test(size))) {
-      return sizes.map((size) => ({ size, color, stock }))
+    if (sizes.length && Number.isSafeInteger(stock) && stock >= 0 && sizes.every((size) => /^\d{1,3}[a-z]?$/i.test(size))) {
+      return { variants: sizes.map((size) => ({ size, color, stock })) }
     }
   }
-  const entries = text.split(/[;,]+/).map((part) => part.trim()).filter(Boolean)
-  if (!entries.length) return null
-  const parsed = entries.map((entry) => {
-    const match = entry.match(/^(?:(.+?)\s+)?(?:talla\s*)?(\d{1,3}[a-z]?)\s*[:=]\s*(\d+)$/i)
-    if (!match) return null
+  // "38:22, 39:21 y 40:3", "Negro talla 38:22; Negro talla 39:21", one per line.
+  const entries = text.split(/\s*(?:[;,\n]|\s+y\s+)\s*/i).map((part) => part.replace(/[\s.!]+$/u, '').trim()).filter(Boolean)
+  if (!entries.length) return { unreadable: text.slice(0, 40) }
+  const variants: TelegramProductDraft['variants'] = []
+  for (const entry of entries) {
+    const match = entry.match(/^(?:(.+?)\s+)?(?:talla\s*)?(\d{1,3}[a-z]?)\s*[:=]\s*(\d+)\s*(?:unidades?|u\.?|pares?)?$/i)
+    if (!match) return { unreadable: entry.slice(0, 40) }
     const size = match[2]!
     const stock = Number(match[3])
-    if (!Number.isSafeInteger(stock) || stock < 0) return null
+    if (!Number.isSafeInteger(stock) || stock < 0) return { unreadable: entry.slice(0, 40) }
     const prior = previous.find((variant) => variant.size?.toLowerCase() === size.toLowerCase())
-    const color = match[1]?.trim() || prior?.color || (new Set(previous.map((variant) => variant.color).filter(Boolean)).size === 1 ? previous.find((variant) => variant.color)?.color : undefined) || defaultColor
-    if (!color) return null
-    return { size, color, stock }
-  })
-  return parsed.every(Boolean) ? parsed as TelegramProductDraft['variants'] : null
+    const written = match[1]?.replace(/\btalla\b/i, '').trim()
+    const color = written ? capitalize(written) : prior?.color || knownColor()
+    variants.push({ size, color, stock })
+  }
+  return { variants }
 }
 
 function copyText(input: Record<string, unknown>, target: Record<string, unknown>, field: string, maxLength: number): void {

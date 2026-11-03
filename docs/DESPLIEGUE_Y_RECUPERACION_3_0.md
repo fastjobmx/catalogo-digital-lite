@@ -48,6 +48,13 @@ npx wrangler d1 time-travel restore sneakerhub-telegram-staging-db --config wran
 - No se crearon pedidos ni datos y no se tocaron secretos ni webhooks.
 - Frontend 3.0 publicado (autorizado): commit `ebc2ccb` en `main` → Netlify sirvió el bundle `index-BYR7Loqy.js` (antes `index-DmZ4oTeo.js`). Verificado en navegador: la raíz muestra SneakerHub con 72 enlaces de producto y sin errores de consola; `/t/sneakerhub-premium` sirve la misma tienda con enlaces bajo su dirección; `/t/tienda-que-no-existe` muestra “Esta tienda no está disponible” sin marca de SneakerHub; `/admin/activar` rechaza un enlace inválido; `/plataforma` carga su módulo y pide iniciar sesión. Para revertir solo el frontend: “Publish deploy” del despliegue anterior en Netlify o `git revert` del commit.
 
+### Corrección del asistente — 2026-11-03 (autorizado)
+
+Fallos vistos al probar `@SneakerHubAdmin_bot`: las tallas se rechazaban con punto final o sin color, y la visión de fotos se cortaba en 600 tokens de salida (JSON incompleto). Corregido el análisis de tallas/precio/código, ampliados los límites de salida de Gemini (fotos 2.048), detectadas respuestas truncadas y registradas todas las fallas de IA en `platform_events`. Worker 162/162.
+
+- Staging: `f4ff0779` → `022cce45-92f6-4d68-8cb5-b38813ee9429` (smoke 13/13).
+- Producción: `7def7c60` → `50fac136-a110-4402-b97e-5a6c5e4f91f0` (smoke 15/15). Para revertir solo esta corrección: `npx wrangler rollback 7def7c60-24d1-4f10-8662-8098bf5faf50 --config wrangler.production.toml`.
+
 Reversión de producción si fuera necesaria (mientras solo exista la tienda 1):
 
 ```powershell

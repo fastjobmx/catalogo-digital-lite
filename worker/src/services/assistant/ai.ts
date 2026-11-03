@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { callGeminiJson, GeminiRequestError, UNTRUSTED_CONTENT_RULE, usageFromError, type GeminiPart } from '../../ai/geminiClient'
+import { callGeminiJson, geminiFailureCode, GeminiRequestError, UNTRUSTED_CONTENT_RULE, usageFromError, type GeminiPart } from '../../ai/geminiClient'
 import { interpretWithGemini, type ValidatedProposal } from '../../ai/gemini'
 import { BUDGET_MESSAGES, checkAiBudget, recordAiUsage, type TokenUsage } from '../../ai/usage'
 import { conversationContext, say, type AssistantContext } from './context'
@@ -38,11 +38,11 @@ export async function withAiBudget<T extends { usage?: TokenUsage; model?: strin
   } catch (error) {
     await recordAiUsage(ctx.db, ctx.env, { storeId: ctx.store.id, feature, usage: usageFromError(error), status: 'error' })
     const category = error instanceof GeminiRequestError ? error.category : 'request'
-    console.error('Assistant AI call failed:', feature, category)
-    if (category !== 'request' && category !== 'structured_schema') {
-      await ctx.db.prepare(`INSERT INTO platform_events (store_id, level, source, code, detail) VALUES (?, 'error', 'gemini', ?, ?)`)
-        .bind(ctx.store.id, `GEMINI_${category.toUpperCase()}`, feature).run()
-    }
+    const code = geminiFailureCode(error)
+    console.error('Assistant AI call failed:', feature, code)
+    // Every AI failure is visible to the platform (/errores) without exposing content.
+    await ctx.db.prepare(`INSERT INTO platform_events (store_id, level, source, code, detail) VALUES (?, ?, 'gemini', ?, ?)`)
+      .bind(ctx.store.id, category === 'request' || category === 'structured_schema' ? 'warning' : 'error', code, feature).run().catch(() => undefined)
     return { ok: false, message: FAILURE_MESSAGES[category] || FAILURE_MESSAGES.request! }
   }
 }
@@ -87,7 +87,7 @@ export async function analyzeProductPhotos(
         UNTRUSTED_CONTENT_RULE,
       ],
       parts,
-      maxOutputTokens: 600,
+      maxOutputTokens: 2048,
       temperature: 0.3,
       schema: {
         type: 'object',
@@ -121,7 +121,7 @@ export async function draftProductDescription(
         UNTRUSTED_CONTENT_RULE,
       ],
       parts: [{ text: JSON.stringify({ ...product, tone: product.tone || 'atractivo y profesional' }) }],
-      maxOutputTokens: 400,
+      maxOutputTokens: 1024,
       temperature: 0.6,
       schema: { type: 'object', properties: { description: { type: 'string' } }, required: ['description'] },
     })
@@ -152,7 +152,7 @@ export async function answerWithStoreFacts(
         UNTRUSTED_CONTENT_RULE,
       ],
       parts: [{ text: `Métricas de la tienda: ${JSON.stringify(facts)}\n${context ? `Conversación reciente:\n${context}\n` : ''}Pregunta: ${question.slice(0, 1000)}` }],
-      maxOutputTokens: 700,
+      maxOutputTokens: 1536,
       temperature: 0.5,
       schema: { type: 'object', properties: { answer: { type: 'string' } }, required: ['answer'] },
     })
@@ -177,7 +177,7 @@ export async function summarizeDocument(
         UNTRUSTED_CONTENT_RULE,
       ],
       parts: [{ text: `Archivo: ${document.fileName.slice(0, 120)}. ${question.slice(0, 500) || 'Resume el contenido.'}` }, { inlineData: { mimeType: document.mimeType, data: document.data } }],
-      maxOutputTokens: 800,
+      maxOutputTokens: 1536,
       temperature: 0.2,
       schema: { type: 'object', properties: { answer: { type: 'string' } }, required: ['answer'] },
     })

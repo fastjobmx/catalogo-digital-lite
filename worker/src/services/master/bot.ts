@@ -656,7 +656,7 @@ async function handleNaturalLanguage(ctx: MasterContext, text: string): Promise<
           UNTRUSTED_CONTENT_RULE,
         ],
         parts: [{ text: text.slice(0, 1000) }],
-        maxOutputTokens: 300,
+        maxOutputTokens: 1024,
         schema: {
           type: 'object',
           properties: {

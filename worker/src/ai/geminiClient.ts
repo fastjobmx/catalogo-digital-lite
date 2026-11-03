@@ -40,7 +40,7 @@ export async function callGeminiJson(
       contents: [{ role: 'user', parts: request.parts }],
       generationConfig: {
         temperature: request.temperature ?? 0,
-        maxOutputTokens: request.maxOutputTokens ?? 700,
+        maxOutputTokens: request.maxOutputTokens ?? 1536,
         responseFormat: { text: { mimeType: 'APPLICATION_JSON', schema: request.schema } },
       },
     }),
@@ -56,12 +56,21 @@ export async function callGeminiJson(
     outputTokens: Number(body.usageMetadata?.candidatesTokenCount || 0) + Number(body.usageMetadata?.thoughtsTokenCount || 0),
   }
   const raw = body.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('').trim()
-  if (!raw) throw Object.assign(new Error('Gemini returned an empty proposal'), { usage })
+  const truncated = body.candidates?.[0]?.finishReason === 'MAX_TOKENS'
+  if (!raw) throw Object.assign(new Error(truncated ? 'Gemini output truncated' : 'Gemini returned an empty proposal'), { usage, failure: truncated ? 'TRUNCATED' : 'EMPTY' })
   try {
     return { data: JSON.parse(raw.replace(/^```(?:json)?\s*|\s*```$/g, '')), usage, model }
   } catch {
-    throw Object.assign(new Error('Gemini returned malformed JSON'), { usage })
+    throw Object.assign(new Error(truncated ? 'Gemini output truncated' : 'Gemini returned malformed JSON'), { usage, failure: truncated ? 'TRUNCATED' : 'MALFORMED' })
   }
+}
+
+/** Stable, non-sensitive failure code for logs and platform events. */
+export function geminiFailureCode(error: unknown): string {
+  if (error instanceof GeminiRequestError) return `GEMINI_${error.category.toUpperCase()}`
+  const failure = (error as { failure?: string } | null)?.failure
+  if (failure) return `GEMINI_${failure}`
+  return error instanceof Error && /schema/i.test(error.message) ? 'GEMINI_INVALID_SHAPE' : 'GEMINI_REQUEST'
 }
 
 async function classifyGeminiError(response: Response): Promise<GeminiRequestError> {

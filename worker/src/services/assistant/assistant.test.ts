@@ -297,3 +297,48 @@ describe('deterministic Spanish intents', () => {
     expect(parseCatalogCsv('nombre,valor\nA,1')).toMatchObject({ error: expect.stringContaining('columnas') })
   })
 })
+
+describe('production regressions (2026-11-03)', () => {
+  it('accepts the exact stock replies that were rejected in production', async () => {
+    const telegram = stubServices()
+    await send(textUpdate(OWNER, 'Quiero agregar unos tenis'))
+    await send(photoUpdate(OWNER, 'photo-1'))
+    await send(callbackUpdate(OWNER, callbackFor(telegram, /Listo con fotos/)!))
+    await send(textUpdate(OWNER, 'Tenis Urbanos Negros'))
+    await send(textUpdate(OWNER, 'Tenis cómodos para todos los días.'))
+    await send(callbackUpdate(OWNER, callbackFor(telegram, /^Calzado$/)!))
+    await send(textUpdate(OWNER, '209.000.'))
+    expect(telegram.messages().at(-1)).toContain('unidades')
+    await send(textUpdate(OWNER, 'negro talla 38:22, negro talla 39:21, negro talla 40:32, negro talla 41:23.'))
+    expect(telegram.messages().at(-1)).not.toContain('Usa el formato')
+    expect(telegram.messages().at(-1)).toContain('SKU')
+    const draft = JSON.parse(h.db.query<{ params_json: string }>("SELECT params_json FROM telegram_operations WHERE action = 'create_product' AND status = 'pending'")[0]!.params_json)
+    expect(draft.fields.price).toBe(209000)
+    expect(draft.variants).toEqual([
+      { size: '38', color: 'Negro', stock: 22 }, { size: '39', color: 'Negro', stock: 21 },
+      { size: '40', color: 'Negro', stock: 32 }, { size: '41', color: 'Negro', stock: 23 },
+    ])
+  })
+
+  it('reports a truncated vision answer as a warning and still continues the product', async () => {
+    h.env.GEMINI_API_KEY = 'test-key'
+    let request: Record<string, any> = {}
+    const telegram = stubTelegram((url, body) => {
+      if (url.includes('generativelanguage.googleapis.com')) {
+        request = body
+        return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"name":"Tenis negros","descr' }] }, finishReason: 'MAX_TOKENS' }], usageMetadata: { promptTokenCount: 3506, candidatesTokenCount: 585 } }))
+      }
+      const png = createPng(640, 480)
+      if (url.includes('/getFile')) return new Response(JSON.stringify({ ok: true, result: { file_path: 'photos/file_1.png', file_size: png.byteLength } }))
+      if (url.includes('/file/bot')) return new Response(png, { headers: { 'content-length': String(png.byteLength) } })
+      return undefined
+    })
+    await send(textUpdate(OWNER, 'Quiero agregar unos tenis'))
+    await send(photoUpdate(OWNER, 'photo-1'))
+    await send(callbackUpdate(OWNER, callbackFor(telegram, /Listo con fotos/)!))
+    expect(request.generationConfig.maxOutputTokens).toBe(2048)
+    expect(telegram.messages().join('\n')).toContain('te pido los datos uno por uno')
+    expect(telegram.messages().at(-1)).toContain('nombre comercial')
+    expect(h.db.query("SELECT level, code, detail FROM platform_events WHERE source = 'gemini'")).toEqual([{ level: 'warning', code: 'GEMINI_TRUNCATED', detail: 'fotos_ia' }])
+  })
+})
