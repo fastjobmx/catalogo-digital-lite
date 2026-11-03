@@ -10,7 +10,7 @@ Requieren tu autorización o intervención (no se ejecutaron):
 - [ ] Staging/producción: la tienda 1 no tiene propietario como usuario de plataforma (su dueño se vincula por `TELEGRAM_OWNER_ID`); la salud lo marca pendiente. Asignarlo con `/asignar_admin` o `POST /api/platform/stores/<tienda>/owner` cuando se decida su correo.
 - [ ] Crear el **bot maestro** en BotFather y cargar `MASTER_BOT_TOKEN`, `MASTER_WEBHOOK_SECRET`, `MASTER_ADMIN_TELEGRAM_IDS`; registrar su webhook con `/api/master/setup`.
 - [ ] Decidir el bot del **asistente compartido** (seguir con `@SneakerHubAdmin_bot` o un bot de nombre neutro) y definir `TELEGRAM_BOT_USERNAME`. Cambiar de bot implica un cambio de webhook autorizado aparte.
-- [ ] Publicar el frontend 3.0 en Netlify (rutas `/t/<tienda>`, `/admin/activar`, `/plataforma`): Netlify construye desde `main`, así que requiere commit y push del árbol actual (incluye trabajo previo sin commitear).
+- [x] Frontend 3.0 publicado en Netlify (commit `ebc2ccb`, bundle `index-BYR7Loqy.js`) el 2026-11-03.
 - [ ] Probar el asistente nuevo en producción escribiendo a `@SneakerHubAdmin_bot` (el dueño vinculado sigue siendo el propietario de la tienda 1).
 - [ ] Definir precios reales de planes y servicios (hoy en 0; no hay cobros automáticos).
 
