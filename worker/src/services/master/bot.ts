@@ -7,9 +7,10 @@ import { z } from 'zod'
 import type { Env } from '../../index'
 import { answerCallback, sendTelegramMessage, type TelegramUpdate } from '../assistant/telegramApi'
 import { escapeHtml } from '../assistant/tools'
-import { callGeminiJson, UNTRUSTED_CONTENT_RULE } from '../../ai/geminiClient'
-import { formatUsd } from '../../ai/usage'
-import { getStoreBySlug, isValidSlug, slugify } from '../../tenancy/stores'
+import { callGeminiJson, geminiFailureCode, geminiModel, UNTRUSTED_CONTENT_RULE } from '../../ai/geminiClient'
+import { formatUsd, geminiPrices } from '../../ai/usage'
+import { getStoreBySlug, isValidSlug, PRIMARY_STORE_ID, slugify } from '../../tenancy/stores'
+import { parseAdminIds } from './maintenance'
 import { provisionStore, suggestSlug, type ProvisionResult } from '../provisioning'
 import { TEMPLATE_KEYS, TEMPLATE_LABELS, type TemplateKey } from '../templates'
 import {
@@ -34,7 +35,7 @@ const NAMED_COLORS: Record<string, string> = {
 }
 
 export function masterAdminIds(env: Partial<Env['Bindings']>): Set<string> {
-  return new Set(String(env.MASTER_ADMIN_TELEGRAM_IDS || '').split(',').map((value) => value.trim()).filter((value) => /^\d{4,15}$/.test(value)))
+  return new Set(parseAdminIds(env.MASTER_ADMIN_TELEGRAM_IDS).valid)
 }
 
 async function say(ctx: MasterContext, text: string, keyboard?: Keyboard): Promise<void> {
@@ -44,15 +45,24 @@ async function say(ctx: MasterContext, text: string, keyboard?: Keyboard): Promi
 
 function menuKeyboard(): Keyboard {
   return { inline_keyboard: [
-    [{ text: '➕ Crear tienda', callback_data: 'mt:create' }, { text: '🏪 Tiendas', callback_data: 'mt:stores' }],
-    [{ text: '📊 Resumen', callback_data: 'mt:summary' }, { text: '🩺 Salud técnica', callback_data: 'mt:health' }],
-    [{ text: '⚠️ Errores recientes', callback_data: 'mt:errors' }, { text: '❔ Ayuda', callback_data: 'mt:help' }],
+    [{ text: '➕ Crear nueva tienda', callback_data: 'mt:create' }],
+    [{ text: '🏪 Ver mis tiendas', callback_data: 'mt:stores' }, { text: '👤 Administrar propietarios', callback_data: 'mt:owners' }],
+    [{ text: '⚙️ Configuración de plataforma', callback_data: 'mt:config' }, { text: '📊 Estadísticas', callback_data: 'mt:summary' }],
+    [{ text: '✨ Ayuda con IA', callback_data: 'mt:ask' }],
   ] }
 }
+
+const WELCOME = [
+  '👋 ¡Hola! Soy el <b>bot maestro</b> de Catálogo Digital IA.',
+  'Desde aquí creas tiendas, administras a sus propietarios y revisas cómo va la plataforma. Antes de cualquier cambio te mostraré un resumen para que lo confirmes.',
+  '',
+  '¿Qué hacemos?',
+].join('\n')
 
 const HELP = [
   '🛠️ <b>Bot maestro de la plataforma</b>',
   '',
+  '/menu — menú principal',
   '/crear_tienda — asistente para crear una tienda',
   '/tiendas — listado (también: /tiendas activas, /tiendas borrador)',
   '/tienda &lt;dirección&gt; — ficha, salud y acciones',
@@ -62,7 +72,9 @@ const HELP = [
   '/asignar_admin &lt;dirección&gt; &lt;correo o ID de Telegram&gt;',
   '/acceso &lt;dirección&gt; — nuevos códigos de acceso del propietario',
   '/dominio &lt;dirección&gt; &lt;dominio&gt; — registrar dominio propio',
+  '/propietarios — propietarios de cada tienda · /configuracion — planes y ajustes',
   '/resumen · /salud · /errores · /cancelar',
+  '/pregunta &lt;texto&gt; — consulta a la IA sobre la plataforma',
   '',
   'También puedes escribir: “crea una tienda llamada Moda Urbana”, “suspende moda-urbana por falta de pago”, “sube el límite de IA de moda-urbana a 5 dólares”.',
   'Todo cambio muestra un resumen y pide confirmación.',
@@ -86,6 +98,7 @@ export async function processMasterUpdate(update: TelegramUpdate, env: Env['Bind
     if (text.startsWith('/')) { await handleCommand(ctx, text); return }
     const wizard = await readWizard(ctx)
     if (wizard) { await wizardAnswer(ctx, wizard.step, wizard.data, text); return }
+    if (await consumeAskMode(ctx)) { await answerQuestion(ctx, text); return }
     await handleNaturalLanguage(ctx, text)
   } catch (error) {
     console.error('Master bot update failed:', error instanceof Error ? error.message : 'unknown')
@@ -103,8 +116,8 @@ async function handleCommand(ctx: MasterContext, text: string): Promise<void> {
   const command = rawCommand.split('@')[0]!.toLowerCase()
   const rest = text.slice(rawCommand.length).trim()
   switch (command) {
-    case '/start':
-    case '/menu': await say(ctx, '👋 Hola. Este es el centro de control de la plataforma. ¿Qué hacemos?', menuKeyboard()); return
+    case '/start': await say(ctx, WELCOME, menuKeyboard()); return
+    case '/menu': await say(ctx, '¿Qué hacemos?', menuKeyboard()); return
     case '/ayuda':
     case '/help': await say(ctx, HELP, menuKeyboard()); return
     case '/crear_tienda':
@@ -118,7 +131,11 @@ async function handleCommand(ctx: MasterContext, text: string): Promise<void> {
     case '/asignar_admin': await proposeOwner(ctx, args[0], args[1]); return
     case '/acceso': await proposeAccess(ctx, args[0]); return
     case '/dominio': await proposeDomain(ctx, args[0], args[1]); return
-    case '/resumen': await showSummary(ctx); return
+    case '/propietarios': await showOwners(ctx); return
+    case '/configuracion': await showConfig(ctx); return
+    case '/pregunta': if (rest) await answerQuestion(ctx, rest); else await startAsk(ctx); return
+    case '/resumen':
+    case '/estadisticas': await showSummary(ctx); return
     case '/salud': await showHealth(ctx); return
     case '/errores': await showErrors(ctx); return
     case '/cancelar': {
@@ -192,7 +209,60 @@ async function showSummary(ctx: MasterContext): Promise<void> {
     `Productos publicados: ${summary.products}\nPedidos últimos 30 días: ${summary.ordersLast30} · pendientes: ${summary.pendingOrders}\n` +
     `IA este mes: ${summary.aiRequests} solicitudes · ${formatUsd(Number(summary.aiCostMicros))} (estimado)\n` +
     `Errores últimas 24 h: ${summary.errorsLast24h} · Aprovisionamientos fallidos: ${summary.failedJobs}`,
-    menuKeyboard())
+    { inline_keyboard: [
+      [{ text: '🩺 Salud técnica', callback_data: 'mt:health' }, { text: '⚠️ Errores recientes', callback_data: 'mt:errors' }],
+      [{ text: '↩ Menú', callback_data: 'mt:menu' }],
+    ] })
+}
+
+async function showOwners(ctx: MasterContext): Promise<void> {
+  const stores = await listStores(ctx.db)
+  if (!stores.length) { await say(ctx, 'Todavía no hay tiendas. Crea la primera con “➕ Crear nueva tienda”.', menuKeyboard()); return }
+  const owners = await ctx.db.prepare(
+    `SELECT m.store_id AS storeId, u.email, u.status, CASE WHEN u.telegram_user_id IS NULL THEN 0 ELSE 1 END AS telegramLinked
+     FROM store_memberships m JOIN platform_users u ON u.id = m.user_id WHERE m.role = 'owner' AND m.status = 'active'`,
+  ).all<{ storeId: number; email: string | null; status: string; telegramLinked: number }>()
+  const byStore = new Map((owners.results || []).map((owner) => [owner.storeId, owner]))
+  const lines = stores.slice(0, 25).map((store) => {
+    const owner = byStore.get(store.id)
+    const detail = owner
+      ? `${escapeHtml(owner.email || 'sin correo')} · Telegram ${owner.telegramLinked ? '✅' : 'pendiente'}${owner.status === 'active' ? '' : ' · panel sin activar'}`
+      : store.id === PRIMARY_STORE_ID && ctx.env.TELEGRAM_OWNER_ID ? 'dueño original por Telegram (configuración heredada)' : '<i>sin propietario asignado</i>'
+    return `${owner ? '👤' : '⚠️'} <b>${escapeHtml(store.name)}</b> · <code>${escapeHtml(store.slug)}</code>\n   ${detail}`
+  })
+  const buttons = stores.slice(0, 10).filter((store) => byStore.has(store.id)).map((store) => [{ text: `🔑 Nuevos accesos · ${store.name}`, callback_data: `mt:access:${store.slug}` }])
+  await say(ctx,
+    `👤 <b>Propietarios</b>\n\n${lines.join('\n')}\n\n` +
+    'Para asignar o cambiar el propietario: <code>/asignar_admin dirección correo</code> (o su ID de Telegram). Recibirá accesos de un solo uso; nunca se envían contraseñas.',
+    { inline_keyboard: [...buttons, [{ text: '↩ Menú', callback_data: 'mt:menu' }]] })
+}
+
+async function showConfig(ctx: MasterContext): Promise<void> {
+  const plans = await ctx.db.prepare(
+    `SELECT code, name, setup_price AS setup, monthly_price AS monthly, currency, ai_monthly_budget_micros AS budget, max_products AS maxProducts
+     FROM plans WHERE is_active = 1 AND code <> 'legacy' ORDER BY sort_order`,
+  ).all<{ code: string; name: string; setup: number; monthly: number; currency: string; budget: number; maxProducts: number }>()
+  const money = (amount: number, currency: string) => `${currency} ${amount.toLocaleString('es-CO')}`
+  const planLines = (plans.results || []).map((plan) => `• <b>${escapeHtml(plan.name)}</b> (<code>${escapeHtml(plan.code)}</code>) · IA ${formatUsd(plan.budget)}/mes · hasta ${plan.maxProducts} productos · ` +
+    (plan.setup || plan.monthly ? `${money(plan.setup, plan.currency)} inicial + ${money(plan.monthly, plan.currency)}/mes` : 'precio por definir'))
+  const prices = geminiPrices(ctx.env)
+  const cap = Number(ctx.env.PLATFORM_AI_MONTHLY_CAP_MICROS || 0)
+  const assistant = ctx.env.TELEGRAM_BOT_USERNAME?.replace(/^@/, '')
+  await say(ctx, [
+    '⚙️ <b>Configuración de la plataforma</b>',
+    '',
+    `Entorno: ${escapeHtml(ctx.env.ENVIRONMENT || 'sin definir')}`,
+    `Sitio público: ${ctx.env.PUBLIC_STORE_BASE_URL ? escapeHtml(ctx.env.PUBLIC_STORE_BASE_URL) : 'no configurado'}`,
+    `Asistente de tiendas: ${assistant ? `@${escapeHtml(assistant)}` : 'usuario no configurado (los propietarios se vinculan con /link CÓDIGO)'}`,
+    `IA: modelo ${escapeHtml(geminiModel(ctx.env))} · ${ctx.env.GEMINI_API_KEY ? 'clave configurada' : 'sin clave'} · costo estimado ${formatUsd(prices.input)} / ${formatUsd(prices.output)} por millón de tokens (entrada / salida)`,
+    `Tope mensual de IA de la plataforma: ${cap > 0 ? formatUsd(cap) : 'sin tope global (aplican los límites de cada tienda)'}`,
+    `Administradores de este bot: ${masterAdminIds(ctx.env).size}`,
+    '',
+    '<b>Planes</b>',
+    ...(planLines.length ? planLines : ['Sin planes activos.']),
+    '',
+    '<i>Los planes de cada tienda se cambian con /plan; precios, claves y tokens se gestionan en Cloudflare y nunca se muestran aquí.</i>',
+  ].join('\n'), menuKeyboard())
 }
 
 async function showHealth(ctx: MasterContext): Promise<void> {
@@ -598,6 +668,9 @@ async function handleCallback(ctx: MasterContext, data: string): Promise<void> {
     case 'mt:menu': await say(ctx, '¿Qué hacemos?', menuKeyboard()); return
     case 'mt:create': await startWizard(ctx, {}); return
     case 'mt:stores': await showStores(ctx); return
+    case 'mt:owners': await showOwners(ctx); return
+    case 'mt:config': await showConfig(ctx); return
+    case 'mt:ask': await startAsk(ctx); return
     case 'mt:summary': await showSummary(ctx); return
     case 'mt:health': await showHealth(ctx); return
     case 'mt:errors': await showErrors(ctx); return
@@ -693,5 +766,72 @@ async function handleNaturalLanguage(ctx: MasterContext, text: string): Promise<
     case 'errors': await showErrors(ctx); return
     default: await say(ctx, HELP, menuKeyboard())
   }
+}
+
+// ---------------------------------------------------------------------------
+// "Ayuda con IA": one question answered from platform facts only
+// ---------------------------------------------------------------------------
+
+async function startAsk(ctx: MasterContext): Promise<void> {
+  const wizard = await readWizard(ctx)
+  await ctx.db.prepare(
+    `INSERT INTO platform_conversations (chat_id, flow, step, data_json, expires_at) VALUES (?, 'ask_ai', 'question', '{}', unixepoch() + 900)
+     ON CONFLICT(chat_id) DO UPDATE SET flow = 'ask_ai', step = 'question', data_json = '{}', expires_at = excluded.expires_at, updated_at = datetime('now')`,
+  ).bind(String(ctx.chatId)).run()
+  await say(ctx,
+    `✨ <b>Ayuda con IA</b>${wizard ? '\n<i>(Cancelé la creación de tienda que estaba en curso; no se creó nada.)</i>' : ''}\n\n` +
+    'Escríbeme tu pregunta sobre la plataforma: cómo crear una tienda, qué plan conviene, cómo va una tienda, qué significa un error…\n' +
+    'Si me pides un cambio (“suspende moda-urbana”), te mostraré el resumen para que lo confirmes.',
+    { inline_keyboard: [[{ text: '↩ Menú', callback_data: 'mt:menu' }]] })
+}
+
+async function consumeAskMode(ctx: MasterContext): Promise<boolean> {
+  const row = await ctx.db.prepare(`DELETE FROM platform_conversations WHERE chat_id = ? AND flow = 'ask_ai' AND expires_at > unixepoch() RETURNING chat_id`).bind(String(ctx.chatId)).first()
+  return Boolean(row)
+}
+
+const answerShape = z.object({ answer: z.string().min(1) })
+
+async function answerQuestion(ctx: MasterContext, question: string): Promise<void> {
+  const keyboard: Keyboard = { inline_keyboard: [[{ text: '✨ Otra pregunta', callback_data: 'mt:ask' }, { text: '↩ Menú', callback_data: 'mt:menu' }]] }
+  // Orders keep going through the confirmed-operation path.
+  if (detectMasterIntent(question)) { await handleNaturalLanguage(ctx, question); return }
+  if (!ctx.env.GEMINI_API_KEY) { await say(ctx, `La IA no está configurada en este entorno. Esto es lo que puedo hacer:\n\n${HELP}`, keyboard); return }
+  const [summary, stores, plans] = await Promise.all([
+    platformSummary(ctx.db),
+    listStores(ctx.db),
+    ctx.db.prepare(`SELECT code, name, ai_monthly_budget_micros AS aiBudgetMicros, max_products AS maxProducts, monthly_price AS monthlyPrice, currency FROM plans WHERE is_active = 1 AND code <> 'legacy' ORDER BY sort_order`).all(),
+  ])
+  // Facts only: no owner contact data and no configuration values leave the Worker.
+  const facts = {
+    resumen: summary,
+    tiendas: stores.slice(0, 40).map((store) => ({
+      nombre: store.name, direccion: store.slug, estado: store.status, plan: store.planCode, productos: store.products,
+      pedidos30dias: store.ordersLast30, usoIaPorcentaje: store.aiPercent, propietario: store.ownerEmail ? 'asignado' : 'sin asignar',
+    })),
+    planes: plans.results || [],
+  }
+  const commands = HELP.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+  try {
+    const result = await callGeminiJson(ctx.env, fetch, {
+      system: [
+        'Eres el asistente del administrador de una plataforma de tiendas en línea (Catálogo Digital IA). Respondes en español, con tono amable y en pocas líneas.',
+        'Usa solo los DATOS DE LA PLATAFORMA y la lista de COMANDOS. Si la respuesta no está ahí, dilo y sugiere el comando o botón que sirve. No inventes tiendas, cifras, precios ni funciones.',
+        'No ejecutas cambios: para modificar algo indica el comando exacto; el sistema pedirá confirmación. Los costos de IA son estimados.',
+        UNTRUSTED_CONTENT_RULE,
+      ],
+      parts: [{ text: `DATOS DE LA PLATAFORMA (JSON):\n${JSON.stringify(facts)}\n\nCOMANDOS:\n${commands}\n\nPREGUNTA DEL ADMINISTRADOR:\n${question.slice(0, 1000)}` }],
+      maxOutputTokens: 1024,
+      schema: { type: 'object', properties: { answer: { type: 'string' } }, required: ['answer'] },
+    })
+    await ctx.db.prepare(`INSERT INTO platform_events (level, source, code, detail) VALUES ('info', 'master_bot', 'GEMINI_USAGE', ?)`)
+      .bind(`ask tokens ${result.usage.promptTokens}+${result.usage.outputTokens}`).run()
+    const parsed = answerShape.safeParse(result.data)
+    if (parsed.success) { await say(ctx, `✨ ${escapeHtml(parsed.data.answer.slice(0, 3000))}`, keyboard); return }
+  } catch (error) {
+    console.error('Master Gemini answer failed:', error instanceof Error ? error.message : 'unknown')
+    await ctx.db.prepare(`INSERT INTO platform_events (level, source, code, detail) VALUES ('warning', 'master_bot', ?, 'ask')`).bind(geminiFailureCode(error)).run().catch(() => undefined)
+  }
+  await say(ctx, 'No pude consultar la IA en este momento. Puedes usar el menú o escribir /ayuda.', keyboard)
 }
 

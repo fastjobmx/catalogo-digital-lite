@@ -49,7 +49,7 @@ Una tienda suspendida bloquea su panel y su asistente; una en borrador solo la v
 ## 4. Sistemas
 
 ### Sistema A — Bot maestro (`/api/master/webhook`)
-`/crear_tienda` guiado (nombre → tipo → estilo con botones → color si es personalizado → WhatsApp → propietario → plan → resumen con **Crear / Modificar / Cancelar**), `/tiendas`, `/tienda`, `/activar`, `/suspender`, `/plan`, `/limite_ia`, `/asignar_admin`, `/acceso`, `/dominio`, `/resumen`, `/salud`, `/errores`, y lenguaje natural (determinista + Gemini como respaldo). Todo cambio se confirma y se audita. — **Implementada, no verificada en vivo** (8 pruebas de extremo a extremo con Telegram simulado; falta crear el bot en BotFather).
+Menú: Crear nueva tienda · Ver mis tiendas · Administrar propietarios · Configuración de plataforma · Estadísticas · Ayuda con IA. `/crear_tienda` guiado (nombre → tipo → estilo con botones → color si es personalizado → WhatsApp → propietario → plan → resumen con **Crear / Modificar / Cancelar**), `/tiendas`, `/tienda`, `/activar`, `/suspender`, `/plan`, `/limite_ia`, `/asignar_admin`, `/acceso`, `/dominio`, `/resumen`, `/salud`, `/errores`, `/propietarios`, `/configuracion`, `/pregunta`, y lenguaje natural (determinista + Gemini como respaldo). Todo cambio se confirma y se audita. Verificación y registro del webhook sin leer secretos: `POST /api/master/maintenance/status|webhook` (superadministrador o código de un solo uso; ver `DESPLIEGUE_Y_RECUPERACION_3_0.md` §4). — **Implementada; 14 pruebas del bot y 9 de mantenimiento con Telegram simulado**. Bot creado y secretos cargados; falta desplegar en producción, registrar el webhook (con autorización) y probar en Telegram real.
 
 ### Aprovisionamiento automático
 Pasos: validar → identificador único → registro → configuración → plantilla → categorías iniciales → plan/servicios/IA → propietario → accesos de un solo uso → verificación (registro, configuración, plantilla, categorías, propietario, aislamiento). Reintento con la misma clave = mismo trabajo, nunca otra tienda. — **Verificada** en pruebas y en `workerd` local sobre copia de producción.
@@ -67,7 +67,7 @@ Un bot compartido; cada usuario de Telegram se asocia a sus tiendas (selector si
 
 ## 6. Pruebas
 
-Worker 156/156 (19 archivos) con SQLite real sobre todas las migraciones (`worker/test/sqliteD1.js`): aislamiento entre tiendas (11 pruebas negativas), plataforma y aprovisionamiento (10), asistente (21), bot maestro (8), negocio (14), pedidos con disparadores reales (10), webhook (7). Frontend 58/58 y build OK. Detalle de comandos en `docs/PRUEBAS.md`.
+Worker 177/177 (20 archivos) con SQLite real sobre todas las migraciones (`worker/test/sqliteD1.js`): aislamiento entre tiendas (11 pruebas negativas), plataforma y aprovisionamiento (10), asistente (23), bot maestro (14) y su mantenimiento (9), negocio (14), pedidos con disparadores reales (10), webhook (7). Frontend 58/58 y build OK. Detalle de comandos en `docs/PRUEBAS.md`.
 
 ## 7. Pendiente / planificado
 

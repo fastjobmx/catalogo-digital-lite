@@ -55,6 +55,15 @@ Fallos vistos al probar `@SneakerHubAdmin_bot`: las tallas se rechazaban con pun
 - Staging: `f4ff0779` → `022cce45-92f6-4d68-8cb5-b38813ee9429` (smoke 13/13).
 - Producción: `7def7c60` → `50fac136-a110-4402-b97e-5a6c5e4f91f0` (smoke 15/15). Para revertir solo esta corrección: `npx wrangler rollback 7def7c60-24d1-4f10-8662-8098bf5faf50 --config wrangler.production.toml`.
 
+### Activación del bot maestro — 2026-11-03
+
+Secretos `MASTER_BOT_TOKEN`, `MASTER_WEBHOOK_SECRET` y `MASTER_ADMIN_TELEGRAM_IDS` cargados por el propietario en `catalogo-lite-api` (versiones `4ae1fade` y `f9928a44`, mismo código que `50fac136`). Cambios: menú pedido (6 opciones), “Ayuda con IA”, IDs de administrador separados por comas, punto y coma o espacios, y verificación/registro del webhook sin leer secretos (sección 4). Worker 177/177.
+
+- Staging: `022cce45` → `c62112c4-c378-45bd-8e16-cd8267b3dcb2` (smoke 14/14; estado vía código de un solo uso: `@SneakerHubPruebas_bot` con su webhook de staging, sin pendientes ni errores; staging no tiene bot maestro).
+- Producción (autorizado): `f9928a44` → `2022415f-d2ae-470d-83cd-796d51e248f2` (smoke 14/14; los 10 secretos se conservan). Estado por código de un solo uso: bot maestro `@CatalogoDigitalMaestro_bot` (id 9166610650), distinto del asistente `@SneakerHubAdmin_bot` (id 9019695525); secreto configurado; 1 ID de administrador válido y 0 inválidos; webhook maestro aún sin registrar (1 actualización en cola). Webhook del asistente sin cambios, apuntando a `/api/telegram/webhook`, 0 pendientes. Su último error registrado por Telegram (“Connection reset by peer”, 2026-11-03 20:42 UTC) coincide con el despliegue anterior y no dejó actualizaciones sin entregar.
+- Webhook del bot maestro registrado (autorizado, 2026-11-03) con `node scripts/master-maintenance.mjs webhook`: `https://catalogo-lite-api.catalogo-lite-worker.workers.dev/api/master/webhook`, `message` y `callback_query`. Telegram entregó las actualizaciones en cola: 3 procesadas desde 1 chat de administrador, 0 errores del bot maestro, 0 pendientes y sin errores de entrega; 1 tienda (no se creó ninguna). Webhook de `@SneakerHubAdmin_bot` sin cambios y sin pendientes.
+- Para revertir solo este cambio: `npx wrangler rollback f9928a44-557f-4a81-a3b0-6271eb82460f --config wrangler.production.toml`. **No** revertir a versiones anteriores a `f9928a44` o se perderán los secretos maestros.
+
 Reversión de producción si fuera necesaria (mientras solo exista la tienda 1):
 
 ```powershell
@@ -111,12 +120,23 @@ Después del Worker, publicar el frontend (Netlify, rama/commit aprobado). Verif
 
 La migración asigna a la tienda 1 el slug derivado de su nombre (en la copia: `sneakerhub-premium`). La tienda 1 se sigue sirviendo en la raíz; el slug solo aparece en listados. Para cambiarlo: `PUT /api/platform/stores/1/slug {"slug":"sneakerhub"}`.
 
-## 4. Bot maestro (requiere tu intervención)
+## 4. Bot maestro
 
 1. En Telegram, con **@BotFather**: `/newbot` → nombre sugerido “Catálogo IA Plataforma”, usuario terminado en `bot`. Guarda el token **solo** como secreto del Worker (`MASTER_BOT_TOKEN`).
-2. Genera un secreto aleatorio para el webhook (`MASTER_WEBHOOK_SECRET`, 32+ caracteres) y define `MASTER_ADMIN_TELEGRAM_IDS` con tu ID numérico (puedes obtenerlo con @userinfobot).
-3. Con sesión de superadministrador: `GET https://catalogo-lite-api.catalogo-lite-worker.workers.dev/api/master/setup` (Authorization: Bearer …) registra el webhook del bot maestro. No toca los bots existentes.
-4. Escribe `/start` al bot maestro. Usuarios no autorizados no reciben respuesta.
+2. Genera un secreto aleatorio para el webhook (`MASTER_WEBHOOK_SECRET`, 16+ caracteres; recomendado 32+) y define `MASTER_ADMIN_TELEGRAM_IDS` con tu ID numérico (puedes obtenerlo con @userinfobot; varios IDs separados por comas).
+3. Verificación sin leer secretos (el propio Worker consulta Telegram y responde solo datos no sensibles):
+
+   ```powershell
+   cd "D:\LANDING 4000\CATALOGO DIGITAL\catalogo-lite"
+   node scripts/master-maintenance.mjs status     # getMe y getWebhookInfo del bot maestro y del asistente (solo lectura)
+   node scripts/master-maintenance.mjs webhook    # setWebhook del bot maestro (requiere autorización)
+   ```
+
+   El script genera un código de un solo uso, guarda en D1 solo su SHA-256 (tabla existente `platform_operations`, acción `maintenance`, vence en 10 minutos, vale para una sola acción) y llama a `POST /api/master/maintenance/status` o `/webhook`. Con `--staging` usa el Worker de pruebas. También se puede llamar con sesión de superadministrador (`Authorization: Bearer …`). La respuesta nunca incluye tokens, el secreto ni los IDs de administradores; cada uso queda en `platform_events` (`master_maintenance`).
+   El registro se **niega** si el token maestro es el mismo del asistente o pertenece al mismo bot, si faltan IDs válidos o si el secreto es corto. Solo llama a `setWebhook` del bot maestro (`/api/master/webhook`, `message` y `callback_query`); los webhooks de `@SneakerHubAdmin_bot` y `@SneakerHubPruebas_bot` no se tocan. La antigua `GET /api/master/setup` se eliminó (un GET no debe tener efectos).
+4. Escribe `/start` al bot maestro. Menú: Crear nueva tienda · Ver mis tiendas · Administrar propietarios · Configuración de plataforma · Estadísticas · Ayuda con IA. Usuarios no autorizados, grupos y chats ajenos no reciben respuesta ni pueden crear o cambiar nada.
+
+Para revertir solo el webhook del bot maestro: `deleteWebhook` de ese bot (o volver a registrar). No afecta a las tiendas ni a los otros bots.
 
 **Asistente de tiendas:** el webhook actual (`/api/telegram/webhook`) ya es multitienda. Decide si el asistente compartido será `@SneakerHubAdmin_bot` (el dueño de SneakerHub sigue vinculado como propietario de la tienda 1) o un bot nuevo con nombre neutro. Si cambias de bot, el cambio de webhook es una operación separada que requiere autorización. Para enlaces de un toque define `TELEGRAM_BOT_USERNAME`.
 

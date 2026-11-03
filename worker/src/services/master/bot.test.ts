@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { callbackUpdate, createHarness, seedStore, stubTelegram, textUpdate, type Harness } from '../../testing/harness'
+import { callbackUpdate, createHarness, createStoreUser, seedStore, stubTelegram, textUpdate, type Harness } from '../../testing/harness'
 import { detectMasterIntent } from './bot'
 
 const ADMIN = 9001
@@ -23,7 +23,38 @@ describe('master bot access', () => {
     expect(await (await deliver(textUpdate(1234, '/tiendas'))).json()).toMatchObject({ rejected: true })
     expect(telegram.messages()).toHaveLength(0)
     await say('/start')
-    expect(telegram.messages()[0]).toContain('centro de control')
+    expect(telegram.messages()[0]).toContain('bot maestro')
+    expect((telegram.lastMarkup()?.inline_keyboard || []).flat().map((item) => item.text)).toEqual([
+      '➕ Crear nueva tienda', '🏪 Ver mis tiendas', '👤 Administrar propietarios', '⚙️ Configuración de plataforma', '📊 Estadísticas', '✨ Ayuda con IA',
+    ])
+  })
+
+  it('never lets an unauthorized account start, confirm or change anything', async () => {
+    const telegram = stubTelegram()
+    await seedStore(h.db, { slug: 'moda-urbana', name: 'Moda Urbana' })
+    const intruder = 4444
+    for (const update of [
+      textUpdate(intruder, '/crear_tienda Tienda Falsa'), textUpdate(intruder, 'suspende moda-urbana'), textUpdate(intruder, '/suspender moda-urbana'),
+      callbackUpdate(intruder, 'mt:create'), callbackUpdate(intruder, 'mt:wz:create'), callbackUpdate(intruder, 'mt:suspend:moda-urbana'), callbackUpdate(intruder, 'mt:config'),
+    ]) {
+      expect(await (await deliver(update)).json()).toMatchObject({ rejected: true })
+    }
+    // Group chats, or a message forwarded by an admin into another chat, are ignored too.
+    const group = textUpdate(ADMIN, '/crear_tienda')
+    group.message.chat = { id: -100123, type: 'group' as 'private' }
+    await deliver(group)
+    expect(telegram.messages()).toHaveLength(0)
+    expect(h.db.query('SELECT COUNT(*) AS n FROM platform_conversations')).toEqual([{ n: 0 }])
+    expect(h.db.query('SELECT COUNT(*) AS n FROM platform_operations')).toEqual([{ n: 0 }])
+    expect(h.db.query("SELECT status FROM stores WHERE slug = 'moda-urbana'")).toEqual([{ status: 'active' }])
+  })
+
+  it('accepts admin ids separated by commas, semicolons or spaces', async () => {
+    h = createHarness({ MASTER_BOT_TOKEN: 'master-token', MASTER_WEBHOOK_SECRET: SECRET, MASTER_ADMIN_TELEGRAM_IDS: ' 9001;9002  9003 ,abc' })
+    const telegram = stubTelegram()
+    await deliver(textUpdate(9003, '/menu'))
+    expect(telegram.messages()).toHaveLength(1)
+    expect(await (await deliver(textUpdate(123, '/menu'))).json()).toMatchObject({ rejected: true })
   })
 
   it('deduplicates updates in its own ledger, independent from the store assistant', async () => {
@@ -94,6 +125,82 @@ describe('/crear_tienda guided flow', () => {
     await tap('mt:wz:cancel')
     expect(telegram.messages().at(-1)).toContain('No se creó ninguna tienda')
     expect(h.db.query("SELECT COUNT(*) AS n FROM stores WHERE slug = 'pixel'")).toEqual([{ n: 0 }])
+  })
+
+  it('opens from the menu button and /cancelar leaves no records behind', async () => {
+    const telegram = stubTelegram()
+    const before = h.db.query<{ n: number }>('SELECT COUNT(*) AS n FROM stores')[0]!.n
+    await tap('mt:create')
+    expect(telegram.messages().at(-1)).toContain('¿Cómo se llamará?')
+    await say('Tienda de Prueba')
+    await say('Velas artesanales')
+    await say('/cancelar')
+    expect(telegram.messages().at(-1)).toContain('No se aplicó ningún cambio')
+    expect(h.db.query('SELECT COUNT(*) AS n FROM stores')).toEqual([{ n: before }])
+    for (const table of ['platform_conversations', 'provisioning_jobs', 'platform_users', 'store_memberships', 'user_access_tokens']) {
+      expect(h.db.query(`SELECT COUNT(*) AS n FROM ${table}`)).toEqual([{ n: 0 }])
+    }
+    // After cancelling, plain text is no longer taken as a wizard answer.
+    await say('Ropa')
+    expect(h.db.query('SELECT COUNT(*) AS n FROM platform_conversations')).toEqual([{ n: 0 }])
+  })
+})
+
+describe('master menu sections', () => {
+  it('lists owners without exposing access codes and shows the platform configuration without secrets', async () => {
+    const telegram = stubTelegram()
+    const withOwner = await seedStore(h.db, { slug: 'moda-urbana', name: 'Moda Urbana' })
+    await seedStore(h.db, { slug: 'pixel', name: 'Pixel' })
+    await createStoreUser(h.db, { email: 'duena@modaurbana.test', storeId: withOwner, role: 'owner', status: 'invited' })
+    await tap('mt:owners')
+    const owners = telegram.messages().at(-1)!
+    expect(owners).toContain('duena@modaurbana.test · Telegram pendiente · panel sin activar')
+    expect(owners).toMatch(/Pixel<\/b> · <code>pixel<\/code>\n {3}<i>sin propietario asignado/)
+    expect(button(telegram, /Nuevos accesos · Moda Urbana/)).toBe('mt:access:moda-urbana')
+    expect(button(telegram, /Pixel/)).toBeUndefined()
+
+    await tap('mt:config')
+    const config = telegram.messages().at(-1)!
+    expect(config).toContain('Configuración de la plataforma')
+    expect(config).toContain('@TiendasAsistenteBot')
+    expect(config).toContain('Administradores de este bot: 2')
+    expect(config).toMatch(/Básico|basico/)
+    for (const secret of ['master-token', SECRET, String(ADMIN)]) expect(config).not.toContain(secret)
+
+    await tap('mt:summary')
+    expect(telegram.messages().at(-1)).toContain('Resumen de la plataforma')
+    expect(button(telegram, /Salud técnica/)).toBe('mt:health')
+  })
+
+  it('answers one question with AI from platform facts only, without owner contact data', async () => {
+    h = createHarness({ MASTER_BOT_TOKEN: 'master-token', MASTER_WEBHOOK_SECRET: SECRET, MASTER_ADMIN_TELEGRAM_IDS: String(ADMIN), GEMINI_API_KEY: 'gemini-test' })
+    const storeId = await seedStore(h.db, { slug: 'moda-urbana', name: 'Moda Urbana' })
+    await createStoreUser(h.db, { email: 'duena@modaurbana.test', storeId, role: 'owner' })
+    const telegram = stubTelegram((url) => url.includes('generativelanguage.googleapis.com')
+      ? new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({ answer: 'Tienes 1 tienda activa: Moda Urbana.' }) }] } }], usageMetadata: { promptTokenCount: 900, candidatesTokenCount: 40 } }))
+      : undefined)
+    await tap('mt:ask')
+    expect(telegram.messages().at(-1)).toContain('Ayuda con IA')
+    await say('¿Qué tiendas tengo funcionando?')
+    expect(telegram.messages().at(-1)).toContain('Tienes 1 tienda activa: Moda Urbana.')
+    const prompt = JSON.stringify(telegram.calls.find((call) => call.url.includes('generativelanguage'))!.body)
+    expect(prompt).toContain('moda-urbana')
+    expect(prompt).not.toContain('duena@modaurbana.test')
+    expect(h.db.query("SELECT COUNT(*) AS n FROM platform_events WHERE code = 'GEMINI_USAGE'")).toEqual([{ n: 1 }])
+    // The question mode lasts for one answer; orders still require confirmation.
+    expect(h.db.query('SELECT COUNT(*) AS n FROM platform_conversations')).toEqual([{ n: 0 }])
+    await tap('mt:ask')
+    await say('suspende moda-urbana')
+    expect(telegram.messages().at(-1)).toContain('Confirma esta operación')
+    expect(h.db.query("SELECT status FROM stores WHERE slug = 'moda-urbana'")).toEqual([{ status: 'active' }])
+  })
+
+  it('falls back to the command list when AI is not configured', async () => {
+    const telegram = stubTelegram()
+    await say('/pregunta ¿cómo cambio el plan de una tienda?')
+    expect(telegram.messages().at(-1)).toContain('La IA no está configurada')
+    expect(telegram.messages().at(-1)).toContain('/plan')
+    expect(telegram.calls.some((call) => call.url.includes('generativelanguage'))).toBe(false)
   })
 })
 

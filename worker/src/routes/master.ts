@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import type { Env } from '../index'
 import type { TelegramUpdate } from '../services/assistant/telegramApi'
 import { masterAdminIds, processMasterUpdate } from '../services/master/bot'
-import { platformAuth } from '../middleware/auth'
+import { authorizeMaintenance, masterBotStatus, registerMasterWebhook } from '../services/master/maintenance'
 import { constantTimeEqual } from './telegram'
 
 const app = new Hono<Env>()
@@ -48,19 +48,31 @@ app.post('/webhook', async (c) => {
   return c.json({ ok: true })
 })
 
-// GET /api/master/setup — registers the master webhook (superadmin only).
-app.get('/setup', platformAuth, async (c) => {
-  const botToken = c.env.MASTER_BOT_TOKEN
-  const secret = c.env.MASTER_WEBHOOK_SECRET
-  if (!botToken || !secret) return c.json({ error: 'MASTER_BOT_TOKEN and MASTER_WEBHOOK_SECRET are required' }, 503)
-  const url = `${new URL(c.req.url).origin}/api/master/webhook`
-  const response = await fetch(`https://api.telegram.org/bot${botToken}/setWebhook`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url, secret_token: secret, allowed_updates: ['message', 'callback_query'] }),
-  })
-  const result = await response.json().catch(() => ({}))
-  if (!response.ok) return c.json({ error: 'Failed to set master webhook', telegram_response: result }, 502)
-  return c.json({ success: true, webhook_url: url, telegram_response: result })
+async function audit(db: D1Database, level: 'info' | 'warning', code: string, actor: string) {
+  await db.prepare(`INSERT INTO platform_events (level, source, code, detail) VALUES (?, 'master_maintenance', ?, ?)`)
+    .bind(level, code, actor.slice(0, 200)).run().catch(() => undefined)
+}
+
+// POST /api/master/maintenance/status — read-only identity and webhook check of
+// the master bot and the store assistant. Never returns tokens or secrets.
+app.post('/maintenance/status', async (c) => {
+  const access = await authorizeMaintenance(c, 'status')
+  if (access instanceof Response) return access
+  const status = await masterBotStatus(c.env, new URL(c.req.url).origin)
+  await audit(c.env.DB, 'info', 'STATUS_CHECKED', access.actor)
+  return c.json({ success: true, data: status })
+})
+
+// POST /api/master/maintenance/webhook — registers the master webhook. Refuses
+// when the master token belongs to the store assistant bot.
+app.post('/maintenance/webhook', async (c) => {
+  const access = await authorizeMaintenance(c, 'register_webhook')
+  if (access instanceof Response) return access
+  const result = await registerMasterWebhook(c.env, new URL(c.req.url).origin).catch((error: unknown) => ({
+    ok: false, refused: error instanceof Error ? error.message.split(':')[0] : 'TELEGRAM_SETWEBHOOK_FAILED', status: null,
+  }))
+  await audit(c.env.DB, result.ok ? 'info' : 'warning', result.ok ? 'WEBHOOK_REGISTERED' : `WEBHOOK_REFUSED:${result.refused}`, access.actor)
+  return c.json({ success: result.ok, refused: result.refused, data: result.status }, result.ok ? 200 : 409)
 })
 
 export default app

@@ -27,9 +27,16 @@ function price(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback
 }
 
+/** Estimated USD micros per million input/output tokens for this installation. */
+export function geminiPrices(env: Partial<Env['Bindings']>): { input: number; output: number } {
+  return {
+    input: price(env.GEMINI_PRICE_INPUT_MICROS_PER_MTOK, DEFAULT_INPUT_MICROS_PER_MTOK),
+    output: price(env.GEMINI_PRICE_OUTPUT_MICROS_PER_MTOK, DEFAULT_OUTPUT_MICROS_PER_MTOK),
+  }
+}
+
 export function estimateCostMicros(env: Partial<Env['Bindings']>, usage: TokenUsage): number {
-  const input = price(env.GEMINI_PRICE_INPUT_MICROS_PER_MTOK, DEFAULT_INPUT_MICROS_PER_MTOK)
-  const output = price(env.GEMINI_PRICE_OUTPUT_MICROS_PER_MTOK, DEFAULT_OUTPUT_MICROS_PER_MTOK)
+  const { input, output } = geminiPrices(env)
   return Math.ceil((Math.max(0, usage.promptTokens) * input + Math.max(0, usage.outputTokens) * output) / 1_000_000)
 }
 

@@ -8,7 +8,10 @@ Requieren tu autorización o intervención (no se ejecutaron):
 - [x] Staging: `0007` aplicada y Worker 3.0 desplegado (versión `267eab01`) el 2026-11-03. Falta probar el asistente escribiendo a `@SneakerHubPruebas_bot`.
 - [x] Staging: inicio de sesión del panel y `/api/platform` habilitados (versión `f4ff0779`).
 - [ ] Staging/producción: la tienda 1 no tiene propietario como usuario de plataforma (su dueño se vincula por `TELEGRAM_OWNER_ID`); la salud lo marca pendiente. Asignarlo con `/asignar_admin` o `POST /api/platform/stores/<tienda>/owner` cuando se decida su correo.
-- [ ] Crear el **bot maestro** en BotFather y cargar `MASTER_BOT_TOKEN`, `MASTER_WEBHOOK_SECRET`, `MASTER_ADMIN_TELEGRAM_IDS`; registrar su webhook con `/api/master/setup`.
+- [x] Bot maestro creado en BotFather y secretos `MASTER_*` cargados en `catalogo-lite-api` (2026-11-03, por el propietario).
+- [x] Menú y verificación del bot maestro en producción (`2022415f`, 2026-11-03); identidad comprobada: `@CatalogoDigitalMaestro_bot`, distinto del asistente.
+- [x] Webhook del bot maestro registrado (2026-11-03); entrega sin errores y mensajes del administrador procesados.
+- [ ] Prueba manual en Telegram del bot maestro: menú de 6 botones, `/crear_tienda` y cancelar; otra cuenta no debe recibir respuesta.
 - [ ] Decidir el bot del **asistente compartido** (seguir con `@SneakerHubAdmin_bot` o un bot de nombre neutro) y definir `TELEGRAM_BOT_USERNAME`. Cambiar de bot implica un cambio de webhook autorizado aparte.
 - [x] Frontend 3.0 publicado en Netlify (commit `ebc2ccb`, bundle `index-BYR7Loqy.js`) el 2026-11-03.
 - [ ] Probar el asistente nuevo en producción escribiendo a `@SneakerHubAdmin_bot` (el dueño vinculado sigue siendo el propietario de la tienda 1).

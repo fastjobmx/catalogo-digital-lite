@@ -28,6 +28,17 @@ El asistente no inventa precios, stock, marcas ni ventas: si falta un dato, te l
 
 ## Bot maestro (solo administración de la plataforma)
 
+Solo responde a los IDs de `MASTER_ADMIN_TELEGRAM_IDS`, en chat privado. `/start` muestra el menú:
+
+| Botón | Qué hace |
+|---|---|
+| ➕ Crear nueva tienda | Abre el asistente de `/crear_tienda`. |
+| 🏪 Ver mis tiendas | Listado con estado, catálogo, pedidos, uso de IA y ficha de cada tienda. |
+| 👤 Administrar propietarios | Propietario de cada tienda (correo, Telegram vinculado, panel activado) y botón de nuevos accesos. Asignar con `/asignar_admin`. |
+| ⚙️ Configuración de plataforma | Entorno, sitio público, asistente de tiendas, modelo y costo estimado de IA, tope global, número de administradores y planes. Nunca muestra claves ni tokens. |
+| 📊 Estadísticas | Resumen de la plataforma, con accesos a salud técnica y errores recientes. |
+| ✨ Ayuda con IA | Responde una pregunta usando solo datos de la plataforma (sin correos de propietarios). Si la pregunta es una orden, pasa por la confirmación habitual. También: `/pregunta <texto>`. |
+
 | Comando | Qué hace |
 |---|---|
 | `/crear_tienda` | Asistente guiado: nombre, productos, estilo (Minimalista, Moderno, Premium, Personalizado), color, WhatsApp, propietario, plan → resumen → **Crear tienda**. Entrega URL, enlace de activación y código de Telegram del propietario. |
@@ -38,6 +49,8 @@ El asistente no inventa precios, stock, marcas ni ventas: si falta un dato, te l
 | `/asignar_admin <dirección> <correo o ID>` · `/acceso <dirección>` | Propietario y nuevos accesos de un solo uso. |
 | `/dominio <dirección> <dominio>` | Registra un dominio propio como pendiente. |
 | `/resumen` · `/salud` · `/errores` | Supervisión. |
+| `/propietarios` · `/configuracion` · `/pregunta <texto>` | Igual que los botones del menú. |
+| `/cancelar` | Cancela el asistente o la operación pendiente sin crear ni cambiar nada. |
 
 Lenguaje natural: “crea una tienda llamada Moda Urbana”, “suspende moda-urbana por falta de pago”, “sube el límite de IA de moda-urbana a 5 dólares”, “muéstrame las tiendas activas”.
 
