@@ -1,113 +1,86 @@
 import { describe, expect, it } from 'vitest'
-import { Hono } from 'hono'
-import type { Env } from '../index'
-import adminRoutes from './admin'
 import { createAdminToken, hashAdminPassword } from '../services/auth'
+import { createHarness, createStoreUser, PLATFORM_EMAIL, PLATFORM_PASSWORD, seedStore, TEST_SECRET } from '../testing/harness'
 
-const SECRET = '9f'.repeat(32)
-
-function createApp(envOverrides: Partial<Env['Bindings']> = {}) {
-  const app = new Hono<Env>()
-  app.route('/api/admin', adminRoutes)
-  let failures = 0
-  let blocked = false
-  const db = {
-    prepare: (sql: string) => ({
-      bind() { return this },
-      run: async () => ({ success: true }),
-      first: async () => sql.includes('blocked_until') && blocked ? { blocked: 1 } : null,
-    }),
-    batch: async () => { failures++; if (failures >= 8) blocked = true; return [] },
-  }
-  const env = {
-    DB: db,
-    ENVIRONMENT: 'development',
-    ADMIN_EMAIL: 'admin@local.test',
-    ADMIN_PASSWORD: 'local-test-password',
-    JWT_SECRET: SECRET,
-    ...envOverrides,
-  } as unknown as Env['Bindings']
-  return { app, env, get failures() { return failures } }
-}
+const login = (h: ReturnType<typeof createHarness>, email: string, password: string, ip = '203.0.113.4') =>
+  h.request('/api/admin/login', { method: 'POST', body: { email, password }, headers: { 'CF-Connecting-IP': ip } })
 
 describe('admin authentication configuration', () => {
   it('fails closed with a sanitized 503 when auth configuration is missing', async () => {
-    const { app, env } = createApp({ JWT_SECRET: undefined })
-    const response = await app.request('/api/admin/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: 'admin@local.test', password: 'local-test-password' }),
-    }, env)
+    const h = createHarness({ JWT_SECRET: undefined })
+    const response = await login(h, PLATFORM_EMAIL, PLATFORM_PASSWORD)
     expect(response.status).toBe(503)
     await expect(response.json()).resolves.toEqual({ error: 'Authentication service is not configured' })
   })
 
   it('rejects incorrect credentials without issuing a session', async () => {
-    const { app, env } = createApp()
-    const response = await app.request('/api/admin/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: 'admin@local.test', password: 'wrong-password' }),
-    }, env)
+    const response = await login(createHarness(), PLATFORM_EMAIL, 'wrong-password')
     expect(response.status).toBe(401)
     await expect(response.json()).resolves.toEqual({ error: 'Invalid credentials' })
   })
 
-  it('issues a production session only with the PBKDF2 password hash', async () => {
+  it('issues a production superadmin session only with the PBKDF2 password hash', async () => {
     const productionPassword = 'secure-production-fixture-password'
-    const production = createApp({
-      ENVIRONMENT: 'production',
-      ADMIN_EMAIL: 'owner@acme-shop.com',
-      ADMIN_PASSWORD: undefined,
-      ADMIN_PASSWORD_HASH: await hashAdminPassword(productionPassword),
-      ALLOWED_ORIGIN: 'https://shop.example.com',
+    const h = createHarness({
+      ENVIRONMENT: 'production', ADMIN_EMAIL: 'owner@acme-shop.com', ADMIN_PASSWORD: undefined,
+      ADMIN_PASSWORD_HASH: await hashAdminPassword(productionPassword), ALLOWED_ORIGIN: 'https://shop.example.com',
       JWT_SECRET: '8f2c1a7d9e4b6c3a5f0d8e2b7c1a9f4e',
     })
-    const response = await production.app.request('/api/admin/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: 'owner@acme-shop.com', password: productionPassword }),
-    }, production.env)
+    const response = await login(h, 'owner@acme-shop.com', productionPassword)
     expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toMatchObject({ email: 'owner@acme-shop.com' })
+    await expect(response.json()).resolves.toMatchObject({ email: 'owner@acme-shop.com', role: 'superadmin' })
   })
 
   it('applies persistent rate limiting after eight failed logins', async () => {
-    const context = createApp()
-    const { app, env } = context
-    for (let attempt = 0; attempt < 8; attempt++) {
-      const response = await app.request('/api/admin/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '203.0.113.4' },
-        body: JSON.stringify({ email: 'admin@local.test', password: 'wrong-password' }),
-      }, env)
-      expect(response.status).toBe(401)
-    }
-    expect(context.failures).toBe(8)
-    const limited = await app.request('/api/admin/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '203.0.113.4' },
-      body: JSON.stringify({ email: 'admin@local.test', password: 'wrong-password' }),
-    }, env)
+    const h = createHarness()
+    for (let attempt = 0; attempt < 8; attempt++) expect((await login(h, PLATFORM_EMAIL, 'wrong-password')).status).toBe(401)
+    const limited = await login(h, PLATFORM_EMAIL, PLATFORM_PASSWORD)
     expect(limited.status).toBe(429)
     expect(limited.headers.get('Retry-After')).toBe('900')
   })
 
   it('rejects protected requests when the configured JWT secret is invalid', async () => {
-    const { app, env } = createApp({ JWT_SECRET: 'short' })
-    const response = await app.request('/api/admin/stats', {
-      headers: { Authorization: `Bearer ${await createAdminToken('admin@local.test', SECRET)}` },
-    }, env)
+    const h = createHarness({ JWT_SECRET: 'short' })
+    const response = await h.request('/api/admin/stats', { token: await createAdminToken(PLATFORM_EMAIL, TEST_SECRET) })
     expect(response.status).toBe(503)
     await expect(response.json()).resolves.toEqual({ error: 'Authentication service is not configured' })
   })
 
   it('rejects existing sessions when admin credentials are no longer configured', async () => {
-    const { app, env } = createApp({ ADMIN_EMAIL: undefined })
-    const response = await app.request('/api/admin/stats', {
-      headers: { Authorization: `Bearer ${await createAdminToken('admin@local.test', SECRET)}` },
-    }, env)
+    const h = createHarness({ ADMIN_EMAIL: undefined })
+    const response = await h.request('/api/admin/stats', { token: await createAdminToken(PLATFORM_EMAIL, TEST_SECRET) })
     expect(response.status).toBe(503)
-    await expect(response.json()).resolves.toEqual({ error: 'Authentication service is not configured' })
+  })
+})
+
+describe('store user sessions', () => {
+  it('logs in a store owner with a hashed password and returns only their stores', async () => {
+    const h = createHarness()
+    const moda = await seedStore(h.db, { slug: 'moda-urbana', name: 'Moda Urbana' })
+    await seedStore(h.db, { slug: 'otra-tienda', name: 'Otra Tienda' })
+    await createStoreUser(h.db, { email: 'duena@moda.test', password: 'clave-segura-123', storeId: moda, role: 'owner' })
+    const response = await login(h, 'duena@moda.test', 'clave-segura-123')
+    expect(response.status).toBe(200)
+    const session = await response.json() as { token: string; role: string; stores: Array<{ slug: string; role: string }> }
+    expect(session.role).toBe('user')
+    expect(session.stores).toEqual([expect.objectContaining({ slug: 'moda-urbana', role: 'owner' })])
+    const me = await h.request('/api/admin/session', { token: session.token, store: 'moda-urbana' })
+    await expect(me.json()).resolves.toMatchObject({ kind: 'user', role: 'owner', store: { slug: 'moda-urbana' } })
+  })
+
+  it('never lets a store user become superadmin, even with the platform email in the token', async () => {
+    const h = createHarness()
+    const moda = await seedStore(h.db, { slug: 'moda-urbana', name: 'Moda Urbana' })
+    const userId = await createStoreUser(h.db, { email: 'duena@moda.test', password: 'clave-segura-123', storeId: moda, role: 'owner' })
+    const forged = await createAdminToken(PLATFORM_EMAIL, TEST_SECRET, { sub: String(userId) })
+    expect((await h.request('/api/platform/stores', { token: forged })).status).toBe(403)
+    expect((await h.request('/api/admin/stats', { token: forged })).status).toBe(403)
+  })
+
+  it('rejects disabled users and users without an active store', async () => {
+    const h = createHarness()
+    const moda = await seedStore(h.db, { slug: 'moda-urbana', name: 'Moda Urbana' })
+    await createStoreUser(h.db, { email: 'off@moda.test', password: 'clave-segura-123', storeId: moda, role: 'admin', status: 'disabled' })
+    expect((await login(h, 'off@moda.test', 'clave-segura-123')).status).toBe(401)
   })
 })

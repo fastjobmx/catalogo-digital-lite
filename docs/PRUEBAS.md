@@ -2,6 +2,71 @@
 
 Catálogo Digital Lite incluye pruebas automatizadas (Vitest) y una lista de **13 pruebas de aceptación** para verificar el sistema completo.
 
+## Fase 8 — resultado actual (2026-11-01)
+
+- Frontend: **52/52** pruebas en 16 archivos.
+- Worker: **39/39** pruebas en 7 archivos; `npx tsc --noEmit` correcto.
+- `npm run build` correcto en la plantilla y en `local-stores/patitas-felices` y `local-stores/tecnocell-accesorios`.
+- Windows PowerShell **5.1.26100.9711**: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\test-generator-encoding.ps1` confirmó acentos, preset UTF-8, CTA del preset, escape SQL de apóstrofos, ausencia de mojibake y UTF-8 sin BOM. Los `-DryRun` de Patitas y TecnoCell pasaron con slugs temporales, mostraron puertos distintos y no crearon archivos, bases ni registro. Los slugs de las demos existentes se rechazaron sin cambios porque sus destinos ya existen.
+- La causa del `fetch failed` en la ejecución restringida fue un rechazo `EACCES` de loopback (`127.0.0.1`); la misma operación D1 local pasó con permisos locales ampliados. El `internal error` de Wrangler 4.156.0 sigue sin causa confirmada: se repitió con el preset en `0001` y también en intentos vacíos posteriores, aunque una generación vacía real sí completó y los controles D1 aislados pasaron. Diagnósticos sanitizados: `.tmp/generator-diagnostics/`.
+- Las pruebas de un `--cwd` staged y de un preflight `SELECT 1` tampoco fueron correcciones fiables: esos intentos de tienda vacía terminaron con `internal error` y se retiraron del flujo final.
+- Navegador integrado: Patitas (`5283`/Worker `8898`) mostró 3 productos y 3 categorías; TecnoCell (`6081`/Worker `9696`) mostró 4 y 4. Las fotos de productos observadas se decodificaron y se abrieron las fichas `PF-DEMO-001` y `TC-DEMO-001`. Ambos botones de WhatsApp se detuvieron por falta de teléfono válido.
+- Los formularios `/admin/login` muestran su marca y requieren sesión válida del servidor; no se enviaron credenciales en esta pasada. Administración, carrito persistente y aislamiento interactivo se aceptaron en la Fase 7. En Fase 8 no se cambiaron productos, carrito, apariencia, D1/R2 ni credenciales. El frontend puede sincronizar su marcador interno de versión al abrirse.
+- La home de Patitas inicialmente quedó en blanco con un tema antiguo sin `cta`; la normalización de temas restaurados corrigió el caso. El generador conserva el CTA de cada preset en un módulo local a la instalación, sin copiar textos de demos a la plantilla ni escribir D1. SneakerHub Premium conserva el CTA por defecto.
+- Riesgos y pasos de producción: [`FASE8_SEGURIDAD.md`](FASE8_SEGURIDAD.md) y [`CHECKLIST_PRODUCCION.md`](CHECKLIST_PRODUCCION.md).
+
+## Fase 8.1 — generador (2026-11-01)
+
+- `test-generador-fase81`: generación real con `Seed None`, migraciones 0001–0003, consulta D1 de tienda configurada y conteos de productos/categorías en cero. `GET /api/health` devolvió `ok`, `GET /api/products` devolvió `[]`, el login local obtuvo JWT y `/api/admin/stats` respondió con conteos en cero. Vite respondió HTTP 200.
+- Build frontend de la tienda temporal y `npx tsc --noEmit` del Worker pasaron. Las dependencias se reutilizaron desde las instalaciones locales del workspace mediante enlaces temporales; `npm ci --offline` no fue posible porque `zod@3.25.76` no está en la caché. No se consultó el registro npm.
+- DryRun del preset TecnoCell pasó. La generación completa del preset falló en `migration:0001_initial.sql` con `internal error`; no creó destino ni registro. Intentos vacíos posteriores también fallaron; por ello la generación real es intermitente, no estable. No se afirman como comprobados el seed, fotos, CTA ni carrito de una segunda tienda.
+- `scripts/test-generator-encoding.ps1`: acentos/CTA/SQL y UTF-8 sin BOM pasaron. `scripts/test-generator-wrangler.ps1`: el proceso simulado devolvió 37, el generador devolvió 1, guardó diagnóstico sanitizado y limpió staging sin destino/registro.
+- Repetir el slug de la tienda vacía fue rechazado con código 1; manifiesto y registro mantuvieron su SHA-256.
+- Detalles, límites y pasos de reproducción: [`FASE81_GENERADOR_ESTABLE.md`](FASE81_GENERADOR_ESTABLE.md).
+
+## Fase 8.2 — estabilidad del generador (2026-11-01)
+
+- PowerShell 5.1.26100.9711 + Node 26.8.1 + npm 11.19.0 + Wrangler 4.156.0: tres generaciones consecutivas completadas con slugs nuevos: `phase82-vacio-01`, `phase82-patitas-02` y `phase82-tecnocell-03`.
+- `wrangler d1 migrations apply` descubrió y aplicó 0001–0003 en orden; un segundo `apply` no encontró pendientes. `d1_migrations` registró los tres nombres. El flujo anterior con tres `d1 execute --file` también aplicó 0001–0003 una vez en una D1 temporal, pero no aporta ledger nativo.
+- Consultas de solo lectura: cada D1 tiene 1 configuración; la tienda vacía tiene 0 productos/categorías; Patitas 3/3 y 3 referencias de foto; TecnoCell 4/4 y 4 referencias. UUID, puertos y persistencia son individuales. Los SHA-256 de las fotos coinciden con sus manifiestos. Los nombres con tildes y los mensajes CTA se conservaron.
+- `test-generator-wrangler.ps1` pasó con fallo controlado 37 y clasificó `SQLITE_BUSY` como `sqlite-lock`; el generador limpió el staging y no creó destino/registro. `test-generator-encoding.ps1` pasó (acentos, CTA, escape SQL y UTF-8 sin BOM).
+- Suites en la plantilla: Frontend 52/52, Worker 39/39, typecheck Worker OK y build Frontend OK. No se ejecutaron builds/login/API de las copias nuevas porque las dependencias no se instalaron.
+- `npm ci` falló en los seis paquetes generados (worker y frontend de cada tienda) con `ENOTFOUND registry.npmjs.org` al descargar `zod@3.25.76`. Los lockfiles quedaron intactos. Node 24 LTS y Wrangler 4.156.1 alternativos tampoco se pudieron obtener de npm; esas filas de la matriz siguen sin probarse.
+- El generador pasó tres pruebas en la combinación disponible, pero esta fase queda parcial hasta disponer del registro npm y completar las filas alternativas. No se aprueba aún un piloto que requiera instalar/buildar las copias generadas. Informe: [`FASE82_ESTABILIDAD.md`](FASE82_ESTABILIDAD.md).
+
+## Tiendas independientes — generación e aislamiento (2026-11-01)
+
+Validación de las demos locales generadas:
+
+- `-DryRun` ejecutado para los dos perfiles; el generador mostró los temas y puertos previstos.
+- D1 de Patitas Felices: 3 productos, 3 categorías y 3 variantes. D1 de TecnoCell Accesorios: 4 productos, 4 categorías y 4 variantes. UUID, rutas SQLite, puertos y credenciales son distintos.
+- Reaplicar el SQL de cada catálogo mantuvo los conteos. Intentar regenerar un slug existente fue rechazado; los hashes de manifiesto, registro y D1 no cambiaron.
+- Los siete archivos de imagen se decodificaron y coincidieron con los SHA-256 de sus manifiestos. Cada instalación contiene únicamente las imágenes de su preset seleccionado.
+- No aparece el SKU de SneakerHub `VANTA-18` en ninguna D1 generada ni en el bundle independiente examinado.
+- Build de frontend y `npx tsc --noEmit` del Worker aprobados para ambas copias; los builds incluyen 3 imágenes Patitas y 4 imágenes TecnoCell.
+- En la fase 6 se volvieron a ejecutar las suites: Worker 33/33 (incluye 4 pruebas nuevas de servicios compartidos) y frontend 42/42; typecheck/build también pasaron.
+
+La aceptación interactiva se completó en navegador el 2026-11-01 para storefront, categorías, fichas, fotografías, login/admin, edición de productos, apariencia, carrito y aislamiento. WhatsApp se probó hasta el control de pedido; los dos demos no tienen teléfono válido y la app mostró el mensaje esperado sin abrir un destino externo. Evidencia, URLs y límites: [`ACEPTACION_TIENDAS_DEMO.md`](ACEPTACION_TIENDAS_DEMO.md).
+
+## Aceptación interactiva de Patitas y TecnoCell — Fase 7 (2026-11-01)
+
+- URLs usadas: Patitas `http://127.0.0.1:5283/` (Worker `8898`), TecnoCell `http://127.0.0.1:6081/` (Worker `9696`). Las cuatro respuestas locales se validaron en navegador.
+- Catálogo: Patitas muestra 3 productos/3 categorías y TecnoCell 4/4. Se abrieron fichas y las fotos principales, de categoría y de los productos visibles se decodificaron en navegador (`naturalWidth > 0`). Los demos usan fotos JPEG propias; ninguna foto existente fue sobrescrita.
+- Administración: login propio por tienda, lista y edición de productos y guardado de apariencia se comprobaron. Los cambios temporales de nombre, precio y color de Patitas persistieron tras recargar y luego fueron restaurados.
+- Carrito: agregado, total y persistencia tras recargar se comprobaron en ambas tiendas. Se corrigió el orden de carga/persistencia solo en las dos copias generadas; los carritos quedaron vacíos después de las pruebas.
+- Aislamiento: UUID/archivo D1, puertos, buckets locales, credenciales, namespace de almacenamiento y configuración son distintos. Cambio de Patitas no alteró nombre/precio/paleta de TecnoCell. Una imagen de 1 × 1 px se leyó desde Patitas y la misma ruta respondió `Asset not found` desde TecnoCell; su referencia de categoría se retiró al acabar.
+- WhatsApp: **bloqueado por falta de teléfono configurado en ambos comercios**; el control mostró el aviso y no envió mensaje ni abrió WhatsApp.
+- Seguridad: se confirmaron defaults versionados de desarrollo y fallbacks en auth/JWT; no se cambió la arquitectura ni se mostraron credenciales de `.dev.vars`. Consultar el informe de aceptación para severidades.
+- Automatización posterior: frontend 42/42, Worker 33/33, typecheck Worker y builds base + ambas copias generadas aprobados.
+- No hubo reset/reseed, despliegue, cambio de credenciales ni modificación de SneakerHub Premium.
+
+## Servicios reutilizables y cuestionario — Fase 6 (2026-11-01)
+
+- Cuestionario: el guardado usa la sesión admin y `PUT /api/admin/store`; la categoría inicial se omite si ya existe, y un reintento no añade un producto marcador. Los errores del backend se muestran en el formulario.
+- Worker: cuatro pruebas para whitelist de configuración/productos, conflicto de slug y rechazo de stock negativo.
+- Resultado final de suites: Worker 33/33 en 6 archivos, `npx tsc --noEmit` correcto; frontend 42/42 en 12 archivos, `npm run build` correcto.
+- No se probó una integración real con Telegram ni se verificó en navegador este cuestionario contra una sesión admin.
+
 ## Pruebas automatizadas
 
 ### Ejecutar
@@ -25,6 +90,8 @@ npm test
 | `validation/actions.test.ts` | Las 20 acciones deterministas; rechazo de acciones no permitidas (no hay SQL libre); validación de `create_product` con variantes; stock no negativo; formato hexadecimal de colores; precios enteros; límite de 20 SKUs destacados |
 | `ai/interpreter.test.ts` | Alta con rango de tallas (38–44 → 7 variantes); no inventa precio ni stock; WhatsApp; color primario; inventario; payload JSON; texto no reconocido |
 | `services/auth.test.ts` | Creación y verificación de JWT; rechazo de token con otro secreto o corrupto; validación de credenciales; secreto configurado |
+| `routes/admin-login.test.ts` | Login 503 sin configuración, 401 para credenciales erróneas, rutas protegidas 503 con JWT inválido o sin credenciales de administrador configuradas |
+| `routes/admin-categories.test.ts` | Rutas administrativas con configuración completa y sesión JWT válida |
 
 **Frontend** — `frontend/src`
 
@@ -33,13 +100,18 @@ npm test
 | `lib/format.test.ts` | `formatMoney` (COP sin decimales), `discountPercent` (con casos nulos), `slugify` (acentos y símbolos) |
 | `lib/whatsapp.test.ts` | Encabezado, productos, SKU, variante, cantidades, total y moneda; datos de cliente y entrega |
 | `lib/interpretCommand.test.ts` | Modo simulado, campos faltantes, variantes por rango, comando no reconocido |
+| `lib/authMode.test.ts` | Sesión offline demo solo con Vite dev y activación explícita |
+| `contexts/CartContext.test.ts` | Hidratación síncrona antes de persistir y recuperación de almacenamiento inválido |
+| `lib/storeTheme.test.ts`, `types/theme.test.ts` | CTA propio de instalaciones independientes y preservación del CTA SneakerHub al fusionar temas antiguos |
 
 Resultado esperado:
 
 ```
-Worker:   Test Files 3 passed | Tests 23 passed
-Frontend: Test Files 3 passed | Tests 15 passed
+Worker:   Test Files 6 passed | Tests 33 passed
+Frontend: Test Files 12 passed | Tests 42 passed
 ```
+
+> Ese bloque conserva la línea base de Fase 7; la suite actual al cierre de Fase 8 es Worker **7 archivos/39 pruebas** y frontend **16 archivos/52 pruebas**.
 
 ## Comprobaciones de compilación y tipos
 
@@ -64,12 +136,17 @@ Invoke-RestMethod http://127.0.0.1:8788/api/health
 # Productos con variantes
 (Invoke-RestMethod http://127.0.0.1:8788/api/products)[0].variants.Count
 
-# Login admin
+# Login admin: usar los valores locales de worker/.dev.vars; no imprimir el token ni guardarlo en archivos.
+$adminEmail = Read-Host 'Email configurado localmente'
+$securePassword = Read-Host 'Contraseña local' -AsSecureString
+$adminPassword = [System.Net.NetworkCredential]::new('', $securePassword).Password
+$body = @{ email = $adminEmail; password = $adminPassword } | ConvertTo-Json -Compress
 $login = Invoke-RestMethod http://127.0.0.1:8788/api/admin/login -Method Post `
-  -Body '{"email":"admin@example.com","password":"admin123"}' -ContentType 'application/json'
+  -Body $body -ContentType 'application/json'
 
 # Stats protegidas
 Invoke-RestMethod http://127.0.0.1:8788/api/admin/stats -Headers @{ Authorization = "Bearer $($login.token)" }
+Remove-Variable adminPassword, body, login, securePassword -ErrorAction SilentlyContinue
 ```
 
 ## 13 pruebas de aceptación
@@ -90,12 +167,10 @@ Invoke-RestMethod http://127.0.0.1:8788/api/admin/stats -Headers @{ Authorizatio
 | 12 | El agente IA nunca inventa precios/stock/fotos | Enviar un comando sin precio → el bot pide el dato faltante |
 | 13 | Los secretos no llegan al frontend | `GEMINI_API_KEY` y `TELEGRAM_BOT_TOKEN` solo existen como secrets del Worker |
 
-## Estado
+## Estado histórico al cierre de Fase 7
 
-- Pruebas automatizadas: **38/38 en verde** (23 worker + 15 frontend).
-- Compilación frontend: **OK** (1633 módulos en la revisión visual del 2026-11-01).
-- Tipos worker: **OK**.
-- Pruebas 1–13: verificables en local con el Worker y el frontend en marcha.
+- Resultado de ese corte: **75/75** (33 Worker + 42 frontend); la cifra actual se registra en la sección Fase 8.
+- La aceptación 1–13 debe repetirse tras cambios del comportamiento de tienda o al preparar datos/credenciales nuevos.
 
 ## Continuación visual — Fase 1 (2026-11-01)
 
@@ -357,3 +432,29 @@ Una imagen cuenta como cargada si `complete` es `true`, `naturalWidth > 0`, tien
 - `ProductImage` ahora reconcilia el estado al finalizar el efecto: si el elemento actual ya está completo y decodificado, marca `loaded=true`; si está completo con error, conserva el fallback a JPEG o informa el error. No se tocó CSS.
 - Tras HMR y recarga completa, las cuatro fotos visibles de Running (`KINETIK-05`, `KINETIK-06`, `TERA-08`, `LUMEN-07`) tienen `complete=true`, `naturalWidth` de 933 a 1400 y opacidad `1`; `currentSrc` fue el WebP de cada producto.
 - Frontend actualizado: 40/40 pruebas (11 archivos) y build OK; JS inicial 464.94 kB (135.36 kB gzip). No se consultaron códigos HTTP explícitos ni `GET /api/products` en esta comprobación; `naturalWidth>0` confirma descarga y decodificación en navegador para las cuatro observadas. La comprobación completa de las 18 en cada ruta sigue pendiente.
+
+## MVP privado Telegram + Gemini (2026-11-02)
+
+- Worker: 64/64 en 12 archivos; typecheck OK. Frontend: 52/52 en 16 archivos; build OK.
+- Gemini API real de solo interpretación: una consulta tipada de `TEST-TRN-001` aceptada por esquema usando el modelo configurado; no accedió a D1.
+- Staging local probado con persistencia Wrangler separada, D1 y R2 de nombres/IDs distintos. Se aplicaron 0001–0004 y el seed ficticio. Worker staging respondió health 200 y catálogo con un solo SKU de prueba. R2 staging pasó put/get/delete local; quedó vacío.
+- Prueba D1 real en staging: stock ficticio 4→6, duplicado `not_pending`, y trigger de error de auditoría produjo rollback de stock/estado; la cancelación posterior dejó la segunda operación cancelada. Quedó 1 operación aplicada, 1 cancelada y 1 auditoría.
+- Mocks cubren `/start`, `/ayuda`, `/estado`, propietario y usuario desconocido, consulta stock, confirmación, cancelación, mutaciones no atómicas, deduplicación/rate limit, batch de auditoría, descarga/transcripción OGG y errores de Telegram/Gemini.
+- Telegram test bot real: `getMe` confirmó `@SneakerHubPruebas_bot`; `getWebhookInfo` confirmó webhook vacío y 0 pendientes. No se registró webhook ni se entregó `/start` por HTTPS al Worker.
+- Gemini real con clave independiente staging: consulta estructurada `TEST-TRN-001` aprobada. Solo interpretación, sin D1.
+- D1/R2 original comparados con la línea base: tablas y filas de aplicación D1 idénticas; metadatos y blobs de los 7 objetos R2 idénticos. No se desplegó; la única creación remota fue la D1 staging, con migraciones y seed ficticio solo en esa D1. No hubo escrituras en SneakerHub original.
+- D1 remota staging creada y verificada (UUID `18ac228c-c142-45c7-b801-6ae0c6e1f8eb`); migraciones 0001–0004 y seed ficticio aplicados. R2 remoto requiere habilitación desde Dashboard; Worker remoto, secretos y webhook siguen pendientes. No se instalaron ni actualizaron dependencias.
+- Plan de continuación: [`SNEAKERHUB_STAGING_HTTPS_PLAN.md`](SNEAKERHUB_STAGING_HTTPS_PLAN.md).
+- Detalle y límites: [`SNEAKERHUB_GEMINI_TELEGRAM.md`](SNEAKERHUB_GEMINI_TELEGRAM.md).
+
+## Plataforma 3.0 (2026-11-03)
+
+```powershell
+cd worker ; npm test ; npx tsc --noEmit      # 156/156, 19 archivos
+cd ../frontend ; npm test ; npm run build     # 58/58, build OK
+node scripts/verify-d1-migration.mjs .tmp/telegram-231-production/production-before.sql --rollback
+```
+
+- Las pruebas del Worker usan `worker/test/sqliteD1.js`: SQLite real con **todas** las migraciones (restricciones, disparadores, JSON y claves foráneas) y el Worker completo (`src/testing/harness.ts`). Telegram y Gemini se simulan con `fetch` falso; ninguna prueba llama servicios externos.
+- `verify-d1-migration.mjs` carga una **copia** de un volcado D1, aplica las migraciones pendientes y compara conteos y hashes por tabla; con `--rollback` verifica también la reversión. Solo imprime agregados.
+- Verificación adicional realizada: Wrangler D1 local (Miniflare) sobre la copia del respaldo, smoke test HTTP del Worker 3.0 en `workerd` (19/19), compatibilidad del Worker anterior con el esquema migrado (9/9) y revisión visual en navegador de `/t/<tienda>`, vista previa privada, activación y `/plataforma`.

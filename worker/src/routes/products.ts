@@ -1,11 +1,13 @@
 import { Hono } from 'hono'
 import type { Env } from '../index'
+import { publicStore } from '../middleware/tenant'
 
 const app = new Hono<Env>()
 
 // GET /api/products - Listar productos activos con variantes
-app.get('/', async (c) => {
+app.get('/', publicStore, async (c) => {
  const db = c.env.DB
+ const storeId = c.get('storeId')!
  const categorySlug = c.req.query('category')
  const search = c.req.query('q')
  const featured = c.req.query('featured')
@@ -16,11 +18,11 @@ app.get('/', async (c) => {
  v.id as variant_id, v.sku as variant_sku, v.name as variant_name, v.size as variant_size,
  v.color as variant_color, v.price_override as variant_price_override, v.stock as variant_stock, v.is_active as variant_is_active
  FROM products p
- LEFT JOIN categories c ON p.category_id = c.id
+ LEFT JOIN categories c ON p.category_id = c.id AND c.store_id = p.store_id
  LEFT JOIN product_variants v ON v.product_id = p.id AND v.is_active = 1
- WHERE p.is_active = 1 AND p.is_archived = 0
+ WHERE p.store_id = ? AND p.is_active = 1 AND p.is_archived = 0
  `
- const params: (string | number)[] = []
+ const params: (string | number)[] = [storeId]
 
  if (categorySlug && categorySlug !== 'all') {
  query += ` AND c.slug = ?`
@@ -65,16 +67,17 @@ app.get('/', async (c) => {
 })
 
 // GET /api/products/:slug - Obtener producto individual por SKU
-app.get('/:sku', async (c) => {
+app.get('/:sku', publicStore, async (c) => {
  const db = c.env.DB
+ const storeId = c.get('storeId')!
  const sku = c.req.param('sku')
 
  const product = await db.prepare(
  `SELECT p.*, c.name as category_name, c.slug as category_slug
  FROM products p
- LEFT JOIN categories c ON p.category_id = c.id
- WHERE p.sku = ? AND p.is_active = 1 AND p.is_archived = 0`
- ).bind(sku).first()
+ LEFT JOIN categories c ON p.category_id = c.id AND c.store_id = p.store_id
+ WHERE p.store_id = ? AND p.sku = ? AND p.is_active = 1 AND p.is_archived = 0`
+ ).bind(storeId, sku).first()
 
  if (!product) {
  return c.json({ error: 'Product not found' }, 404)

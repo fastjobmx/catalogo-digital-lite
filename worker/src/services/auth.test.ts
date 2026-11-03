@@ -75,4 +75,12 @@ describe('auth - sesiones JWT del panel admin', () => {
     expect(await validateCredentials('owner@acme-shop.com', 'wrong password', production)).toBe(false)
     expect(await validateCredentials('other@acme-shop.com', 'strong production fixture password', production)).toBe(false)
   })
+
+  it('acepta staging como entorno de pruebas remoto, con secreto JWT fuerte y rechaza nombres desconocidos', async () => {
+    const staging = { ...testEnv, ENVIRONMENT: 'staging' } as typeof testEnv
+    expect(isAuthConfigurationReady(staging)).toBe(true)
+    expect(await validateCredentials('fixture-owner@unit.test', 'unit-test-password-fixture', staging)).toBe(true)
+    expect(getJwtSecret({ ...staging, JWT_SECRET: 'short' })).toBeNull()
+    expect(isAuthConfigurationReady({ ...staging, ENVIRONMENT: 'stage' } as typeof testEnv)).toBe(false)
+  })
 })

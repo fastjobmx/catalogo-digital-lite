@@ -1,12 +1,17 @@
 import { describe, it, expect } from 'vitest'
-import { actionSchemas, ACTION_NAMES, parseActionPayload } from './actions'
+import { actionSchemas, ACTION_NAMES, parseActionPayload, READ_ONLY_ACTIONS } from './actions'
 
 describe('actionSchemas / parseActionPayload', () => {
-  it('expone las 20 acciones deterministas del agente', () => {
-    expect(ACTION_NAMES.length).toBe(20)
+  it('expone el catálogo cerrado de acciones tipadas del agente (lectura y cambios confirmables)', () => {
+    expect(ACTION_NAMES.length).toBe(34)
+    expect(ACTION_NAMES).toContain('hide_out_of_stock')
+    expect(ACTION_NAMES).toContain('get_low_stock')
+    expect(READ_ONLY_ACTIONS.has('get_top_products')).toBe(true)
+    expect(READ_ONLY_ACTIONS.has('update_price')).toBe(false)
     expect(ACTION_NAMES).toContain('create_product')
     expect(ACTION_NAMES).toContain('update_stock')
     expect(ACTION_NAMES).toContain('get_inventory')
+    expect(ACTION_NAMES).toContain('update_hero_title')
   })
 
   it('rechaza acciones no permitidas (no hay SQL libre)', () => {
@@ -61,9 +66,27 @@ describe('actionSchemas / parseActionPayload', () => {
     expect(actionSchemas.update_stock.safeParse({ sku: 'X', size: '38', stock: 6 }).success).toBe(true)
   })
 
+  it('validates product edits by exact SKU and rejects empty or invalid patches', () => {
+    expect(actionSchemas.update_product.safeParse({ sku: 'DEMO-FOTO-2026', name: 'KINETIK Premium' }).success).toBe(true)
+    expect(actionSchemas.update_product.safeParse({ sku: 'DEMO-FOTO-2026', description: 'Nueva descripción' }).success).toBe(true)
+    expect(actionSchemas.update_product.safeParse({ sku: 'DEMO-FOTO-2026', isActive: false }).success).toBe(true)
+    expect(actionSchemas.update_product.safeParse({ sku: 'DEMO-FOTO-2026' }).success).toBe(false)
+    expect(actionSchemas.update_product.safeParse({ sku: 'DEMO-FOTO-2026', name: 'x' }).success).toBe(false)
+    expect(actionSchemas.update_product.safeParse({ sku: 'DEMO-FOTO-2026', sql: 'DROP TABLE products' }).success).toBe(false)
+  })
+
   it('valida el formato hexadecimal de los colores de marca', () => {
     expect(actionSchemas.update_store_colors.safeParse({ primaryColor: '#0057FF' }).success).toBe(true)
     expect(actionSchemas.update_store_colors.safeParse({ primaryColor: 'azul' }).success).toBe(false)
+  })
+
+  it('valida nombre, título, color y WhatsApp internacional para las acciones de tienda', () => {
+    expect(actionSchemas.update_store_name.safeParse({ name: 'EROS SHOP' }).success).toBe(true)
+    expect(actionSchemas.update_store_name.safeParse({ name: 'x' }).success).toBe(false)
+    expect(actionSchemas.update_hero_title.safeParse({ title: 'Viste a tu manera' }).success).toBe(true)
+    expect(actionSchemas.update_hero_title.safeParse({ title: 'x' }).success).toBe(false)
+    expect(actionSchemas.update_whatsapp.safeParse({ whatsappPhone: '+57 350 691 2734' }).success).toBe(true)
+    expect(actionSchemas.update_whatsapp.safeParse({ whatsappPhone: '3506912734' }).success).toBe(false)
   })
 
   it('rechaza precios no enteros (evita valores inventados con decimales)', () => {

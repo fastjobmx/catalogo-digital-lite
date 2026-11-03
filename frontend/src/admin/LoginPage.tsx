@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, Link, Navigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useStore } from '../contexts/StoreContext'
 import { isBackendAvailable } from '../services/api'
@@ -18,10 +18,7 @@ export default function LoginPage() {
   const [isCheckingConnection, setIsCheckingConnection] = useState(false)
   const offlineDemoAuth = isOfflineDemoAuthEnabled(import.meta.env.DEV, import.meta.env.VITE_ALLOW_DEMO_AUTH)
 
-  if (isAuthenticated) {
-    navigate('/admin', { replace: true })
-    return null
-  }
+  if (isAuthenticated) return <Navigate to="/admin" replace />
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

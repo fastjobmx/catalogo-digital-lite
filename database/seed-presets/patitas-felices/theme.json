@@ -1,0 +1,30 @@
+{
+  "style": {
+    "palette": {
+      "background": "#F7F8F4",
+      "surface": "#FFFFFF",
+      "text": "#25332A",
+      "textMuted": "#68756B",
+      "border": "#E1E8DF",
+      "primary": "#4A6B55",
+      "secondary": "#E5ECDD",
+      "accent": "#C18455",
+      "button": "#385642",
+      "buttonText": "#FFFFFF"
+    },
+    "typography": { "fontPrimary": "DM Sans", "fontDisplay": "Manrope", "scale": "normal", "headingWeight": "bold" },
+    "radius": "soft",
+    "density": "normal",
+    "buttonStyle": "solid",
+    "cardStyle": "elevated",
+    "darkMode": false
+  },
+  "header": { "topbarEnabled": true, "topbarText": "Accesorios y cuidado para perros y gatos", "showContact": true, "sticky": true },
+  "hero": { "enabled": true, "eyebrow": "PATITAS FELICES", "title": "Pequeños cuidados, grandes momentos", "subtitle": "Bienestar para cada patita", "description": "Explora una selección de productos de demostración para perros y gatos.", "ctaPrimaryLabel": "Ver productos", "ctaPrimaryHref": "/category/all", "ctaSecondaryEnabled": false, "imageUrl": "/seed-images/patitas/treats.jpg", "imageUrlMobile": null, "align": "left", "height": "tall", "overlayOpacity": 24 },
+  "sections": { "enabled": { "hero": true, "categories": true, "featured": true, "promo": false, "offers": false, "newest": true, "benefits": false, "contact": true, "testimonials": false, "cta": true } },
+  "promo": { "enabled": false, "imageUrl": null },
+  "cta": { "eyebrow": "Cuidado cercano", "title": "Bienestar para cada patita.", "description": "Explora productos para cuidar, jugar y acompañar a tus mascotas. Escríbenos para consultar disponibilidad.", "primaryLabel": "Explorar catálogo" },
+  "benefits": [],
+  "testimonials": [],
+  "footer": { "aboutText": "Tienda demo de cuidado y accesorios para perros y gatos.", "showPolicies": false }
+}

@@ -19,6 +19,23 @@ export function interpretCommand(text: string): Interpretation {
   const raw = text.trim()
   const lower = raw.toLowerCase()
 
+  const editName = raw.match(/\b(?:cambia|cambiar|actualiza|modifica)\s+(?:el\s+)?nombre\s+(?:de\s+)?(?:el\s+)?(?:producto\s+)?(?:sku\s+)?([A-Z0-9][A-Z0-9._-]{2,63})\s+(?:a|por)\s+["“]?(.+?)["”]?\s*$/i)
+  const editDescription = raw.match(/\b(?:cambia|cambiar|actualiza|modifica)\s+(?:la\s+)?descripci[oó]n\s+(?:de\s+)?(?:el\s+)?(?:producto\s+)?(?:sku\s+)?([A-Z0-9][A-Z0-9._-]{2,63})\s+(?:a|por)\s+["“]?([\s\S]+?)["”]?\s*$/i)
+  const editPublication = raw.match(/\b(?:activa|desactiva|publica|oculta)\s+(?:la\s+)?(?:publicaci[oó]n\s+de\s+)?(?:producto\s+)?(?:sku\s+)?([A-Z0-9][A-Z0-9._-]{2,63})\b/i)
+  const hasSkuMarker = (value: string | undefined) => Boolean(value && /[0-9._-]/.test(value))
+  const edit = editName && hasSkuMarker(editName[1]) ? { sku: editName[1]!, name: editName[2]!.trim() }
+    : editDescription && hasSkuMarker(editDescription[1]) ? { sku: editDescription[1]!, description: editDescription[2]!.trim() }
+      : editPublication && hasSkuMarker(editPublication[1]) ? { sku: editPublication[1]!, isActive: /^(?:activa|publica)$/i.test(raw.trim()) }
+        : null
+  if (!edit && /\b(?:cambia|cambiar|actualiza|modifica)\s+(?:el\s+)?(?:nombre|descripci[oó]n)\b/i.test(raw) && !/\b(?:nombre|descripci[oó]n)\s+de\s+mi\s+tienda\b/i.test(raw)) {
+    return { action: 'ask', params: {}, missing: ['SKU exacto y valor nuevo'], needsConfirmation: false, summary: 'Para editar un producto necesito su SKU exacto y el nuevo valor.', simulated: true }
+  }
+  if (edit) {
+    const parsed = parseActionPayload({ action: 'update_product', params: edit })
+    if (!parsed.success) return { action: 'ask', params: {}, missing: ['un valor válido de nombre o descripción'], needsConfirmation: false, summary: 'El cambio no cumple las reglas del producto.', simulated: true }
+    return { action: 'update_product', params: parsed.data.params as Record<string, unknown>, missing: [], needsConfirmation: true, summary: `Editar producto ${edit.sku} con el campo indicado.`, simulated: true }
+  }
+
   if (/crea(r)? mi tienda|empezar|onboarding/.test(lower)) {
     return {
       action: 'ask',
@@ -26,6 +43,44 @@ export function interpretCommand(text: string): Interpretation {
       missing: [],
       needsConfirmation: false,
       summary: 'Iniciar cuestionario de configuración de la tienda.',
+      simulated: true,
+    }
+  }
+
+  // Parse explicit stock changes deterministically so a clear command does not
+  // depend on Gemini inferring the variant size from Spanish phrasing.
+  const stockChangeIntent = /\b(?:fija|pon|establece|actualiza|cambia|cambiar|ajusta|modifica|deja)\b/.test(lower)
+    && /\b(?:existencia|stock|inventario)\b/.test(lower)
+  if (stockChangeIntent) {
+    const labelledSku = raw.match(REF)?.[1]
+    // Hyphenated codes (TEST-TRN-001) or alphanumeric codes with letters and digits (ABC123).
+    const skuCandidates = [...new Set([...raw.matchAll(/\b[A-Z0-9]+(?:-[A-Z0-9]+)+\b|\b(?=[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])[A-Z0-9]{3,64}\b/gi)].map((match) => match[0]))]
+    const sku = labelledSku || (skuCandidates.length === 1 ? skuCandidates[0] : undefined)
+    const size = raw.match(/\btalla\s+(\d{1,3}[a-z]?)\b/i)?.[1]
+    const quantity = raw.match(/\b(?:en|a)\s+(\d+)\s*(?:unidades?|pares?)?\b/i)?.[1]
+    const missing = [
+      ...(!sku ? ['referencia/SKU'] : []),
+      ...(!size ? ['talla'] : []),
+      ...(!quantity ? ['cantidad de unidades'] : []),
+    ]
+    if (missing.length) {
+      return {
+        action: 'ask', params: {}, missing, needsConfirmation: false,
+        summary: `Para cambiar stock necesito ${missing.join(', ')}.`, simulated: true,
+      }
+    }
+    const params = { sku: sku!, size: size!, stock: Number(quantity) }
+    const parsed = parseActionPayload({ action: 'update_stock', params })
+    if (!parsed.success) {
+      return {
+        action: 'ask', params: {}, missing: ['valores válidos de referencia, talla y stock'],
+        needsConfirmation: false, summary: 'No pude validar el cambio de stock.', simulated: true,
+      }
+    }
+    return {
+      action: 'update_stock', params: parsed.data.params as Record<string, unknown>, missing: [],
+      needsConfirmation: true,
+      summary: `Fijar ${params.stock} unidades para ${params.sku}, talla ${params.size}.`,
       simulated: true,
     }
   }
@@ -52,29 +107,54 @@ export function interpretCommand(text: string): Interpretation {
     }
   }
 
-  if (/color(?:es)?\s+(primario|principal)/.test(lower)) {
+  const nameMatch = raw.match(/(?:cambia|cambiar|actualiza|pon|establece)\s+(?:el\s+)?(?:nombre(?:\s+comercial)?)(?:\s+de\s+mi\s+tienda)?\s+(?:a|por|como)\s+["“]?(.+?)["”]?$/i)
+  if (nameMatch?.[1]) {
+    const name = nameMatch[1].trim()
+    const parsed = parseActionPayload({ action: 'update_store_name', params: { name } })
+    if (parsed.success) return { action: 'update_store_name', params: parsed.data.params as Record<string, unknown>, missing: [], needsConfirmation: true, summary: `Cambiar nombre comercial a ${name}.`, simulated: true }
+    return { action: 'ask', params: {}, missing: ['nombre comercial válido (2–80 caracteres)'], needsConfirmation: false, summary: 'El nombre propuesto no cumple el formato permitido.', simulated: true }
+  }
+
+  const heroTitleMatch = raw.match(/(?:cambia(?:r)?\s+)?(?:el\s+)?(?:t[ií]tulo(?:\s+principal)?(?:\s+de\s+portada)?|portada)\s+(?:de\s+mi\s+tienda\s+)?(?:a|por|como)\s+["“]?(.+?)["”]?$/i)
+  if (heroTitleMatch?.[1]) {
+    const title = heroTitleMatch[1].trim()
+    const parsed = parseActionPayload({ action: 'update_hero_title', params: { title } })
+    if (parsed.success) return { action: 'update_hero_title', params: parsed.data.params as Record<string, unknown>, missing: [], needsConfirmation: true, summary: `Cambiar título de portada a “${title}”.`, simulated: true }
+    return { action: 'ask', params: {}, missing: ['título de portada válido (3–100 caracteres)'], needsConfirmation: false, summary: 'El título propuesto no cumple el formato permitido.', simulated: true }
+  }
+
+  const namedColors: Record<string, string> = {
+    'azul oscuro': '#153D70', 'azul marino': '#153D70', 'azul': '#2563EB',
+    'negro': '#171717', 'blanco': '#FFFFFF', 'rojo': '#C62828',
+    'verde': '#237A57', 'verde oscuro': '#185C43', 'beige': '#D9D0C1',
+    'gris': '#6B7280', 'morado': '#6D28D9', 'naranja': '#C2410C',
+  }
+  const namedColor = Object.keys(namedColors).sort((a, b) => b.length - a.length).find((color) => lower.includes(color) && /color|tienda|botones|p[aá]gina/.test(lower))
+  if (namedColor || /color(?:es)?\s+(primario|principal)/.test(lower)) {
     const hex = raw.match(/#([0-9a-fA-F]{6})/)
-    if (!hex) {
-      return { action: 'update_store_colors', params: {}, missing: ['primaryColor'], needsConfirmation: false, summary: 'Falta el color hexadecimal.', simulated: true }
-    }
+    const color = hex ? `#${hex[1]}` : namedColor ? namedColors[namedColor] : undefined
+    if (!color) return { action: 'ask', params: {}, missing: ['color principal inequívoco o hexadecimal'], needsConfirmation: false, summary: 'Indica un color como “azul oscuro” o un hexadecimal como #153D70.', simulated: true }
     return {
       action: 'update_store_colors',
-      params: { primaryColor: `#${hex[1]}` },
+      params: { primaryColor: color },
       missing: [],
       needsConfirmation: true,
-      summary: `Cambiar color primario a #${hex[1]}.`,
+      summary: `Cambiar color principal a ${color}.`,
       simulated: true,
     }
   }
 
   if (/whatsapp/.test(lower)) {
-    const phone = raw.match(/(\+?\d{10,15})/)
+    const phone = raw.match(/(\+[\d\s().-]{8,20}\d)/)
     if (!phone) {
-      return { action: 'update_whatsapp', params: {}, missing: ['whatsappPhone'], needsConfirmation: false, summary: 'Falta el número de WhatsApp.', simulated: true }
+      return { action: 'ask', params: {}, missing: ['whatsapp internacional con prefijo +país'], needsConfirmation: false, summary: 'Escribe el WhatsApp con código internacional, por ejemplo +573506912734.', simulated: true }
     }
+    const whatsappPhone = phone[1]!.replace(/[\s().-]/g, '')
+    const parsed = parseActionPayload({ action: 'update_whatsapp', params: { whatsappPhone } })
+    if (!parsed.success) return { action: 'ask', params: {}, missing: ['whatsapp internacional válido'], needsConfirmation: false, summary: 'El WhatsApp debe incluir el prefijo internacional y entre 8 y 15 dígitos.', simulated: true }
     return {
       action: 'update_whatsapp',
-      params: { whatsappPhone: phone[1] },
+      params: { whatsappPhone },
       missing: [],
       needsConfirmation: true,
       summary: `Actualizar WhatsApp a ${phone[1]}.`,

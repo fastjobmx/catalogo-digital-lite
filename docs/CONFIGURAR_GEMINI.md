@@ -14,7 +14,7 @@ En local, en `worker/.dev.vars`:
 
 ```
 GEMINI_API_KEY=tu_api_key_aqui
-GEMINI_MODEL=gemini-2.0-flash
+GEMINI_MODEL=gemini-3.8-flash
 ```
 
 En producción:
@@ -24,7 +24,7 @@ cd worker
 npx wrangler secret put GEMINI_API_KEY
 ```
 
-`GEMINI_MODEL` es opcional; por defecto se usa `gemini-2.0-flash`.
+`GEMINI_MODEL` es opcional; por defecto se usa `gemini-3.8-flash`. El modelo puede cambiarse por otro compatible con generación estructurada y entrada de audio.
 
 ## 3. Cómo se usa
 

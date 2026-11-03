@@ -1,0 +1,10 @@
+{
+  "license": "Pexels License (https://www.pexels.com/legal-pages/license/): free commercial use and editing; attribution not required; no implied endorsement.",
+  "processing": "JPEG, max 1400 px, quality 84, optimized locally on 2026-11-01.",
+  "assets": [
+    { "file": "wireless-earbuds.jpg", "author": "Atahan Demir", "source": "https://www.pexels.com/photo/wireless-earphones-3585797/", "download": "https://images.pexels.com/photos/3585797/pexels-photo-3585797.jpeg?cs=srgb&dl=pexels-atahandemir-3585797.jpg&fm=jpg", "sha256": "849562326b5f76d62b17a4b1046b957be44cacd2e2f996afc5911b0bf3911f1c" },
+    { "file": "smartwatch.jpg", "author": "MOISES RIBEIRO", "source": "https://www.pexels.com/photo/a-person-wearing-smartwatch-in-close-up-photography-11031462/", "download": "https://images.pexels.com/photos/11031462/pexels-photo-11031462.png?cs=srgb&dl=pexels-moises-ribeiro-121009898-11031462.jpg&fm=jpg", "sha256": "950f1a33652acec235ec9b447bfdf9e6c21989cb6b322f4fb59f5662666eee5c" },
+    { "file": "powerbank.jpg", "author": "Eleonora Vokueva", "source": "https://www.pexels.com/photo/smartphone-charging-with-portable-power-bank-37475677/", "download": "https://images.pexels.com/photos/37475677/pexels-photo-37475677.jpeg?cs=srgb&dl=pexels-eleonora-vokueva-2161345723-37475677.jpg&fm=jpg", "sha256": "548da2507f2601f74cdbc6384f95679ce05bc874e0656e52c95360b108b8b339" },
+    { "file": "smartphone-mockup.jpg", "author": "MART PRODUCTION", "source": "https://www.pexels.com/photo/close-up-shot-person-using-a-smartphone-8217298/", "download": "https://images.pexels.com/photos/8217298/pexels-photo-8217298.jpeg?cs=srgb&dl=pexels-mart-production-8217298.jpg&fm=jpg", "sha256": "8cd3a8b64bba8717e39134b5b9282f66b6e7f1b9c3e0497e24e8ad43a9675d21" }
+  ]
+}

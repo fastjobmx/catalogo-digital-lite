@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
 import { adminLogin, getAdminStats, type AdminStats } from '../services/api'
-import { storeStorageKey } from '../lib/installation'
+import { storeStorageKey, storeStorageKeyFor } from '../lib/installation'
+import { TENANT_SLUG, tenantPath } from '../lib/tenant'
 import { isOfflineDemoAuthEnabled } from '../lib/authMode'
 import { IS_PUBLIC_DEMO } from '../lib/publicDemo'
 
@@ -14,7 +15,11 @@ interface AuthContextValue {
   isDemoSession: boolean
   isLoading: boolean
   stats: AdminStats | null
+  /** 'superadmin' for the platform administrator, 'user' for store teams. */
+  role: string | null
   login: (email: string, password: string) => Promise<{ error?: string }>
+  /** Saves a session obtained outside the login form (account activation). */
+  adoptSession: (session: { token: string; email: string; role?: string }, tenantSlug: string | null) => void
   logout: () => void
   refreshStats: () => Promise<void>
 }
@@ -23,12 +28,20 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
 const TOKEN_KEY = storeStorageKey('catalogo-lite-admin-token')
 const EMAIL_KEY = storeStorageKey('catalogo-lite-admin-email')
+const ROLE_KEY = storeStorageKey('catalogo-lite-admin-role')
+
+function saveSessionFor(tenantSlug: string | null, session: { token: string; email: string; role?: string }) {
+  localStorage.setItem(storeStorageKeyFor(tenantSlug, 'catalogo-lite-admin-token'), session.token)
+  localStorage.setItem(storeStorageKeyFor(tenantSlug, 'catalogo-lite-admin-email'), session.email)
+  localStorage.setItem(storeStorageKeyFor(tenantSlug, 'catalogo-lite-admin-role'), session.role || 'user')
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null)
   const [email, setEmail] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [stats, setStats] = useState<AdminStats | null>(null)
+  const [role, setRole] = useState<string | null>(null)
 
   // Restore session on mount
   useEffect(() => {
@@ -60,10 +73,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (active) {
           setToken(storedToken)
           setEmail(storedEmail)
+          setRole(localStorage.getItem(ROLE_KEY))
         }
       } catch {
         localStorage.removeItem(TOKEN_KEY)
         localStorage.removeItem(EMAIL_KEY)
+        localStorage.removeItem(ROLE_KEY)
       } finally {
         if (active) setIsLoading(false)
       }
@@ -85,10 +100,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (IS_PUBLIC_DEMO) return { error: 'El acceso administrativo está desactivado en esta demo.' }
     try {
       const response = await adminLogin(loginEmail, password)
+      // Store teams log in from any URL; send them to a store they belong to.
+      if (response.role === 'user' && response.stores?.length) {
+        const here = response.stores.find((store) => (TENANT_SLUG ? store.slug === TENANT_SLUG : store.storeId === 1))
+        if (!here) {
+          const target = response.stores[0]!
+          const targetSlug = target.storeId === 1 ? null : target.slug
+          saveSessionFor(targetSlug, { token: response.token, email: response.email, role: 'user' })
+          window.location.assign(tenantPath(targetSlug, '/admin'))
+          return {}
+        }
+      }
       setToken(response.token)
       setEmail(response.email)
-      localStorage.setItem(TOKEN_KEY, response.token)
-      localStorage.setItem(EMAIL_KEY, response.email)
+      setRole(response.role || 'superadmin')
+      saveSessionFor(TENANT_SLUG, { token: response.token, email: response.email, role: response.role || 'superadmin' })
       return {}
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Login failed'
@@ -108,8 +134,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(null)
     setEmail(null)
     setStats(null)
+    setRole(null)
     localStorage.removeItem(TOKEN_KEY)
     localStorage.removeItem(EMAIL_KEY)
+    localStorage.removeItem(ROLE_KEY)
+  }
+
+  const adoptSession = (session: { token: string; email: string; role?: string }, tenantSlug: string | null) => {
+    saveSessionFor(tenantSlug, session)
+    if (tenantSlug === TENANT_SLUG) {
+      setToken(session.token)
+      setEmail(session.email)
+      setRole(session.role || 'user')
+    }
   }
 
   const refreshStats = async () => {
@@ -131,6 +168,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isDemoSession: token === DEMO_TOKEN,
         isLoading,
         stats,
+        role,
+        adoptSession,
         login,
         logout,
         refreshStats,

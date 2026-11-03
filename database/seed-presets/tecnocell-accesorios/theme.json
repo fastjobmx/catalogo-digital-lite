@@ -1,0 +1,30 @@
+{
+  "style": {
+    "palette": {
+      "background": "#F4F6F9",
+      "surface": "#FFFFFF",
+      "text": "#172334",
+      "textMuted": "#657489",
+      "border": "#DFE5EC",
+      "primary": "#2763A5",
+      "secondary": "#DCE8F5",
+      "accent": "#37A6B7",
+      "button": "#183B65",
+      "buttonText": "#FFFFFF"
+    },
+    "typography": { "fontPrimary": "Inter", "fontDisplay": "Space Grotesk", "scale": "normal", "headingWeight": "bold" },
+    "radius": "soft",
+    "density": "compact",
+    "buttonStyle": "solid",
+    "cardStyle": "bordered",
+    "darkMode": false
+  },
+  "header": { "topbarEnabled": true, "topbarText": "Accesorios móviles y tecnología para tu día a día", "showContact": true, "sticky": true },
+  "hero": { "enabled": true, "eyebrow": "TECNOCELL ACCESORIOS", "title": "Tecnología que te acompaña", "subtitle": "Conecta con lo que importa", "description": "Conoce esta selección de productos de demostración para móviles y accesorios.", "ctaPrimaryLabel": "Ver catálogo", "ctaPrimaryHref": "/category/all", "ctaSecondaryEnabled": false, "imageUrl": "/seed-images/tecnocell-demo/wireless-earbuds.jpg", "imageUrlMobile": null, "align": "left", "height": "tall", "overlayOpacity": 42 },
+  "sections": { "enabled": { "hero": true, "categories": true, "featured": true, "promo": false, "offers": false, "newest": true, "benefits": false, "contact": true, "testimonials": false, "cta": true } },
+  "promo": { "enabled": false, "imageUrl": null },
+  "cta": { "eyebrow": "Conecta con lo que importa", "title": "Tecnología lista para acompañarte.", "description": "Explora accesorios para tus dispositivos y consulta disponibilidad con nuestro equipo.", "primaryLabel": "Explorar catálogo" },
+  "benefits": [],
+  "testimonials": [],
+  "footer": { "aboutText": "Tienda demo de accesorios y tecnología móvil.", "showPolicies": false }
+}

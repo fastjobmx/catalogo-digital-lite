@@ -8,6 +8,8 @@
 
 import type { ThemeConfig } from '../types/theme'
 import { IS_PUBLIC_DEMO } from '../lib/publicDemo'
+import { tenantHeaders } from '../lib/tenant'
+import { storeStorageKey } from '../lib/installation'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
 const inflightGetRequests = new Map<string, Promise<unknown>>()
@@ -15,6 +17,22 @@ const inflightGetRequests = new Map<string, Promise<unknown>>()
 interface ApiError {
  error: string
  message?: string
+ code?: string
+}
+
+/** API failure with the HTTP status and the backend's stable error code. */
+export class ApiRequestError extends Error {
+ constructor(message: string, readonly status: number, readonly code?: string) {
+  super(message)
+  this.name = 'ApiRequestError'
+ }
+}
+
+function readPreviewToken(): string | null {
+ try {
+  const token = localStorage.getItem(storeStorageKey('catalogo-lite-admin-token'))
+  return token && token !== 'demo-local' ? token : null
+ } catch { return null }
 }
 
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
@@ -30,11 +48,15 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   try {
   const requestHeaders = new Headers(options?.headers)
   if (!requestHeaders.has('Content-Type')) requestHeaders.set('Content-Type', 'application/json')
+  for (const [name, value] of Object.entries(tenantHeaders())) if (!requestHeaders.has(name)) requestHeaders.set(name, value)
+  // Draft stores are private: their own team previews them with its session.
+  const previewToken = method === 'GET' && /^\/api\/(?:store|products|categories)(?:[/?]|$)/.test(path) ? readPreviewToken() : null
+  if (previewToken && !requestHeaders.has('Authorization')) requestHeaders.set('Authorization', `Bearer ${previewToken}`)
   const response = await fetch(url, { ...options, headers: requestHeaders })
 
  if (!response.ok) {
  const errorData = await response.json().catch(() => ({ error: 'Unknown error' })) as ApiError
- throw new Error(errorData.error || `HTTP ${response.status}`)
+ throw new ApiRequestError(errorData.error || `HTTP ${response.status}`, response.status, errorData.code)
  }
 
   return await response.json() as T
@@ -164,10 +186,20 @@ export async function getCategories(): Promise<CategoryApi[]> {
 // Admin API
 // ============================================
 
+export interface StoreAccess {
+ storeId: number
+ slug: string
+ name: string
+ status: string
+ role: string
+}
+
 export interface AdminLoginResponse {
  token: string
  email: string
  expiresAt: string
+ role?: 'superadmin' | 'user'
+ stores?: StoreAccess[]
  message?: string
 }
 
@@ -333,7 +365,7 @@ export async function uploadImage(file: File, folder: string, token: string): Pr
  const url = `${API_BASE}/api/upload/image`
  const response = await fetch(url, {
  method: 'POST',
- headers: { Authorization: `Bearer ${token}` },
+ headers: { Authorization: `Bearer ${token}`, ...tenantHeaders() },
  body: formData,
  })
 
@@ -472,4 +504,59 @@ export async function isBackendAvailable(): Promise<boolean> {
  } catch {
  return false
  }
+}
+
+// ============================================
+// Activación de cuentas y plataforma multitienda
+// ============================================
+
+export async function getActivationInfo(token: string): Promise<{ email: string | null; store: { slug: string; name: string } }> {
+  return fetchApi(`/api/auth/activation?token=${encodeURIComponent(token)}`)
+}
+
+export async function activateAccount(token: string, password: string): Promise<AdminLoginResponse & { store: { slug: string; name: string } | null }> {
+  return fetchApi('/api/auth/activate', { method: 'POST', body: JSON.stringify({ token, password }) })
+}
+
+export interface PlatformStore {
+  id: number; slug: string; name: string; status: string; planCode: string; template: string; businessType: string
+  products: number; ordersLast30: number; aiPercent: number; ownerEmail: string | null; createdAt: string
+}
+
+export interface PlatformSummary {
+  period: string; stores: number; active: number; draft: number; suspended: number; products: number
+  ordersLast30: number; pendingOrders: number; aiCostMicros: number; aiRequests: number; errorsLast24h: number; failedJobs: number
+}
+
+export interface ProvisionStep { key: string; label: string; status: 'ok' | 'error' | 'skipped'; detail?: string }
+
+export interface ProvisionResponse {
+  jobId: string; status: 'completed' | 'failed' | 'running'; storeId?: number; slug?: string; name?: string
+  publicUrl?: string; adminUrl?: string; activationUrl?: string | null; telegramLinkCode?: string | null
+  telegramDeepLink?: string | null; steps: ProvisionStep[]; errorCode?: string; replayed?: boolean
+}
+
+export interface CreateStorePayload {
+  name: string; slug?: string; businessType: string; template: 'minimalista' | 'moderno' | 'premium' | 'personalizado'
+  primaryColor?: string; whatsapp?: string; ownerEmail?: string; ownerTelegramId?: string; planCode: string
+}
+
+const auth = (token: string) => ({ Authorization: `Bearer ${token}` })
+
+export const platformApi = {
+  summary: (token: string) => fetchApi<PlatformSummary>('/api/platform/summary', { headers: auth(token) }),
+  stores: (token: string) => fetchApi<{ items: PlatformStore[] }>('/api/platform/stores', { headers: auth(token) }),
+  plans: (token: string) => fetchApi<{ items: Array<{ code: string; name: string; aiBudgetMicros: number }> }>('/api/platform/plans', { headers: auth(token) }),
+  createStore: async (payload: CreateStorePayload, idempotencyKey: string, token: string): Promise<ProvisionResponse> => {
+    const response = await fetch(`${API_BASE}/api/platform/stores`, {
+      method: 'POST', headers: { ...auth(token), 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(payload),
+    })
+    const body = await response.json().catch(() => ({ error: 'Respuesta inválida' })) as ProvisionResponse & ApiError
+    if (response.status === 422 || response.status === 202 || response.ok) return body
+    throw new ApiRequestError(body.error || `HTTP ${response.status}`, response.status, body.code)
+  },
+  setStatus: (slug: string, status: string, token: string, reason?: string) => fetchApi(`/api/platform/stores/${slug}/status`, { method: 'POST', headers: auth(token), body: JSON.stringify({ status, reason }) }),
+  setAi: (slug: string, budgetUsd: number, token: string) => fetchApi(`/api/platform/stores/${slug}/ai`, { method: 'PUT', headers: auth(token), body: JSON.stringify({ budgetUsd, enabled: budgetUsd > 0 }) }),
+  setPlan: (slug: string, planCode: string, token: string) => fetchApi(`/api/platform/stores/${slug}/plan`, { method: 'PUT', headers: auth(token), body: JSON.stringify({ planCode }) }),
+  regenerateAccess: (slug: string, token: string) => fetchApi<{ activationUrl: string | null; telegramLinkCode: string | null; telegramDeepLink: string | null }>(`/api/platform/stores/${slug}/access`, { method: 'POST', headers: auth(token) }),
 }

@@ -13,6 +13,17 @@ export function resolveImageUrl(value: string | null | undefined): string | null
     }
   }
 
+  // Catalog images returned by the Worker are relative API paths. When the
+  // frontend is hosted separately (for example a staging preview), resolve
+  // only those API assets against the configured Worker origin.
+  if (source.startsWith('/api/assets/') && import.meta.env.VITE_API_URL) {
+    try {
+      return new URL(source, import.meta.env.VITE_API_URL).href
+    } catch {
+      return null
+    }
+  }
+
   // Reject insecure remote URLs, protocol-relative URLs and traversal.
   if (/^[a-z][a-z\d+.-]*:/i.test(source) || source.startsWith('//')) return null
   const path = source.split(/[?#]/, 1)[0] || ''

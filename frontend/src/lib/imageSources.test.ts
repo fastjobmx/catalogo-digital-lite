@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { isImageDecoded, localWebpSource, resolveImageUrl, shouldFallbackToOriginal } from './imageSources'
 
 describe('resolución de fotografías de producto', () => {
+  afterEach(() => vi.unstubAllEnvs())
   it('convierte rutas locales relativas a rutas del sitio, sin depender de la ruta SKU', () => {
     expect(resolveImageUrl('seed-images/sneakerhub/KINETIK-06.jpg')).toBe('/seed-images/sneakerhub/KINETIK-06.jpg')
     expect(resolveImageUrl('/api/assets/products/kinetik-06.webp')).toBe('/api/assets/products/kinetik-06.webp')
@@ -13,6 +14,12 @@ describe('resolución de fotografías de producto', () => {
     expect(resolveImageUrl('../shoe.jpg')).toBeNull()
     expect(resolveImageUrl('  ')).toBeNull()
     expect(resolveImageUrl(null)).toBeNull()
+  })
+
+  it('resuelve los assets del Worker en el origen API configurado para una vista previa separada', () => {
+    vi.stubEnv('VITE_API_URL', 'https://sneakerhub-staging.example.workers.dev')
+    expect(resolveImageUrl('/api/assets/products/telegram/demo/1.png'))
+      .toBe('https://sneakerhub-staging.example.workers.dev/api/assets/products/telegram/demo/1.png')
   })
 
   it('elige WebP solo para JPEG locales y conserva query/hash', () => {

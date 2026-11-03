@@ -41,12 +41,17 @@ El Worker expone `GET /api/telegram/setup` (protegido con token admin) que llama
 
 ```powershell
 # 1) Obtener token admin
+$adminEmail = Read-Host 'Email configurado localmente'
+$securePassword = Read-Host 'Contraseña local' -AsSecureString
+$adminPassword = [System.Net.NetworkCredential]::new('', $securePassword).Password
+$body = @{ email = $adminEmail; password = $adminPassword } | ConvertTo-Json -Compress
 $login = Invoke-RestMethod -Uri http://127.0.0.1:8788/api/admin/login -Method Post `
-  -Body '{"email":"admin@example.com","password":"admin123"}' -ContentType 'application/json'
+  -Body $body -ContentType 'application/json'
 
 # 2) Registrar el webhook
 Invoke-RestMethod -Uri http://127.0.0.1:8788/api/telegram/setup `
   -Headers @{ Authorization = "Bearer $($login.token)" }
+Remove-Variable adminPassword, body, login, securePassword -ErrorAction SilentlyContinue
 ```
 
 En producción, la URL pública del Worker debe ser accesible por Telegram (HTTPS). Se puede fijar manualmente con `TELEGRAM_WEBHOOK_URL`.

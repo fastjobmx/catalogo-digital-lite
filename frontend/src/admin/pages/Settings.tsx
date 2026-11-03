@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { useStore } from '../../contexts/StoreContext'
 import { updateStoreConfig, type StoreConfigApi } from '../../services/api'
 import { storeStorageKey } from '../../lib/installation'
+import { tenantHeaders } from '../../lib/tenant'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
 
@@ -18,6 +19,7 @@ interface LinkCodeResponse {
   expiresAt: string
   expiresInMinutes: number
   instructions: string
+  deepLink?: string | null
 }
 
 export default function Settings() {
@@ -73,7 +75,7 @@ export default function Settings() {
     }
     try {
       const res = await fetch(`${API_BASE}/api/admin/telegram/status`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}`, ...tenantHeaders() },
       })
       if (res.ok) {
         const data = await res.json() as TelegramStatus
@@ -91,7 +93,7 @@ export default function Settings() {
     try {
       const res = await fetch(`${API_BASE}/api/admin/telegram/link-code`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}`, ...tenantHeaders() },
       })
       if (res.ok) {
         const data = await res.json() as LinkCodeResponse
@@ -339,7 +341,7 @@ export default function Settings() {
                 {!linkCode ? (
                   <div className="space-y-4">
                     <p className="text-sm text-muted leading-relaxed">
-                      Genera un código para vincular tu cuenta de Telegram y gestionar la tienda desde el chat. El código es válido por 10 minutos.
+                      Genera un código para vincular tu cuenta de Telegram y administrar la tienda conversando con tu asistente. El código es de un solo uso y vence pronto.
                     </p>
                     <button
                       onClick={generateLinkCode}
@@ -365,8 +367,13 @@ export default function Settings() {
                           {codeCopied ? <Check size={18} className="text-emerald-600" /> : <Copy size={18} className="text-brand" />}
                         </button>
                       </div>
+                      {linkCode.deepLink && (
+                        <a href={linkCode.deepLink} target="_blank" rel="noreferrer" className="btn-brand w-full mt-4">
+                          <Link2 size={16} /> Abrir el asistente en Telegram
+                        </a>
+                      )}
                       <p className="text-[11px] text-center mt-3 text-muted">
-                        Expira en {linkCode.expiresInMinutes} min · {new Date(linkCode.expiresAt).toLocaleTimeString()}
+                        Expira en {linkCode.expiresInMinutes >= 120 ? `${Math.round(linkCode.expiresInMinutes / 60)} h` : `${linkCode.expiresInMinutes} min`} · {new Date(linkCode.expiresAt).toLocaleString()}
                       </p>
                     </div>
                     <button

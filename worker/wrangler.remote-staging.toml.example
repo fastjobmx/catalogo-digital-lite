@@ -1,0 +1,29 @@
+# Plantilla para recursos REMOTOS exclusivos de pruebas.
+# No desplegar hasta reemplazar database_id y aprobar la activación.
+# No copiar valores de wrangler.toml ni secretos del Worker definitivo.
+name = "sneakerhub-telegram-staging"
+main = "src/index.ts"
+compatibility_date = "2024-12-05"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[triggers]
+crons = ["*/15 * * * *"]
+
+[vars]
+ENVIRONMENT = "production"
+STORE_NAME = "SneakerHub Agent Test"
+STORE_CURRENCY = "COP"
+STORE_COUNTRY = "CO"
+TELEGRAM_ENV_LABEL = "STAGING - CATALOGO FICTICIO"
+GEMINI_MODEL = "gemini-3.8-flash"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "sneakerhub-telegram-staging-db"
+database_id = "REPLACE_WITH_ID_FROM_WRANGLER_D1_CREATE"
+migrations_dir = "../database/migrations"
+
+[[r2_buckets]]
+binding = "ASSETS"
+bucket_name = "sneakerhub-telegram-staging-assets"

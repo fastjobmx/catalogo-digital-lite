@@ -1,0 +1,697 @@
+/**
+ * Master bot (Sistema A): platform administration through Telegram. Only the
+ * numeric Telegram ids listed in MASTER_ADMIN_TELEGRAM_IDS are served. Every
+ * change is previewed and confirmed, and every action is audited.
+ */
+import { z } from 'zod'
+import type { Env } from '../../index'
+import { answerCallback, sendTelegramMessage, type TelegramUpdate } from '../assistant/telegramApi'
+import { escapeHtml } from '../assistant/tools'
+import { callGeminiJson, UNTRUSTED_CONTENT_RULE } from '../../ai/geminiClient'
+import { formatUsd } from '../../ai/usage'
+import { getStoreBySlug, isValidSlug, slugify } from '../../tenancy/stores'
+import { provisionStore, suggestSlug, type ProvisionResult } from '../provisioning'
+import { TEMPLATE_KEYS, TEMPLATE_LABELS, type TemplateKey } from '../templates'
+import {
+  assignOwner, getStoreDetail, listStores, platformSummary, PlatformError, recentEvents, regenerateOwnerAccess,
+  requestCustomDomain, setStoreAiBudget, setStorePlan, setStoreStatus, storesHealth,
+} from '../platform'
+
+type Keyboard = { inline_keyboard: Array<Array<{ text: string; callback_data?: string; url?: string }>> }
+
+type MasterContext = { db: D1Database; env: Env['Bindings']; botToken: string; chatId: number; actor: string; updateId: number }
+
+type WizardData = {
+  name?: string; slug?: string; businessType?: string; template?: TemplateKey; primaryColor?: string
+  whatsapp?: string | null; ownerEmail?: string; ownerTelegramId?: string; planCode?: string; editing?: boolean
+}
+type WizardStep = 'name' | 'business' | 'style' | 'color' | 'whatsapp' | 'owner' | 'plan' | 'summary' | 'slug'
+
+const NAMED_COLORS: Record<string, string> = {
+  'azul oscuro': '#153D70', 'azul marino': '#1E3A5F', azul: '#2563EB', negro: '#111111', blanco: '#FFFFFF', rojo: '#C62828',
+  'verde oscuro': '#185C43', verde: '#237A57', morado: '#6D28D9', naranja: '#C2410C', rosado: '#DB2777', rosa: '#DB2777',
+  dorado: '#B08D57', gris: '#6B7280', beige: '#D9D0C1', turquesa: '#0F9D9A', vinotinto: '#7F1D1D',
+}
+
+export function masterAdminIds(env: Partial<Env['Bindings']>): Set<string> {
+  return new Set(String(env.MASTER_ADMIN_TELEGRAM_IDS || '').split(',').map((value) => value.trim()).filter((value) => /^\d{4,15}$/.test(value)))
+}
+
+async function say(ctx: MasterContext, text: string, keyboard?: Keyboard): Promise<void> {
+  const label = ctx.env.MASTER_ENV_LABEL?.trim()
+  await sendTelegramMessage(ctx.botToken, ctx.chatId, `${label ? `🧪 <b>${escapeHtml(label)}</b>\n\n` : ''}${text}`, 'HTML', keyboard)
+}
+
+function menuKeyboard(): Keyboard {
+  return { inline_keyboard: [
+    [{ text: '➕ Crear tienda', callback_data: 'mt:create' }, { text: '🏪 Tiendas', callback_data: 'mt:stores' }],
+    [{ text: '📊 Resumen', callback_data: 'mt:summary' }, { text: '🩺 Salud técnica', callback_data: 'mt:health' }],
+    [{ text: '⚠️ Errores recientes', callback_data: 'mt:errors' }, { text: '❔ Ayuda', callback_data: 'mt:help' }],
+  ] }
+}
+
+const HELP = [
+  '🛠️ <b>Bot maestro de la plataforma</b>',
+  '',
+  '/crear_tienda — asistente para crear una tienda',
+  '/tiendas — listado (también: /tiendas activas, /tiendas borrador)',
+  '/tienda &lt;dirección&gt; — ficha, salud y acciones',
+  '/activar &lt;dirección&gt; · /suspender &lt;dirección&gt; [motivo]',
+  '/plan &lt;dirección&gt; &lt;basico|profesional|premium&gt;',
+  '/limite_ia &lt;dirección&gt; &lt;USD por mes&gt;',
+  '/asignar_admin &lt;dirección&gt; &lt;correo o ID de Telegram&gt;',
+  '/acceso &lt;dirección&gt; — nuevos códigos de acceso del propietario',
+  '/dominio &lt;dirección&gt; &lt;dominio&gt; — registrar dominio propio',
+  '/resumen · /salud · /errores · /cancelar',
+  '',
+  'También puedes escribir: “crea una tienda llamada Moda Urbana”, “suspende moda-urbana por falta de pago”, “sube el límite de IA de moda-urbana a 5 dólares”.',
+  'Todo cambio muestra un resumen y pide confirmación.',
+].join('\n')
+
+export async function processMasterUpdate(update: TelegramUpdate, env: Env['Bindings'], db: D1Database): Promise<void> {
+  const botToken = env.MASTER_BOT_TOKEN
+  const message = update.message || update.callback_query?.message
+  const from = update.message?.from || update.callback_query?.from
+  if (!botToken || !message || !from || message.chat.type !== 'private' || message.chat.id !== from.id) return
+  if (!masterAdminIds(env).has(String(from.id))) return
+  const ctx: MasterContext = { db, env, botToken, chatId: message.chat.id, actor: `master:${from.id}`, updateId: update.update_id }
+  try {
+    if (update.callback_query) {
+      await answerCallback(botToken, update.callback_query.id).catch(() => undefined)
+      await handleCallback(ctx, update.callback_query.data || '')
+      return
+    }
+    const text = (update.message?.text || '').trim()
+    if (!text) { await say(ctx, 'Escríbeme un comando o usa el menú.', menuKeyboard()); return }
+    if (text.startsWith('/')) { await handleCommand(ctx, text); return }
+    const wizard = await readWizard(ctx)
+    if (wizard) { await wizardAnswer(ctx, wizard.step, wizard.data, text); return }
+    await handleNaturalLanguage(ctx, text)
+  } catch (error) {
+    console.error('Master bot update failed:', error instanceof Error ? error.message : 'unknown')
+    await db.prepare(`INSERT INTO platform_events (level, source, code, detail) VALUES ('error', 'master_bot', 'UPDATE_FAILED', ?)`).bind((error instanceof Error ? error.message : 'unknown').slice(0, 200)).run().catch(() => undefined)
+    await say(ctx, 'No pude completar la operación. No se aplicó ningún cambio; el detalle quedó en los registros.', menuKeyboard()).catch(() => undefined)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Commands
+// ---------------------------------------------------------------------------
+
+async function handleCommand(ctx: MasterContext, text: string): Promise<void> {
+  const [rawCommand = '', ...args] = text.split(/\s+/)
+  const command = rawCommand.split('@')[0]!.toLowerCase()
+  const rest = text.slice(rawCommand.length).trim()
+  switch (command) {
+    case '/start':
+    case '/menu': await say(ctx, '👋 Hola. Este es el centro de control de la plataforma. ¿Qué hacemos?', menuKeyboard()); return
+    case '/ayuda':
+    case '/help': await say(ctx, HELP, menuKeyboard()); return
+    case '/crear_tienda':
+    case '/nueva_tienda': await startWizard(ctx, rest ? { name: rest.slice(0, 80) } : {}); return
+    case '/tiendas': await showStores(ctx, args[0]); return
+    case '/tienda': if (!args[0]) { await say(ctx, 'Indica la dirección de la tienda. Ejemplo: /tienda moda-urbana'); return } await showStore(ctx, args[0]); return
+    case '/activar': await proposeStatus(ctx, args[0], 'active'); return
+    case '/suspender': await proposeStatus(ctx, args[0], 'suspended', args.slice(1).join(' ')); return
+    case '/plan': await proposePlan(ctx, args[0], args[1]); return
+    case '/limite_ia': await proposeAiBudget(ctx, args[0], args[1]); return
+    case '/asignar_admin': await proposeOwner(ctx, args[0], args[1]); return
+    case '/acceso': await proposeAccess(ctx, args[0]); return
+    case '/dominio': await proposeDomain(ctx, args[0], args[1]); return
+    case '/resumen': await showSummary(ctx); return
+    case '/salud': await showHealth(ctx); return
+    case '/errores': await showErrors(ctx); return
+    case '/cancelar': {
+      await ctx.db.batch([
+        ctx.db.prepare('DELETE FROM platform_conversations WHERE chat_id = ?').bind(String(ctx.chatId)),
+        ctx.db.prepare(`UPDATE platform_operations SET status = 'cancelled', completed_at = datetime('now') WHERE chat_id = ? AND status = 'pending'`).bind(String(ctx.chatId)),
+      ])
+      await say(ctx, 'Listo, cancelé lo que estaba pendiente. No se aplicó ningún cambio.', menuKeyboard())
+      return
+    }
+    default: await say(ctx, 'No conozco ese comando. Escribe /ayuda.', menuKeyboard())
+  }
+}
+
+async function resolveStoreRef(db: D1Database, ref: string | undefined): Promise<{ id: number; slug: string; name: string; status: string } | null> {
+  if (!ref) return null
+  const clean = ref.trim().replace(/^["“']|["”']$/g, '')
+  const bySlug = await getStoreBySlug(db, clean.toLowerCase())
+  if (bySlug) return bySlug
+  const bySlugified = await getStoreBySlug(db, slugify(clean))
+  if (bySlugified) return bySlugified
+  return db.prepare('SELECT id, slug, name, status FROM stores WHERE lower(name) = lower(?)').bind(clean).first()
+}
+
+async function requireStoreRef(ctx: MasterContext, ref: string | undefined): Promise<{ id: number; slug: string; name: string; status: string } | null> {
+  const store = await resolveStoreRef(ctx.db, ref)
+  if (!store) await say(ctx, ref ? `No encontré la tienda “${escapeHtml(ref)}”. Usa /tiendas para ver las direcciones.` : 'Indica la dirección de la tienda. Usa /tiendas para verlas.')
+  return store
+}
+
+const STATUS_LABELS: Record<string, string> = { draft: '📝 Borrador', active: '🟢 Activa', suspended: '⏸ Suspendida', cancelled: '⛔ Cancelada' }
+
+async function showStores(ctx: MasterContext, filter?: string): Promise<void> {
+  const status = filter ? ({ activas: 'active', activa: 'active', borrador: 'draft', borradores: 'draft', suspendidas: 'suspended', suspendida: 'suspended' } as Record<string, string>)[filter.toLowerCase()] : undefined
+  const stores = await listStores(ctx.db, { status })
+  if (!stores.length) { await say(ctx, 'No hay tiendas con ese filtro.', menuKeyboard()); return }
+  const lines = stores.slice(0, 25).map((store) => `${STATUS_LABELS[store.status] || store.status} <b>${escapeHtml(store.name)}</b> · <code>${escapeHtml(store.slug)}</code>\n   ${store.products} productos · ${store.ordersLast30} pedidos/30d · IA ${store.aiPercent}% · plan ${escapeHtml(store.planCode)}`)
+  const buttons = stores.slice(0, 12).map((store) => [{ text: `${store.name}`, callback_data: `mt:store:${store.slug}` }])
+  await say(ctx, `🏪 <b>Tiendas (${stores.length})</b>\n\n${lines.join('\n')}`, { inline_keyboard: [...buttons, [{ text: '↩ Menú', callback_data: 'mt:menu' }]] })
+}
+
+async function showStore(ctx: MasterContext, ref: string): Promise<void> {
+  const store = await requireStoreRef(ctx, ref)
+  if (!store) return
+  const detail = await getStoreDetail(ctx.db, ctx.env, store.slug)
+  const owner = (detail.members as Array<{ role: string; email: string | null; telegramLinked: number }>).find((member) => member.role === 'owner')
+  const health = detail.health.map((check) => `${check.ok ? '✅' : check.key === 'whatsapp' ? '⚠️' : '❌'} ${escapeHtml(check.label)}${check.detail ? ` (${escapeHtml(check.detail)})` : ''}`).join('\n')
+  const keyboard: Keyboard = { inline_keyboard: [
+    detail.store.status === 'active'
+      ? [{ text: '⏸ Suspender', callback_data: `mt:suspend:${store.slug}` }]
+      : [{ text: '🚀 Activar', callback_data: `mt:activate:${store.slug}` }],
+    [{ text: '🔑 Nuevos accesos', callback_data: `mt:access:${store.slug}` }, { text: '💳 Plan', callback_data: `mt:plans:${store.slug}` }],
+    ...(detail.store.publicUrl.startsWith('https://') ? [[{ text: '🌐 Abrir tienda', url: detail.store.publicUrl }]] : []),
+    [{ text: '↩ Tiendas', callback_data: 'mt:stores' }],
+  ] }
+  await say(ctx,
+    `🏪 <b>${escapeHtml(detail.store.name)}</b> · <code>${escapeHtml(detail.store.slug)}</code>\n` +
+    `Estado: ${STATUS_LABELS[detail.store.status] || detail.store.status} · Plan: ${escapeHtml(detail.store.plan_code)} · Plantilla: ${escapeHtml(detail.store.template)}\n` +
+    `Propietario: ${owner ? `${escapeHtml(owner.email || 'sin correo')}${owner.telegramLinked ? ' · Telegram ✅' : ' · Telegram pendiente'}` : '<i>sin asignar</i>'}\n` +
+    `Catálogo: ${detail.counts?.products ?? 0} productos · ${detail.counts?.categories ?? 0} categorías · ${detail.counts?.pendingOrders ?? 0} pedidos pendientes\n` +
+    `IA este mes: ${detail.ai.requests} solicitudes · ${formatUsd(detail.ai.costMicros)} de ${formatUsd(detail.ai.budgetMicros)} (estimado)${detail.ai.enabled ? '' : ' · desactivada'}\n` +
+    `Tienda: ${escapeHtml(detail.store.publicUrl)}\nPanel: ${escapeHtml(detail.store.adminUrl)}\n\n<b>Salud</b>\n${health}`,
+    keyboard)
+}
+
+async function showSummary(ctx: MasterContext): Promise<void> {
+  const summary = await platformSummary(ctx.db) as Record<string, number | string>
+  await say(ctx,
+    `📊 <b>Resumen de la plataforma</b> · ${summary.period}\n\n` +
+    `Tiendas: <b>${summary.stores}</b> (🟢 ${summary.active} · 📝 ${summary.draft} · ⏸ ${summary.suspended})\n` +
+    `Productos publicados: ${summary.products}\nPedidos últimos 30 días: ${summary.ordersLast30} · pendientes: ${summary.pendingOrders}\n` +
+    `IA este mes: ${summary.aiRequests} solicitudes · ${formatUsd(Number(summary.aiCostMicros))} (estimado)\n` +
+    `Errores últimas 24 h: ${summary.errorsLast24h} · Aprovisionamientos fallidos: ${summary.failedJobs}`,
+    menuKeyboard())
+}
+
+async function showHealth(ctx: MasterContext): Promise<void> {
+  const items = await storesHealth(ctx.db)
+  const lines = items.map((item) => {
+    const failing = item.checks.filter((check) => !check.ok)
+    const icon = failing.some((check) => check.key !== 'whatsapp') || item.errorsLast24h ? '❌' : failing.length ? '⚠️' : '✅'
+    return `${icon} <b>${escapeHtml(item.name)}</b> (${escapeHtml(item.slug)})${failing.length ? ` — ${failing.map((check) => escapeHtml(check.label)).join(', ')}` : ''}${item.errorsLast24h ? ` · ${item.errorsLast24h} error(es) 24 h` : ''}`
+  })
+  await say(ctx, `🩺 <b>Salud técnica</b>\n\n${lines.join('\n') || 'Sin tiendas.'}`, menuKeyboard())
+}
+
+async function showErrors(ctx: MasterContext): Promise<void> {
+  const events = await recentEvents(ctx.db, { level: 'error', limit: 10 }) as Array<{ code: string; source: string; detail: string; createdAt: string; slug: string | null }>
+  const lines = events.map((event) => `• ${escapeHtml(event.createdAt.slice(5, 16))} · ${escapeHtml(event.slug || 'plataforma')} · ${escapeHtml(event.source)}/${escapeHtml(event.code)}${event.detail ? ` — ${escapeHtml(event.detail.slice(0, 80))}` : ''}`)
+  await say(ctx, lines.length ? `⚠️ <b>Errores recientes</b>\n${lines.join('\n')}` : '✅ No hay errores registrados recientemente.', menuKeyboard())
+}
+
+// ---------------------------------------------------------------------------
+// Confirmed operations
+// ---------------------------------------------------------------------------
+
+type PlatformAction = 'activate_store' | 'suspend_store' | 'set_plan' | 'set_ai_budget' | 'assign_owner' | 'regenerate_access' | 'set_domain'
+
+async function propose(ctx: MasterContext, action: PlatformAction, params: Record<string, unknown>, summary: string): Promise<void> {
+  await ctx.db.prepare(`UPDATE platform_operations SET status = 'expired', completed_at = datetime('now') WHERE chat_id = ? AND status = 'pending' AND expires_at <= unixepoch()`).bind(String(ctx.chatId)).run()
+  const operationId = crypto.randomUUID()
+  try {
+    await ctx.db.prepare(`INSERT INTO platform_operations (operation_id, chat_id, actor, action, params_json, summary, expires_at) VALUES (?, ?, ?, ?, ?, ?, unixepoch() + 600)`)
+      .bind(operationId, String(ctx.chatId), ctx.actor, action, JSON.stringify(params), summary).run()
+  } catch (error) {
+    if (error instanceof Error && /unique constraint/i.test(error.message)) {
+      await say(ctx, 'Hay otra operación esperando confirmación. Confírmala o usa /cancelar.')
+      return
+    }
+    throw error
+  }
+  await say(ctx, `<b>Confirma esta operación</b>\n${summary}\n\n<i>Vence en 10 minutos.</i>`, { inline_keyboard: [[
+    { text: '✅ Confirmar', callback_data: `mt:op:confirm:${operationId}` }, { text: '✖ Cancelar', callback_data: `mt:op:cancel:${operationId}` },
+  ]] })
+}
+
+async function proposeStatus(ctx: MasterContext, ref: string | undefined, status: 'active' | 'suspended', reason?: string): Promise<void> {
+  const store = await requireStoreRef(ctx, ref)
+  if (!store) return
+  if (store.status === status) { await say(ctx, `La tienda ya está ${status === 'active' ? 'activa' : 'suspendida'}.`); return }
+  await propose(ctx, status === 'active' ? 'activate_store' : 'suspend_store', { slug: store.slug, reason: reason || null },
+    status === 'active'
+      ? `🚀 Activar y publicar <b>${escapeHtml(store.name)}</b> (${escapeHtml(store.slug)}). Será visible para los compradores.`
+      : `⏸ Suspender <b>${escapeHtml(store.name)}</b> (${escapeHtml(store.slug)}).${reason ? `\nMotivo: ${escapeHtml(reason)}` : ''}\nLa tienda dejará de estar visible y su asistente quedará en pausa. Los datos se conservan.`)
+}
+
+async function proposePlan(ctx: MasterContext, ref: string | undefined, planCode: string | undefined): Promise<void> {
+  const store = await requireStoreRef(ctx, ref)
+  if (!store) return
+  const plans = await ctx.db.prepare('SELECT code, name, ai_monthly_budget_micros AS budget FROM plans WHERE is_active = 1 AND code <> ? ORDER BY sort_order').bind('legacy').all<{ code: string; name: string; budget: number }>()
+  const code = planCode ? planCode.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase() : ''
+  const plan = (plans.results || []).find((item) => item.code === code)
+  if (!plan) {
+    await say(ctx, `¿Qué plan asigno a <b>${escapeHtml(store.name)}</b>?`, { inline_keyboard: (plans.results || []).map((item) => [{ text: `${item.name} · IA ${formatUsd(item.budget)}/mes`, callback_data: `mt:setplan:${store.slug}:${item.code}` }]) })
+    return
+  }
+  await propose(ctx, 'set_plan', { slug: store.slug, planCode: plan.code }, `💳 Cambiar el plan de <b>${escapeHtml(store.name)}</b> a <b>${escapeHtml(plan.name)}</b>.\nEl límite de IA pasará a ${formatUsd(plan.budget)} por mes.`)
+}
+
+async function proposeAiBudget(ctx: MasterContext, ref: string | undefined, amount: string | undefined): Promise<void> {
+  const store = await requireStoreRef(ctx, ref)
+  if (!store) return
+  const budgetUsd = Number(String(amount || '').replace(',', '.').replace(/[^\d.]/g, ''))
+  if (!amount || !Number.isFinite(budgetUsd) || budgetUsd < 0 || budgetUsd > 10_000) { await say(ctx, 'Indica el límite mensual en dólares. Ejemplo: /limite_ia moda-urbana 5'); return }
+  await propose(ctx, 'set_ai_budget', { slug: store.slug, budgetUsd }, `🤖 Fijar el límite mensual de IA de <b>${escapeHtml(store.name)}</b> en <b>${formatUsd(Math.round(budgetUsd * 1_000_000))}</b> (costo estimado).${budgetUsd === 0 ? '\nCon 0 la IA queda bloqueada para esta tienda.' : ''}`)
+}
+
+async function proposeOwner(ctx: MasterContext, ref: string | undefined, contact: string | undefined): Promise<void> {
+  const store = await requireStoreRef(ctx, ref)
+  if (!store) return
+  if (!contact) { await say(ctx, 'Indica el correo o el ID numérico de Telegram. Ejemplo: /asignar_admin moda-urbana duena@correo.com'); return }
+  const isTelegram = /^\d{4,15}$/.test(contact)
+  await propose(ctx, 'assign_owner', { slug: store.slug, ...(isTelegram ? { telegramUserId: contact } : { email: contact }) },
+    `👤 Asignar como propietario de <b>${escapeHtml(store.name)}</b> a ${isTelegram ? `Telegram ${escapeHtml(contact)}` : escapeHtml(contact)}.\nSi ya había un propietario, quedará como administrador.`)
+}
+
+async function proposeAccess(ctx: MasterContext, ref: string | undefined): Promise<void> {
+  const store = await requireStoreRef(ctx, ref)
+  if (!store) return
+  await propose(ctx, 'regenerate_access', { slug: store.slug }, `🔑 Generar nuevos códigos de acceso para el propietario de <b>${escapeHtml(store.name)}</b>. Los códigos anteriores sin usar dejarán de funcionar.`)
+}
+
+async function proposeDomain(ctx: MasterContext, ref: string | undefined, domain: string | undefined): Promise<void> {
+  const store = await requireStoreRef(ctx, ref)
+  if (!store) return
+  if (!domain) { await say(ctx, 'Indica el dominio. Ejemplo: /dominio moda-urbana www.modaurbana.com'); return }
+  await propose(ctx, 'set_domain', { slug: store.slug, domain }, `🌐 Registrar el dominio <b>${escapeHtml(domain)}</b> para <b>${escapeHtml(store.name)}</b>.\nQuedará “pendiente” hasta configurar DNS y Netlify (paso manual documentado).`)
+}
+
+async function confirmOperation(ctx: MasterContext, operationId: string): Promise<void> {
+  const operation = await ctx.db.prepare(
+    `UPDATE platform_operations SET status = 'applying' WHERE operation_id = ? AND chat_id = ? AND status = 'pending' AND expires_at > unixepoch()
+     RETURNING action, params_json`,
+  ).bind(operationId, String(ctx.chatId)).first<{ action: PlatformAction; params_json: string }>()
+  if (!operation) { await say(ctx, 'Esa operación ya venció o se procesó.'); return }
+  const params = JSON.parse(operation.params_json) as Record<string, any>
+  let message: string
+  try {
+    switch (operation.action) {
+      case 'activate_store': {
+        const result = await setStoreStatus(ctx.db, params.slug, 'active', ctx.actor)
+        message = `🚀 <b>${escapeHtml(result.store.name)}</b> ya está activa y visible.`
+        break
+      }
+      case 'suspend_store': {
+        const result = await setStoreStatus(ctx.db, params.slug, 'suspended', ctx.actor, params.reason || undefined)
+        message = `⏸ <b>${escapeHtml(result.store.name)}</b> quedó suspendida. Sus datos se conservan.`
+        break
+      }
+      case 'set_plan': {
+        const result = await setStorePlan(ctx.db, params.slug, params.planCode, ctx.actor)
+        message = `💳 Plan de <b>${escapeHtml(result.store.name)}</b>: ${escapeHtml(result.plan.name)}.`
+        break
+      }
+      case 'set_ai_budget': {
+        const result = await setStoreAiBudget(ctx.db, params.slug, { budgetUsd: Number(params.budgetUsd), enabled: Number(params.budgetUsd) > 0 }, ctx.actor)
+        message = `🤖 Límite de IA de <b>${escapeHtml(result.store.name)}</b>: ${formatUsd(result.budgetMicros)} por mes.`
+        break
+      }
+      case 'assign_owner': {
+        const result = await assignOwner(ctx.db, ctx.env, params.slug, { email: params.email, telegramUserId: params.telegramUserId }, ctx.actor)
+        message = `👤 Propietario asignado a <b>${escapeHtml(result.store.name)}</b>.${accessText(result)}`
+        break
+      }
+      case 'regenerate_access': {
+        const result = await regenerateOwnerAccess(ctx.db, ctx.env, params.slug, ctx.actor)
+        message = `🔑 Nuevos accesos para <b>${escapeHtml(result.store.name)}</b>.${accessText(result)}`
+        break
+      }
+      case 'set_domain': {
+        const result = await requestCustomDomain(ctx.db, params.slug, params.domain, ctx.actor)
+        message = `🌐 Dominio <b>${escapeHtml(result.domain)}</b> registrado como pendiente para ${escapeHtml(result.store.name)}. Sigue la guía de dominio propio para activarlo.`
+        break
+      }
+    }
+    await ctx.db.prepare(`UPDATE platform_operations SET status = 'applied', completed_at = datetime('now') WHERE operation_id = ?`).bind(operationId).run()
+    await say(ctx, `✅ ${message}`, menuKeyboard())
+  } catch (error) {
+    await ctx.db.prepare(`UPDATE platform_operations SET status = 'failed', completed_at = datetime('now'), result_json = ? WHERE operation_id = ?`)
+      .bind(JSON.stringify({ code: error instanceof PlatformError ? error.code : 'UNEXPECTED' }), operationId).run()
+    if (error instanceof PlatformError) { await say(ctx, `No se aplicó: ${escapeHtml(error.message)}`, menuKeyboard()); return }
+    throw error
+  }
+}
+
+function accessText(access: { activationUrl: string | null; telegramLinkCode: string | null; telegramDeepLink: string | null }): string {
+  const lines: string[] = []
+  if (access.activationUrl) lines.push(`🔐 Activación del panel (un solo uso, 72 h):\n${escapeHtml(access.activationUrl)}`)
+  if (access.telegramDeepLink) lines.push(`🤖 Vincular Telegram (un toque, 72 h):\n${escapeHtml(access.telegramDeepLink)}`)
+  else if (access.telegramLinkCode) lines.push(`🤖 Código de Telegram (72 h): <code>/link ${escapeHtml(access.telegramLinkCode)}</code>\nEl propietario debe enviarlo al asistente de tiendas.`)
+  return lines.length ? `\n\n${lines.join('\n\n')}\n\n<i>Comparte estos accesos solo con el propietario. No se guardan en texto plano.</i>` : ''
+}
+
+// ---------------------------------------------------------------------------
+// /crear_tienda wizard
+// ---------------------------------------------------------------------------
+
+async function readWizard(ctx: MasterContext): Promise<{ step: WizardStep; data: WizardData } | null> {
+  const row = await ctx.db.prepare(`SELECT step, data_json FROM platform_conversations WHERE chat_id = ? AND flow = 'create_store' AND expires_at > unixepoch()`).bind(String(ctx.chatId)).first<{ step: WizardStep; data_json: string }>()
+  if (!row) return null
+  try { return { step: row.step, data: JSON.parse(row.data_json) as WizardData } } catch { return null }
+}
+
+async function saveWizard(ctx: MasterContext, step: WizardStep, data: WizardData): Promise<void> {
+  await ctx.db.prepare(
+    `INSERT INTO platform_conversations (chat_id, flow, step, data_json, expires_at) VALUES (?, 'create_store', ?, ?, unixepoch() + 3600)
+     ON CONFLICT(chat_id) DO UPDATE SET flow = 'create_store', step = excluded.step, data_json = excluded.data_json, expires_at = excluded.expires_at, updated_at = datetime('now')`,
+  ).bind(String(ctx.chatId), step, JSON.stringify(data)).run()
+}
+
+async function startWizard(ctx: MasterContext, data: WizardData): Promise<void> {
+  if (data.name) {
+    await saveWizard(ctx, 'business', { ...data, slug: await suggestSlug(ctx.db, data.name) })
+    await say(ctx, `¡Vamos a crear <b>${escapeHtml(data.name)}</b>! 🎉\n\n¿Qué tipo de productos venderá?`, cancelKeyboard())
+    return
+  }
+  await saveWizard(ctx, 'name', {})
+  await say(ctx, '¡Vamos a crear una tienda nueva! 🎉\n\n¿Cómo se llamará?', cancelKeyboard())
+}
+
+function cancelKeyboard(): Keyboard {
+  return { inline_keyboard: [[{ text: '✖ Cancelar', callback_data: 'mt:wz:cancel' }]] }
+}
+
+async function promptStep(ctx: MasterContext, step: WizardStep, data: WizardData): Promise<void> {
+  await saveWizard(ctx, step, data)
+  switch (step) {
+    case 'name': await say(ctx, '¿Cómo se llamará la tienda?', cancelKeyboard()); return
+    case 'slug': await say(ctx, `Escribe la dirección web (solo minúsculas, números y guiones). Actual: <code>${escapeHtml(data.slug || '')}</code>`, cancelKeyboard()); return
+    case 'business': await say(ctx, 'Perfecto. ¿Qué tipo de productos venderá?', cancelKeyboard()); return
+    case 'style':
+      await say(ctx, '¿Qué estilo visual prefieres?', { inline_keyboard: [
+        [{ text: '⚪ Minimalista', callback_data: 'mt:wz:style:minimalista' }, { text: '🔷 Moderno', callback_data: 'mt:wz:style:moderno' }],
+        [{ text: '✨ Premium', callback_data: 'mt:wz:style:premium' }, { text: '🎨 Personalizado', callback_data: 'mt:wz:style:personalizado' }],
+        [{ text: '✖ Cancelar', callback_data: 'mt:wz:cancel' }],
+      ] })
+      return
+    case 'color': await say(ctx, 'Escribe el color principal de la marca: un nombre (ej. “azul oscuro”) o un código como <code>#153D70</code>.', cancelKeyboard()); return
+    case 'whatsapp':
+      await say(ctx, '¿Cuál es el WhatsApp para recibir pedidos? Escríbelo con el código de país, por ejemplo <code>+573001234567</code>.', { inline_keyboard: [[{ text: 'Lo configura el propietario', callback_data: 'mt:wz:skipwa' }], [{ text: '✖ Cancelar', callback_data: 'mt:wz:cancel' }]] })
+      return
+    case 'owner': await say(ctx, '¿Quién es el propietario? Escribe su <b>correo</b> o su <b>ID numérico de Telegram</b>.\nRecibirá un acceso de un solo uso; no enviaremos contraseñas.', cancelKeyboard()); return
+    case 'plan': {
+      const plans = await ctx.db.prepare(`SELECT code, name, ai_monthly_budget_micros AS budget FROM plans WHERE is_active = 1 AND code <> 'legacy' ORDER BY sort_order`).all<{ code: string; name: string; budget: number }>()
+      await say(ctx, '¿Con qué plan empieza?', { inline_keyboard: [...(plans.results || []).map((plan) => [{ text: `${plan.name} · IA ${formatUsd(plan.budget)}/mes`, callback_data: `mt:wz:plan:${plan.code}` }]), [{ text: '✖ Cancelar', callback_data: 'mt:wz:cancel' }]] })
+      return
+    }
+    case 'summary': await showWizardSummary(ctx, data); return
+  }
+}
+
+async function showWizardSummary(ctx: MasterContext, data: WizardData): Promise<void> {
+  const existingName = await ctx.db.prepare('SELECT slug FROM stores WHERE lower(name) = lower(?)').bind(data.name || '').first<{ slug: string }>()
+  await say(ctx,
+    `<b>Resumen de la nueva tienda</b>\n\n` +
+    `Nombre: <b>${escapeHtml(data.name)}</b>\nDirección: <code>${escapeHtml(data.slug)}</code>\n` +
+    `Productos: ${escapeHtml(data.businessType)}\nEstilo: ${escapeHtml(TEMPLATE_LABELS[data.template || 'moderno'])}${data.primaryColor ? ` · color ${escapeHtml(data.primaryColor)}` : ''}\n` +
+    `WhatsApp: ${escapeHtml(data.whatsapp || 'lo configura el propietario')}\nPropietario: ${escapeHtml(data.ownerEmail || (data.ownerTelegramId ? `Telegram ${data.ownerTelegramId}` : '—'))}\n` +
+    `Plan: ${escapeHtml(data.planCode || 'basico')}\n\n` +
+    (existingName ? `⚠️ Ya existe una tienda con ese nombre (${escapeHtml(existingName.slug)}). Revisa que no sea un duplicado.\n\n` : '') +
+    `La tienda se creará en <b>borrador</b>: privada hasta que la actives.`,
+    { inline_keyboard: [
+      [{ text: '✅ Crear tienda', callback_data: 'mt:wz:create' }],
+      [{ text: '✏️ Modificar datos', callback_data: 'mt:wz:edit' }, { text: '✖ Cancelar', callback_data: 'mt:wz:cancel' }],
+    ] })
+}
+
+function parseColor(text: string): string | null {
+  const hex = text.match(/#?([0-9a-fA-F]{6})\b/)
+  if (hex) return `#${hex[1]!.toUpperCase()}`
+  const lower = text.toLowerCase()
+  const named = Object.keys(NAMED_COLORS).sort((a, b) => b.length - a.length).find((name) => lower.includes(name))
+  return named ? NAMED_COLORS[named]! : null
+}
+
+async function wizardAnswer(ctx: MasterContext, step: WizardStep, data: WizardData, text: string): Promise<void> {
+  const next = { ...data }
+  const advance = async (fallback: WizardStep) => promptStep(ctx, next.editing ? 'summary' : fallback, next)
+  switch (step) {
+    case 'name': {
+      if (text.length < 2 || text.length > 80) { await say(ctx, 'El nombre debe tener entre 2 y 80 caracteres.'); return }
+      next.name = text.trim()
+      if (!next.slug || !next.editing) next.slug = await suggestSlug(ctx.db, next.name)
+      await advance('business')
+      return
+    }
+    case 'slug': {
+      const slug = text.trim().toLowerCase()
+      if (!isValidSlug(slug)) { await say(ctx, 'Usa entre 3 y 40 caracteres: minúsculas, números y guiones (sin espacios).'); return }
+      if (await getStoreBySlug(ctx.db, slug)) { await say(ctx, 'Esa dirección ya está en uso. Prueba otra.'); return }
+      next.slug = slug
+      await promptStep(ctx, 'summary', next)
+      return
+    }
+    case 'business': {
+      if (text.length < 2 || text.length > 120) { await say(ctx, 'Descríbelo en pocas palabras, por ejemplo “ropa y accesorios”.'); return }
+      next.businessType = text.trim()
+      await advance('style')
+      return
+    }
+    case 'color': {
+      const color = parseColor(text)
+      if (!color) { await say(ctx, 'No reconocí ese color. Escribe un nombre como “azul oscuro” o un código como #153D70.'); return }
+      next.primaryColor = color
+      await advance('whatsapp')
+      return
+    }
+    case 'whatsapp': {
+      const phone = text.replace(/[\s().-]/g, '')
+      if (!/^\+[1-9]\d{7,14}$/.test(phone)) { await say(ctx, 'Escríbelo con + y código de país, por ejemplo +573001234567, o toca “Lo configura el propietario”.'); return }
+      next.whatsapp = phone
+      await advance('owner')
+      return
+    }
+    case 'owner': {
+      const value = text.trim()
+      if (/^\d{4,15}$/.test(value)) { next.ownerTelegramId = value; delete next.ownerEmail }
+      else if (/^[^\s@]{1,64}@[^\s@]{1,190}\.[a-z]{2,24}$/i.test(value)) { next.ownerEmail = value.toLowerCase(); delete next.ownerTelegramId }
+      else { await say(ctx, 'Escribe un correo válido o el ID numérico de Telegram del propietario.'); return }
+      await advance('plan')
+      return
+    }
+    default:
+      await say(ctx, 'Usa los botones del último mensaje, o /cancelar para salir.')
+  }
+}
+
+async function handleWizardCallback(ctx: MasterContext, action: string, value?: string): Promise<void> {
+  const wizard = await readWizard(ctx)
+  if (action === 'cancel') {
+    await ctx.db.prepare('DELETE FROM platform_conversations WHERE chat_id = ?').bind(String(ctx.chatId)).run()
+    await say(ctx, 'Cancelé la creación. No se creó ninguna tienda.', menuKeyboard())
+    return
+  }
+  if (!wizard) { await say(ctx, 'Este asistente ya venció. Escribe /crear_tienda para empezar de nuevo.'); return }
+  const data = { ...wizard.data }
+  switch (action) {
+    case 'style':
+      if (!value || !(TEMPLATE_KEYS as readonly string[]).includes(value)) return
+      data.template = value as TemplateKey
+      if (value !== 'personalizado') delete data.primaryColor
+      await promptStep(ctx, value === 'personalizado' ? 'color' : data.editing ? 'summary' : 'whatsapp', data)
+      return
+    case 'skipwa':
+      data.whatsapp = null
+      await promptStep(ctx, data.editing ? 'summary' : 'owner', data)
+      return
+    case 'plan':
+      data.planCode = value || 'basico'
+      data.editing = true
+      await promptStep(ctx, 'summary', data)
+      return
+    case 'edit':
+      await say(ctx, '¿Qué dato quieres modificar?', { inline_keyboard: [
+        [{ text: 'Nombre', callback_data: 'mt:wz:field:name' }, { text: 'Dirección', callback_data: 'mt:wz:field:slug' }],
+        [{ text: 'Productos', callback_data: 'mt:wz:field:business' }, { text: 'Estilo', callback_data: 'mt:wz:field:style' }],
+        [{ text: 'WhatsApp', callback_data: 'mt:wz:field:whatsapp' }, { text: 'Propietario', callback_data: 'mt:wz:field:owner' }],
+        [{ text: 'Plan', callback_data: 'mt:wz:field:plan' }, { text: '↩ Volver al resumen', callback_data: 'mt:wz:field:summary' }],
+      ] })
+      return
+    case 'field':
+      if (!value || !['name', 'slug', 'business', 'style', 'whatsapp', 'owner', 'plan', 'summary'].includes(value)) return
+      data.editing = true
+      await promptStep(ctx, value as WizardStep, data)
+      return
+    case 'create':
+      await runProvisioning(ctx, data)
+      return
+  }
+}
+
+async function runProvisioning(ctx: MasterContext, data: WizardData): Promise<void> {
+  if (!data.name || !data.slug || !data.businessType || (!data.ownerEmail && !data.ownerTelegramId)) {
+    await say(ctx, 'Faltan datos para crear la tienda. Revisa el resumen.')
+    await promptStep(ctx, !data.name ? 'name' : !data.businessType ? 'business' : 'owner', data)
+    return
+  }
+  // The same confirmed summary always maps to the same request key, so a
+  // double tap or a retry resumes the same job instead of creating two stores.
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify({ chat: ctx.chatId, ...data, editing: undefined })))
+  const fingerprint = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('').slice(0, 32)
+  await say(ctx, '⏳ Creando la tienda… (registro, configuración, plantilla, categorías, propietario, accesos y verificación)')
+  const result = await provisionStore(ctx.db, ctx.env, {
+    name: data.name, slug: data.slug, businessType: data.businessType, template: data.template || 'moderno', primaryColor: data.primaryColor,
+    whatsapp: data.whatsapp || undefined, ownerEmail: data.ownerEmail, ownerTelegramId: data.ownerTelegramId, planCode: data.planCode || 'basico',
+  }, { requestKey: `master:${fingerprint}`, actor: ctx.actor })
+  await reportProvisioning(ctx, result)
+}
+
+async function reportProvisioning(ctx: MasterContext, result: ProvisionResult): Promise<void> {
+  const steps = result.steps.map((step) => `${step.status === 'ok' ? '✅' : step.status === 'error' ? '❌' : '➖'} ${escapeHtml(step.label)}${step.detail ? ` · <i>${escapeHtml(step.detail)}</i>` : ''}`).join('\n')
+  if (result.status === 'running') { await say(ctx, `⏳ La creación ya está en curso.\n${steps}`); return }
+  if (result.status === 'failed') {
+    await say(ctx, `❌ <b>No se pudo crear la tienda.</b>\n${steps}\n\nNo se publicó nada. Corrige el dato indicado y vuelve a tocar “Crear tienda”; el proceso continúa donde quedó sin duplicar la tienda.`,
+      { inline_keyboard: [[{ text: '✏️ Modificar datos', callback_data: 'mt:wz:edit' }, { text: '🔁 Reintentar', callback_data: 'mt:wz:create' }], [{ text: '✖ Cancelar', callback_data: 'mt:wz:cancel' }]] })
+    return
+  }
+  await ctx.db.prepare('DELETE FROM platform_conversations WHERE chat_id = ?').bind(String(ctx.chatId)).run()
+  const access = accessText({ activationUrl: result.activationUrl ?? null, telegramLinkCode: result.telegramLinkCode ?? null, telegramDeepLink: result.telegramDeepLink ?? null })
+  await say(ctx,
+    `🎉 <b>¡Tienda creada y verificada!</b>${result.replayed ? ' (ya existía: no se duplicó)' : ''}\n<b>${escapeHtml(result.name)}</b> · <code>${escapeHtml(result.slug)}</code>\n\n${steps}\n\n` +
+    `🛍️ Tienda (borrador, vista privada): ${escapeHtml(result.publicUrl)}\n🧭 Panel: ${escapeHtml(result.adminUrl)}${access}\n\n` +
+    `Siguiente paso: el propietario sube sus productos (por Telegram o el panel) y luego la activas.`,
+    { inline_keyboard: [
+      [{ text: '🚀 Activar ahora', callback_data: `mt:activate:${result.slug}` }, { text: '🏪 Ver ficha', callback_data: `mt:store:${result.slug}` }],
+      [{ text: '➕ Crear otra', callback_data: 'mt:create' }],
+    ] })
+}
+
+// ---------------------------------------------------------------------------
+// Callbacks and natural language
+// ---------------------------------------------------------------------------
+
+async function handleCallback(ctx: MasterContext, data: string): Promise<void> {
+  const wizard = data.match(/^mt:wz:([a-z]+)(?::([a-z0-9_-]+))?$/)
+  if (wizard) { await handleWizardCallback(ctx, wizard[1]!, wizard[2]); return }
+  const op = data.match(/^mt:op:(confirm|cancel):([0-9a-f-]{36})$/)
+  if (op) {
+    if (op[1] === 'confirm') { await confirmOperation(ctx, op[2]!); return }
+    const cancelled = await ctx.db.prepare(`UPDATE platform_operations SET status = 'cancelled', completed_at = datetime('now') WHERE operation_id = ? AND chat_id = ? AND status = 'pending' RETURNING operation_id`).bind(op[2], String(ctx.chatId)).first()
+    await say(ctx, cancelled ? 'Cancelado. No se aplicó ningún cambio.' : 'Esa operación ya no estaba pendiente.', menuKeyboard())
+    return
+  }
+  const store = data.match(/^mt:(store|activate|suspend|access|plans):([a-z0-9-]{3,40})$/)
+  if (store) {
+    const [, action, slug] = store
+    if (action === 'store') await showStore(ctx, slug!)
+    if (action === 'activate') await proposeStatus(ctx, slug, 'active')
+    if (action === 'suspend') await proposeStatus(ctx, slug, 'suspended')
+    if (action === 'access') await proposeAccess(ctx, slug)
+    if (action === 'plans') await proposePlan(ctx, slug, undefined)
+    return
+  }
+  const plan = data.match(/^mt:setplan:([a-z0-9-]{3,40}):([a-z0-9_-]+)$/)
+  if (plan) { await proposePlan(ctx, plan[1], plan[2]); return }
+  switch (data) {
+    case 'mt:menu': await say(ctx, '¿Qué hacemos?', menuKeyboard()); return
+    case 'mt:create': await startWizard(ctx, {}); return
+    case 'mt:stores': await showStores(ctx); return
+    case 'mt:summary': await showSummary(ctx); return
+    case 'mt:health': await showHealth(ctx); return
+    case 'mt:errors': await showErrors(ctx); return
+    case 'mt:help': await say(ctx, HELP, menuKeyboard()); return
+    default: await say(ctx, 'Ese botón ya no está disponible.', menuKeyboard())
+  }
+}
+
+type MasterIntent = { action: string; store?: string; name?: string; status?: string; reason?: string; plan?: string; budgetUsd?: number; contact?: string; domain?: string }
+
+export function detectMasterIntent(text: string): MasterIntent | null {
+  const lower = text.toLowerCase().trim()
+  const create = text.match(/(?:crea|crear|crea(?:me)?|abre|abrir|monta|montar|registra|registrar|nueva)\s+(?:una\s+)?(?:nueva\s+)?tienda(?:\s+(?:llamada|que se llame|con el nombre|de nombre)\s+["“]?(.+?)["”]?)?\s*$/i)
+  if (create) return { action: 'create_store', name: create[1]?.trim() }
+  const suspend = text.match(/(?:suspende|suspender|pausa|pausar|desactiva|desactivar)\s+(?:la\s+)?(?:tienda\s+)?([a-z0-9-]{3,40})(?:\s+(?:por|porque|motivo:?)\s+(.+))?$/i)
+  if (suspend) return { action: 'suspend_store', store: suspend[1], reason: suspend[2] }
+  const activate = text.match(/(?:activa|activar|publica|publicar|reactiva|reactivar)\s+(?:la\s+)?(?:tienda\s+)?([a-z0-9-]{3,40})\s*$/i)
+  if (activate) return { action: 'activate_store', store: activate[1] }
+  const plan = text.match(/plan\s+(?:de\s+)?(?:la\s+tienda\s+)?([a-z0-9-]{3,40})\s+(?:a|al)\s+(?:plan\s+)?(b[aá]sico|profesional|premium)/i)
+  if (plan) return { action: 'set_plan', store: plan[1], plan: plan[2]!.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase() }
+  const ai = text.match(/(?:l[ií]mite|presupuesto|tope)\s+(?:de\s+)?(?:la\s+)?(?:ia|inteligencia artificial|gemini)\s+(?:de\s+|para\s+)?(?:la\s+tienda\s+)?([a-z0-9-]{3,40})\s+(?:a|en)\s+(?:us\$?\s*)?(\d+(?:[.,]\d+)?)/i)
+  if (ai) return { action: 'set_ai_budget', store: ai[1], budgetUsd: Number(ai[2]!.replace(',', '.')) }
+  const detail = text.match(/(?:info(?:rmaci[oó]n)?|detalle|ficha|estado|c[oó]mo (?:est[aá]|va))\s+(?:de\s+)?(?:la\s+)?tienda\s+([a-z0-9-]{3,40})/i)
+  if (detail) return { action: 'store_detail', store: detail[1] }
+  if (/(?:lista|listar|muestra|mu[eé]strame|ver|cu[aá]les son)\s+(?:las\s+|mis\s+)?tiendas/.test(lower)) {
+    const status = /activas/.test(lower) ? 'activas' : /borrador/.test(lower) ? 'borrador' : /suspendidas/.test(lower) ? 'suspendidas' : undefined
+    return { action: 'list_stores', status }
+  }
+  if (/resumen|estad[ií]sticas|c[oó]mo va (?:la )?plataforma|cu[aá]ntas tiendas/.test(lower)) return { action: 'summary' }
+  if (/errores|fallas|incidentes|problemas/.test(lower)) return { action: 'errors' }
+  if (/salud|estado t[eé]cnico|monitoreo/.test(lower)) return { action: 'health' }
+  return null
+}
+
+const masterShape = z.object({
+  action: z.enum(['create_store', 'list_stores', 'store_detail', 'activate_store', 'suspend_store', 'set_plan', 'set_ai_budget', 'assign_owner', 'regenerate_access', 'summary', 'health', 'errors', 'help', 'ask']),
+  store: z.string().max(80).optional(),
+  name: z.string().max(80).optional(),
+  status: z.string().max(20).optional(),
+  reason: z.string().max(200).optional(),
+  plan: z.string().max(40).optional(),
+  budgetUsd: z.number().min(0).max(10000).optional(),
+  contact: z.string().max(254).optional(),
+  question: z.string().max(400).optional(),
+})
+
+async function handleNaturalLanguage(ctx: MasterContext, text: string): Promise<void> {
+  let intent: MasterIntent | null = detectMasterIntent(text)
+  if (!intent && ctx.env.GEMINI_API_KEY) {
+    try {
+      const result = await callGeminiJson(ctx.env, fetch, {
+        system: [
+          'Interpretas órdenes del administrador de una plataforma de tiendas en línea. Devuelve una sola acción permitida.',
+          'No inventes direcciones de tienda, correos ni montos: si faltan, usa action=ask y explica qué falta en question.',
+          'Las acciones que cambian datos siempre serán confirmadas después por el sistema.',
+          UNTRUSTED_CONTENT_RULE,
+        ],
+        parts: [{ text: text.slice(0, 1000) }],
+        maxOutputTokens: 300,
+        schema: {
+          type: 'object',
+          properties: {
+            action: { type: 'string', enum: masterShape.shape.action.options }, store: { type: 'string' }, name: { type: 'string' }, status: { type: 'string' },
+            reason: { type: 'string' }, plan: { type: 'string' }, budgetUsd: { type: 'number' }, contact: { type: 'string' }, question: { type: 'string' },
+          },
+          required: ['action'],
+        },
+      })
+      await ctx.db.prepare(`INSERT INTO platform_events (level, source, code, detail) VALUES ('info', 'master_bot', 'GEMINI_USAGE', ?)`)
+        .bind(`tokens ${result.usage.promptTokens}+${result.usage.outputTokens}`).run()
+      const parsed = masterShape.safeParse(result.data)
+      if (parsed.success) {
+        if (parsed.data.action === 'ask' || parsed.data.action === 'help') { await say(ctx, escapeHtml(parsed.data.question || 'No estoy seguro de qué necesitas.'), menuKeyboard()); return }
+        intent = { ...parsed.data, contact: parsed.data.contact }
+      }
+    } catch (error) {
+      console.error('Master Gemini interpretation failed:', error instanceof Error ? error.message : 'unknown')
+    }
+  }
+  if (!intent) { await say(ctx, 'No estoy seguro de haber entendido. Usa el menú o escribe /ayuda.', menuKeyboard()); return }
+  switch (intent.action) {
+    case 'create_store': await startWizard(ctx, intent.name ? { name: intent.name } : {}); return
+    case 'list_stores': await showStores(ctx, intent.status); return
+    case 'store_detail': if (intent.store) await showStore(ctx, intent.store); else await say(ctx, '¿De qué tienda? Indica su dirección.'); return
+    case 'activate_store': await proposeStatus(ctx, intent.store, 'active'); return
+    case 'suspend_store': await proposeStatus(ctx, intent.store, 'suspended', intent.reason); return
+    case 'set_plan': await proposePlan(ctx, intent.store, intent.plan); return
+    case 'set_ai_budget': await proposeAiBudget(ctx, intent.store, intent.budgetUsd === undefined ? undefined : String(intent.budgetUsd)); return
+    case 'assign_owner': await proposeOwner(ctx, intent.store, intent.contact); return
+    case 'regenerate_access': await proposeAccess(ctx, intent.store); return
+    case 'summary': await showSummary(ctx); return
+    case 'health': await showHealth(ctx); return
+    case 'errors': await showErrors(ctx); return
+    default: await say(ctx, HELP, menuKeyboard())
+  }
+}
+

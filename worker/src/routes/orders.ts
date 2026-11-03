@@ -2,7 +2,8 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
 import type { Env } from '../index'
-import { adminAuth } from '../middleware/auth'
+import { adminAuth, requireRole } from '../middleware/auth'
+import { publicStore } from '../middleware/tenant'
 
 const app = new Hono<Env>()
 
@@ -96,16 +97,19 @@ function mapOrder(o: Record<string, any>) {
 }
 
 // Public checkout: prices, product details and image snapshots are read from D1.
-app.post('/', zValidator('json', createOrderSchema), async (c) => {
+app.post('/', publicStore, zValidator('json', createOrderSchema), async (c) => {
   if (String(c.env.COMMERCE_ENABLED || '').toLowerCase() !== 'true') return c.json({ error: 'Order requests are not enabled' }, 503)
+  const store = c.get('store')!
+  if (store.status !== 'active') return c.json({ error: 'This store is not accepting orders yet', code: 'STORE_NOT_ACTIVE' }, 409)
+  const storeId = store.id
   const body = c.req.valid('json')
   const db = c.env.DB
   const idempotencyKey = (c.req.header('Idempotency-Key') || '').trim()
   if (!/^[\w.-]{16,100}$/.test(idempotencyKey)) return c.json({ error: 'A valid Idempotency-Key is required' }, 400)
   const fingerprint = await digest(JSON.stringify(body))
-  const previous = await db.prepare('SELECT id, display_id, request_fingerprint, subtotal, currency, status, payment_status, items_json FROM orders WHERE idempotency_key = ?').bind(idempotencyKey).first<Record<string, any>>()
+  const previous = await db.prepare('SELECT id, store_id, display_id, request_fingerprint, subtotal, currency, status, payment_status, items_json FROM orders WHERE idempotency_key = ?').bind(idempotencyKey).first<Record<string, any>>()
   if (previous) {
-    if (previous.request_fingerprint !== fingerprint) return c.json({ error: 'This checkout key was already used for a different order' }, 409)
+    if (Number(previous.store_id) !== storeId || previous.request_fingerprint !== fingerprint) return c.json({ error: 'This checkout key was already used for a different order' }, 409)
     return c.json({ id: Number(previous.id), displayId: String(previous.display_id), subtotal: Number(previous.subtotal), discountTotal: 0, total: null, currency: String(previous.currency), status: String(previous.status), paymentStatus: String(previous.payment_status), items: parseItems(previous.items_json), replayed: true })
   }
 
@@ -128,8 +132,8 @@ app.post('/', zValidator('json', createOrderSchema), async (c) => {
     const row = await db.prepare(`SELECT p.id product_id, p.sku product_sku, p.name product_name, p.price product_price, p.image_urls,
       v.id variant_id, v.sku variant_sku, v.size, v.color, v.image_url variant_image_url, v.price_override, v.stock
       FROM products p JOIN product_variants v ON v.product_id = p.id
-      WHERE p.id = ? AND v.id = ? AND p.is_active = 1 AND p.is_archived = 0 AND v.is_active = 1`)
-      .bind(productId, variantId).first<Record<string, any>>()
+      WHERE p.store_id = ? AND p.id = ? AND v.id = ? AND p.is_active = 1 AND p.is_archived = 0 AND v.is_active = 1`)
+      .bind(storeId, productId, variantId).first<Record<string, any>>()
     if (!row) return c.json({ error: 'An item is no longer available' }, 409)
     const qty = (quantities.get(variantId) || 0) + item.quantity
     quantities.set(variantId, qty)
@@ -146,22 +150,22 @@ app.post('/', zValidator('json', createOrderSchema), async (c) => {
   }
   const subtotal = snapshots.reduce((sum, item) => sum + item.lineSubtotal, 0)
   if (!Number.isSafeInteger(subtotal)) return c.json({ error: 'Order subtotal exceeds supported limits' }, 400)
-  const storeConfig = await db.prepare('SELECT currency FROM store_config WHERE id = 1').first<{ currency: string }>()
+  const storeConfig = await db.prepare('SELECT currency FROM store_config WHERE id = ?').bind(storeId).first<{ currency: string }>()
   const currency = storeConfig?.currency || c.env.STORE_CURRENCY || 'COP'
   const displayId = generateDisplayId()
   let result
   try {
-    result = await db.prepare(`INSERT INTO orders (display_id, customer_name, customer_phone, customer_email, customer_city,
+    result = await db.prepare(`INSERT INTO orders (store_id, display_id, customer_name, customer_phone, customer_email, customer_city,
       delivery_address, delivery_method, payment_method, items_json, subtotal, total, currency, status, payment_status,
       shipping_cost, whatsapp_sent, notes, idempotency_key, request_fingerprint, inventory_managed)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendiente', 'pendiente', NULL, 0, ?, ?, ?, 1)`)
-      .bind(displayId, body.customerName || null, body.customerPhone || null, body.customerEmail || null, body.customerCity || null,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendiente', 'pendiente', NULL, 0, ?, ?, ?, 1)`)
+      .bind(storeId, displayId, body.customerName || null, body.customerPhone || null, body.customerEmail || null, body.customerCity || null,
         body.deliveryAddress || null, body.deliveryMethod || null, body.paymentMethod || null, JSON.stringify(snapshots), subtotal,
         subtotal, currency, body.notes || null, idempotencyKey, fingerprint).run()
   } catch {
-    const raced = await db.prepare('SELECT id, display_id, request_fingerprint, subtotal, currency, status, payment_status, items_json FROM orders WHERE idempotency_key = ?').bind(idempotencyKey).first<Record<string, any>>()
+    const raced = await db.prepare('SELECT id, store_id, display_id, request_fingerprint, subtotal, currency, status, payment_status, items_json FROM orders WHERE idempotency_key = ?').bind(idempotencyKey).first<Record<string, any>>()
     if (!raced) throw new Error('Could not register order')
-    if (raced.request_fingerprint !== fingerprint) return c.json({ error: 'This checkout key was already used for a different order' }, 409)
+    if (Number(raced.store_id) !== storeId || raced.request_fingerprint !== fingerprint) return c.json({ error: 'This checkout key was already used for a different order' }, 409)
     return c.json({ id: Number(raced.id), displayId: String(raced.display_id), subtotal: Number(raced.subtotal), discountTotal: 0, total: null, currency: String(raced.currency), status: String(raced.status), paymentStatus: String(raced.payment_status), items: parseItems(raced.items_json), replayed: true })
   }
   const orderId = Number(result.meta.last_row_id)
@@ -174,12 +178,12 @@ app.get('/', adminAuth, async (c) => {
   const pageSize = Math.min(100, Math.max(1, Number(c.req.query('pageSize') || 20)))
   const status = c.req.query('status')
   const from = c.req.query('from'), to = c.req.query('to'), query = (c.req.query('q') || '').trim().slice(0, 120)
-  const conditions: string[] = [], values: unknown[] = []
+  const conditions: string[] = ['store_id = ?'], values: unknown[] = [c.get('storeId')]
   if (status && status !== 'todos' && ALLOWED_STATUSES.includes(status as typeof ALLOWED_STATUSES[number])) { conditions.push('status = ?'); values.push(status) }
   if (from) { conditions.push("date(created_at) >= date(?)"); values.push(from) }
   if (to) { conditions.push("date(created_at) <= date(?)"); values.push(to) }
   if (query) { conditions.push("(display_id LIKE ? OR customer_name LIKE ? OR customer_phone LIKE ? OR items_json LIKE ?)"); const like = `%${query}%`; values.push(like, like, like, like) }
-  const where = conditions.length ? ` WHERE ${conditions.join(' AND ')}` : ''
+  const where = ` WHERE ${conditions.join(' AND ')}`
   const countRow = await c.env.DB.prepare(`SELECT COUNT(*) total FROM orders${where}`).bind(...values).first<{ total: number }>()
   const { results } = await c.env.DB.prepare(`SELECT * FROM orders${where} ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`)
     .bind(...values, pageSize, (page - 1) * pageSize).all<Record<string, any>>()
@@ -189,13 +193,13 @@ app.get('/', adminAuth, async (c) => {
 app.get('/:id', adminAuth, async (c) => {
   const id = Number(c.req.param('id'))
   if (!Number.isSafeInteger(id) || id < 1) return c.json({ error: 'Invalid order id' }, 400)
-  const row = await c.env.DB.prepare('SELECT * FROM orders WHERE id = ?').bind(id).first<Record<string, any>>()
+  const row = await c.env.DB.prepare('SELECT * FROM orders WHERE id = ? AND store_id = ?').bind(id, c.get('storeId')).first<Record<string, any>>()
   if (!row) return c.json({ error: 'Order not found' }, 404)
   const { results } = await c.env.DB.prepare('SELECT event_type eventType, from_value fromValue, to_value toValue, note, performed_by performedBy, created_at createdAt FROM order_events WHERE order_id = ? ORDER BY created_at DESC, id DESC').bind(id).all()
   return c.json({ ...mapOrder(row), events: results || [] })
 })
 
-app.patch('/:id', adminAuth, async (c) => {
+app.patch('/:id', adminAuth, requireRole('operator'), async (c) => {
   const id = Number(c.req.param('id'))
   const body = await c.req.json().catch(() => null) as Record<string, unknown> | null
   if (!Number.isSafeInteger(id) || id < 1 || !body) return c.json({ error: 'Invalid request' }, 400)
@@ -206,7 +210,8 @@ app.patch('/:id', adminAuth, async (c) => {
   }).strict()
   const parsed = patchSchema.safeParse(body)
   if (!parsed.success || !Object.keys(parsed.data).some((key) => key !== 'expectedRevision')) return c.json({ error: 'Invalid order update' }, 400)
-  const current = await c.env.DB.prepare('SELECT status, payment_status, internal_notes, shipping_cost, revision FROM orders WHERE id = ?').bind(id).first<Record<string, any>>()
+  const storeId = c.get('storeId')!
+  const current = await c.env.DB.prepare('SELECT status, payment_status, internal_notes, shipping_cost, revision FROM orders WHERE id = ? AND store_id = ?').bind(id, storeId).first<Record<string, any>>()
   if (!current) return c.json({ error: 'Order not found' }, 404)
   if (parsed.data.expectedRevision !== undefined && Number(current.revision) !== parsed.data.expectedRevision) return c.json({ error: 'Order was changed by another admin. Reload and retry.' }, 409)
   if (parsed.data.status && parsed.data.status !== current.status) {
@@ -225,14 +230,14 @@ app.patch('/:id', adminAuth, async (c) => {
   if (p.shippingCost !== undefined && p.shippingCost !== current.shipping_cost) { updates.push('shipping_cost = ?'); values.push(p.shippingCost); events.push({ type: 'shipping_cost', from: current.shipping_cost == null ? null : String(current.shipping_cost), to: p.shippingCost == null ? null : String(p.shippingCost) }) }
   if (!updates.length) return c.json({ success: true, id, revision: Number(current.revision) })
   updates.push("revision = revision + 1", "updated_at = datetime('now')")
-  values.push(id)
-  let update = `UPDATE orders SET ${updates.join(', ')} WHERE id = ?`
+  values.push(id, storeId)
+  let update = `UPDATE orders SET ${updates.join(', ')} WHERE id = ? AND store_id = ?`
   if (p.expectedRevision !== undefined) { update += ' AND revision = ?'; values.push(p.expectedRevision) }
   const statements = [c.env.DB.prepare(update).bind(...values)]
   const adminEmail = c.get('adminEmail') || 'unknown'
   for (const event of events) statements.push(c.env.DB.prepare('INSERT INTO order_events (order_id, event_type, from_value, to_value, performed_by) VALUES (?, ?, ?, ?, ?)').bind(id, event.type, event.from, event.to, adminEmail))
-  statements.push(c.env.DB.prepare(`INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source) VALUES ('order_updated', 'order', ?, ?, ?, 'admin')`)
-    .bind(String(id), JSON.stringify(events.map(({ type, from, to }) => ({ type, from, to }))), adminEmail))
+  statements.push(c.env.DB.prepare(`INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source, store_id) VALUES ('order_updated', 'order', ?, ?, ?, 'admin', ?)`)
+    .bind(String(id), JSON.stringify(events.map(({ type, from, to }) => ({ type, from, to }))), adminEmail, storeId))
   let results
   try { results = await c.env.DB.batch(statements) }
   catch (error) {

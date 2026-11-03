@@ -29,7 +29,7 @@ app.post('/image', adminAuth, async (c) => {
  try {
  // Intentar subir a R2 si está disponible
  if (c.env.ASSETS) {
- const asset = await uploadStoreImage(c.env.ASSETS, file, folder)
+ const asset = await uploadStoreImage(c.env.ASSETS, file, folder, c.get('storeId')!)
 
  // URL pública via R2 public bucket o worker proxy
  const url = `/api/assets/${asset.key}`
@@ -40,7 +40,7 @@ app.post('/image', adminAuth, async (c) => {
  // En producción siempre se requiere R2 configurado
  return c.json({
  url: `https://placehold.co/800x800/0057FF/FFFFFF?text=${encodeURIComponent(file.name)}`,
- key: `${folder}/${file.name}`,
+ key: `stores/${c.get('storeId')}/${folder}/${file.name}`,
  size: file.size,
  type: file.type,
  warning: 'R2 not configured. Using placeholder URL. Configure ASSETS binding for production.',
@@ -55,6 +55,9 @@ app.post('/image', adminAuth, async (c) => {
 app.get('/:key{.+}', async (c) => {
  const key = c.req.param('key')
 
+ // Draft uploads are private pending data and must never be exposed by the public asset route.
+ if (key.startsWith('telegram-drafts/')) return c.json({ error: 'Asset not found' }, 404)
+
  if (!c.env.ASSETS) {
  return c.json({ error: 'Assets storage not configured' }, 503)
  }
@@ -68,6 +71,7 @@ app.get('/:key{.+}', async (c) => {
  object.writeHttpMetadata(headers)
  headers.set('etag', object.httpEtag)
  headers.set('cache-control', 'public, max-age=31536000, immutable')
+ headers.set('x-content-type-options', 'nosniff')
 
  return new Response(object.body, { headers })
 })

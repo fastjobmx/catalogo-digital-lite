@@ -10,6 +10,7 @@ Estado de las 6 fases de Catálogo Digital Lite. "Completado" significa **verifi
 | 4 | Telegram, autenticación, Gemini, operaciones seguras | **Parcial** (código completo; sin credenciales externas) |
 | 5 | Cuestionario inicial y configuración por Telegram | **Parcial** (cuestionario web de 11 pasos; falta el flujo por Telegram) |
 | 6 | Plantilla reutilizable, instalador, documentación, pruebas | **Completado** |
+| 3.0 | Plataforma multitienda, asistente IA por tienda, bot maestro y aprovisionamiento | **Implementada y verificada localmente; pendiente de despliegue autorizado** (ver sección final) |
 
 ## Evidencia de lo verificado
 
@@ -191,3 +192,197 @@ confirmación antes de vaciarse. Ver `docs/PRUEBAS.md` para compilación y suite
 - Verificación visual posterior al cambio y tras recarga completa: **4/4 productos de Running visibles** (`KINETIK-05`, `KINETIK-06`, `TERA-08`, `LUMEN-07`), cada uno con `complete=true`, `naturalWidth>0` y opacidad `1`. `currentSrc` seleccionó sus `.webp`.
 - Frontend: 40/40 pruebas en 11 archivos; build OK, JS inicial 464.94 kB (135.36 kB gzip). No se midieron estados HTTP explícitos ni la respuesta de `/api/products`; los valores `naturalWidth>0` confirman carga/decodificación real de las cuatro imágenes observadas. La verificación de las 18 fotos a través de todas las rutas queda pendiente.
 - No se borraron ni reemplazaron archivos. Sin cambios en admin, productos, stock, precios, imágenes originales, D1/R2, seeds, reset o producción.
+
+## Proyecto de tiendas independientes — Fase 1 (2026-11-01)
+
+- Auditoría y arquitectura documentadas en [`docs/ARQUITECTURA_MULTI_TIENDA.md`](docs/ARQUITECTURA_MULTI_TIENDA.md).
+- Git limpio al iniciar (`main`, `7d8a4b3`). Frontend: 40/40 pruebas y build OK. Worker: 29/29 pruebas y `tsc --noEmit` OK. 69 imágenes JPEG/WebP locales decodificadas.
+- Riesgos detectados antes del generador: seeds existentes modifican o borran datos; el setup/reset apunta al estado D1 local de la tienda maestra; credenciales de demostración están en configuración versionada y hay valores de respaldo en autenticación.
+- Se fijó el diseño: plantilla maestra y destinos autónomos, manifiestos sin secretos, bases locales separadas, solo demo local en la Fase 2 y sin reusar seeds existentes.
+- Punto de restauración previo a esta edición: `.tmp/multi-store-phase1-checkpoint-before/` (`PROGRESO.md`, `docs/PENDIENTES.md` y `SHA256SUMS.txt`).
+- Sin cambios de código o configuración, sin D1/seed/reset, sin productos/fotos tocados, sin recursos remotos ni despliegue durante la Fase 1.
+
+## Proyecto de tiendas independientes — Fase 2 (2026-11-01)
+
+- Implementado [`scripts/new-store.ps1`](scripts/new-store.ps1) para Windows PowerShell 5.1. Acepta datos de tienda, `-DryRun`, `-Destination`; limita opciones a `demo`, tema `default` y seed `None`; rechaza `production` y destinos existentes.
+- Cada ejecución construye un proyecto por allowlist, sin `.git`, dependencias, seeds, fotos ni configuración local de SneakerHub; genera `.dev.vars` aleatorio ignorado por Git, UUID D1, estado Wrangler y puertos propios; escribe manifiesto y registro sin secretos.
+- Las migraciones `0001`–`0003` y el alta de `store_config` se ejecutaron en cuatro instalaciones de humo distintas. Sus SQLite están en rutas separadas, con identidad propia, 0 productos y 0 categorías; sus credenciales y puertos son distintos. No se tocó el D1 de la plantilla.
+- La instalación generada incluye fallback vacío para el catálogo/identidad, namespace localStorage por slug y carga diferida del catálogo SneakerHub. El bundle independiente probado no incluyó los SKU de SneakerHub.
+- Verificación: frontend 42/42 y build OK; Worker 29/29 y typecheck OK. Build/typecheck de un proyecto generado también OK. `-DryRun` y rechazo de modo `production` verificados.
+- Límite: no se pudo completar `npm ci --offline` porque el caché no contiene todos los paquetes; el build de humo usó dependencias ya instaladas sin copiarlas. La instalación en una máquina nueva requiere acceso al registro npm.
+- Las pruebas de humo permanecen temporalmente bajo `local-stores/`, ignoradas por Git; no son Patitas/TecnoCell ni tienen catálogo. La Fase 3 aún debe agregar presets, seeds y medios autorizados antes de crear las dos demos comerciales.
+
+## Proyecto de tiendas independientes — Fase 3 (2026-11-01)
+
+- Añadidos presets separados para configuración comercial/tema y catálogo: `database/seed-presets/patitas-felices/` y `database/seed-presets/tecnocell-accesorios/`. Sus seeds usan `INSERT OR IGNORE`, claves SKU/slug propias y nunca actualizan ni borran filas existentes.
+- El generador acepta seeds `PatitasFelices` y `TecnoCellAccesorios`, temas `auto`, `default`, `pet-soft` y `tech-minimal`; aplica los datos solo a D1 local nueva, copia solo medios incluidos en `assets.json`, registra checksums/procedencia y mantiene generación vacía con `Seed None`.
+- Agregadas siete fotos de Pexels para las demos y optimizadas a JPEG de hasta 1400 px. La carpeta heredada `seed-images/tecnocell` se dejó intacta y excluida por falta de procedencia. La atribución, enlaces de origen, licencia y SHA-256 están en los manifiestos de assets.
+- Catálogos: Patitas Felices 3 categorías y 3 productos; TecnoCell Accesorios 4 categorías y 4 productos. Los productos llevan metadatos de demo y las fichas piden confirmar marca, precio, stock y especificaciones antes de vender.
+- Validación final completada: se generaron ambas instalaciones desde el script y se verificaron D1 separadas, conteos, checksums/decodificación de imágenes y ausencia de SKU SneakerHub en datos y bundle. Builds frontend y typecheck de Worker aprobaron en las dos copias.
+
+## Proyecto de tiendas independientes — Fase 4 (parcial, 2026-11-01)
+
+- Generadas `local-stores/patitas-felices` y `local-stores/tecnocell-accesorios`, cada una con UUID D1, archivo SQLite, puertos y credenciales aleatorias propios. Las credenciales no se imprimieron ni se guardaron en manifiestos.
+- Patitas Felices: 3 productos, 3 categorías y 3 variantes. TecnoCell Accesorios: 4 productos, 4 categorías y 4 variantes. Las siete imágenes seleccionadas existen, se decodifican y coinciden con SHA-256 y procedencia del preset.
+- Reaplicar SQL de catálogo dejó los conteos intactos. Reintentar el mismo slug se rechazó y los hashes de manifiesto, registro y D1 permanecieron iguales. No se encontró el SKU SneakerHub `VANTA-18` en las D1 ni en el bundle de la demo independiente.
+- Build frontend y `tsc --noEmit` de Worker aprobaron para ambas instalaciones. Se verificaron también los planes `-DryRun`.
+- Pendiente de aceptación manual en navegador: recorrido visual de storefront/admin, carrito y preparación de pedido por WhatsApp. No se declara validado ese flujo.
+
+## Proyecto de tiendas independientes — Fase 5 (2026-11-01)
+
+- Documentada la preparación del aprovisionamiento y sus límites operativos en [`docs/AUTOMATIZACION_TIENDAS.md`](docs/AUTOMATIZACION_TIENDAS.md), con comandos y referencias oficiales de Cloudflare.
+- Este avance fue de planificación/documentación: no se inició sesión, no se crearon D1/R2/Workers/Pages remotos, no se escribieron secretos remotos y no se desplegó.
+- La Fase 6 se completó a continuación; ver el registro siguiente.
+
+## Proyecto de tiendas independientes — Fase 6 (2026-11-01)
+
+- El cuestionario inicial ahora guarda la configuración mediante `PUT /api/admin/store` con sesión administrativa; evita duplicar su categoría inicial al reintentar y ya no añade el producto ficticio fijo `DEMO-001`. Productos/fotos se gestionan desde las pantallas existentes de Productos y Apariencia.
+- Añadido `worker/src/services/business.ts` para crear/editar productos, cambiar precio e inventario, crear/editar/desactivar categorías, actualizar campos de tienda, registrar auditoría y subir imágenes R2. Las rutas administrativas y las acciones existentes del ejecutor reutilizan esas operaciones.
+- Preparación completada sin construir el agente completo de Telegram. Las acciones sensibles continúan en el flujo actual de autenticación/confirmación del bot; no se agregaron permisos o credenciales externos.
+- Verificación posterior a los cambios: Worker 33/33 y typecheck OK; frontend 42/42 y build OK.
+
+## Proyecto de tiendas independientes — Fase 7 (2026-11-01)
+
+- Aceptación real en navegador completada para Patitas Felices y TecnoCell Accesorios. URLs locales al cierre: `http://127.0.0.1:5283/` (Worker `8898`) y `http://127.0.0.1:6081/` (Worker `9696`). Los cuatro servicios se dejaron activos.
+- Confirmados identidad/tema, 3 productos y 3 categorías de Patitas, 4 productos y 4 categorías de TecnoCell, fotos decodificadas, fichas, login/admin, gestión de productos y guardado de apariencia.
+- Aislamiento comprobado con cambio temporal de nombre, precio y color en Patitas: persistieron en esa tienda, TecnoCell no cambió y los datos originales de Patitas fueron restaurados. Foto PNG de prueba cargada solo al R2 local de Patitas; la misma ruta devolvió `Asset not found` en TecnoCell. Sin reset/reseed ni reemplazo de fotos.
+- Se corrigió en ambas copias generadas una carrera que borraba el carrito guardado al recargar. Los dos carritos persistieron tras F5 y se limpiaron los artículos de prueba.
+- WhatsApp quedó parcialmente aceptado: el botón detecta que no hay teléfono válido configurado en ninguna tienda. No se inventó el dato ni se envió un pedido.
+- Suites: frontend 42/42, Worker 33/33; typecheck Worker y builds de frontend base + ambas demos aprobados. Riesgos críticos de seguridad documentados sin cambiar auth ni credenciales. Plantilla SneakerHub Premium intacta y sin despliegues.
+- Informe completo, URLs, comandos, evidencia y riesgos: [`docs/ACEPTACION_TIENDAS_DEMO.md`](docs/ACEPTACION_TIENDAS_DEMO.md). Pruebas actualizadas en [`docs/PRUEBAS.md`](docs/PRUEBAS.md).
+
+## Proyecto de tiendas independientes — Fase 8 (2026-11-01)
+
+- Endurecida la autenticación del Worker: quitados los defaults versionados del `wrangler.toml` y los fallbacks de correo, contraseña y JWT; login y middleware fallan cerrados si falta configuración. En producción se validan longitud/variedad y marcadores débiles.
+- `demo-local` ahora exige una bandera explícita junto a Vite dev; sesiones antiguas se descartan si el modo no está habilitado y las sesiones JWT se revalidan con el Worker. El panel etiqueta el modo solo local y el login ya no ofrece credenciales ficticias.
+- Consolidadas en la plantilla y demos las correcciones generales del carrito y fallback WebP→JPEG. El generador entrega el CTA del preset en un módulo local a cada instalación; las demos existentes cargan ese módulo sin editar D1. La normalización de temas guardados antiguos evita copy de calzado; SneakerHub mantiene su texto y estilo.
+- La revalidación del navegador encontró y corrigió un tema guardado sin `cta` que dejaba la home en blanco. Tras recargar, Patitas mostró 3/3 productos, 3 categorías y las fotos principales; TecnoCell mostró 4/4 productos, 4 categorías y las fotos principales. Se abrieron una ficha de cada una; login UI presente; WhatsApp bloqueado correctamente por número no configurado.
+- Aislamiento: los manifiestos/UUID D1, nombres/buckets locales, puertos, slugs de sesión/almacenamiento y archivos `.dev.vars` siguen separados; archivos locales ignorados por Git y no idénticos. No se cambiaron credenciales, catálogo, D1/R2, carrito o apariencia en esta pasada. El frontend puede sincronizar su marcador interno de versión al abrirse.
+- Extracción de rutinas UTF-8 del generador a `scripts/store-encoding.ps1` y test offline `scripts/test-generator-encoding.ps1`. Windows PowerShell 5.1 confirmó acentos, presets, CTA del preset, escape SQL, ausencia de mojibake y UTF-8 sin BOM. `-DryRun` pasó para ambos perfiles con slugs temporales; los slugs ocupados de las tiendas existentes se rechazaron sin cambios.
+- Los intentos de crear una instalación nueva fallaron durante D1 local: primero `fetch failed`; en el reintento Wrangler seleccionó la base local y devolvió un error interno al migrar. El origen no quedó determinado. Como control, D1 aceptó `SELECT 1` y las tres migraciones en estados temporales nuevos, incluso con estructura de configuración generada. El generador limpió ambos staging y no dejó destino/registro ni creó recursos remotos.
+- Resultados: frontend 52/52, Worker 39/39, `npx tsc --noEmit` y build de la plantilla + ambos demos OK. La última prueba de auth verifica que, al faltar las credenciales del administrador, una sesión previa tampoco entra a rutas protegidas. No se probó un login real en esta pasada; Fase 7 ya aceptó login, gestión, persistencia de apariencia, carrito e aislamiento.
+- Verificación al cierre: los cuatro servicios locales respondieron HTTP 200 y ambos Workers devolvieron salud `ok`. Los `-DryRun` de ambos perfiles y la prueba de serialización CTA pasaron; la creación de una instalación de prueba permanece pendiente porque Wrangler D1 local falló en dos intentos.
+
+## Proyecto de tiendas independientes — Fase 8.1 (2026-11-01)
+
+- Punto de restauración de los archivos de generador, migraciones, configuración y documentos: `.tmp/phase81-checkpoint-20261101/manifest.json` con SHA-256 por archivo. No se sobrescribieron las tiendas existentes.
+- Se instrumentó `scripts/new-store.ps1`: pasos, comando sanitizado, `cwd`, config, persistencia, duración, salida y código externo; diagnósticos redactados antes de retirar staging; `-Diagnostic` conserva eventos también cuando termina bien. Todas las operaciones D1 declaran `--local`, el mismo config y persistencia absoluta, en orden secuencial. `--cwd` al staging y un preflight `SELECT 1` también dieron `internal error` en intentos vacíos y no se retuvieron. El generador completó una tienda vacía, pero falló en intentos posteriores; Wrangler local sigue intermitente sin causa confirmada.
+- El primer `fetch failed` se reprodujo junto a `EACCES` al conectar a loopback sin elevación; el `SELECT 1` y las tres migraciones pasaron con permisos locales ampliados en D1 temporal. Node 26.8.1, npm 11.19.0, Wrangler 4.156.0, Windows PowerShell 5.1.26100.9711.
+- Éxito extremo a extremo: `local-stores/test-generador-fase81` se creó desde cero con `Seed None`. Manifiesto/UUID, D1 local y migraciones 0001–0003; consulta D1 confirmó configuración y conteos de catálogo en cero. `/api/health` OK, `/api/products` devolvió `[]`, login emitió JWT válido, ruta admin protegida y Vite respondió HTTP 200. Frontend generado compiló y Worker pasó typecheck.
+- Límite pendiente: la nueva tienda con preset TecnoCell pasó DryRun pero Wrangler devolvió repetidamente `internal error` al ejecutar `0001_initial.sql`, también después de la reproducción con loopback permitido. El mismo Wrangler/config/persistencia y migraciones pasan en un control aislado, de modo que la diferencia aún no tiene causa confirmada. El intento no dejó tienda ni registro y no tocó las demos existentes.
+- Pruebas de regresión: `scripts/test-generator-wrangler.ps1` verificó código externo 37, fallo controlado del generador, diagnóstico sanitizado y ausencia de destino/registro; `test-generator-encoding.ps1` pasó. Repetir el slug generado se rechazó sin cambios.
+- Suites: frontend 52/52, Worker 39/39; build frontend, typecheck Worker, build frontend generado y arranque/health/login pasaron. `npm ci --offline` no tuvo `zod@3.25.76` en caché; se validó con dependencias locales del workspace sin acceder al registro npm.
+- No se crearon recursos Cloudflare ni se desplegó. La validación del segundo preset (seed/fotos/CTA/carrito) queda pendiente. Informe: [`docs/FASE81_GENERADOR_ESTABLE.md`](docs/FASE81_GENERADOR_ESTABLE.md).
+- Seguridad residual: posibles valores antiguos en el historial Git deben tratarse como expuestos si se reutilizaron; producción necesita secrets propios, `ENVIRONMENT=production`, `ALLOWED_ORIGIN` exacto, protección contra intentos de login y decisión sobre JWT en `localStorage`. WhatsApp real sigue pendiente. Detalle: [`docs/FASE8_SEGURIDAD.md`](docs/FASE8_SEGURIDAD.md) y [`docs/CHECKLIST_PRODUCCION.md`](docs/CHECKLIST_PRODUCCION.md).
+
+## Proyecto de tiendas independientes — Fase 8.2 (2026-11-01)
+
+- El generador migró a `wrangler d1 migrations apply`, con `database/migrations` separado de los SQL de inicialización/seed y `npx.cmd --no-install` para usar el Wrangler local fijo. Se añadió clasificación sanitizada de errores y el test simulado valida `SQLITE_BUSY` → `sqlite-lock`.
+- Matriz disponible: Windows PowerShell 5.1.26100.9711, Node 26.8.1, npm 11.19.0 y Wrangler 4.156.0. Tres generaciones nuevas consecutivas pasaron: vacía, Patitas (3 productos/categorías/fotos) y TecnoCell (4 productos/categorías/fotos). D1 confirmó ledger, configuración, UTF-8 y persistencias separadas.
+- El flujo nativo aplicó 0001–0003 en orden y el segundo `apply` no duplicó migraciones; el flujo anterior de tres `d1 execute --file` también pasó una vez en un control aislado. No se atribuye una causa definitiva al `internal error` histórico.
+- Node 24 LTS y Wrangler 4.156.1 alternativos no se probaron: el registro npm respondió `ENOTFOUND`. `npm ci` también falló en los seis paquetes de las tiendas nuevas al descargar `zod@3.25.76`; no se cambiaron lockfiles ni se copiaron `node_modules`.
+- Suites de plantilla: Frontend 52/52, Worker 39/39, typecheck Worker y build Frontend OK. Los builds/login/API de las copias generadas quedan pendientes por `npm ci`; no se recomienda todavía un piloto que dependa de esas validaciones. SneakerHub, Patitas, TecnoCell y `test-generador-fase81` no se modificaron. No hubo recursos remotos ni despliegue.
+- Informe: [`docs/FASE82_ESTABILIDAD.md`](docs/FASE82_ESTABILIDAD.md). La fase permanece parcialmente abierta hasta completar las filas de compatibilidad y la instalación limpia de dependencias.
+
+## MVP privado Telegram + Gemini — 2026-11-02
+
+- Se reutilizó el webhook actual y se integraron Gemini estructurado, autorización por ID numérico, deduplicación, limitación, confirmaciones persistentes, voz OGG limitada y transacción D1 para cambios de precio/stock.
+- Gemini real pasó una consulta de solo lectura. Telegram `getMe`/`getWebhookInfo` confirmaron el bot y que no hay webhook; después del envío del challenge se validó una coincidencia en chat privado, se confirmó la cuenta y se guardó su ID local.
+- Migración aditiva comprobada sobre clon SQLite; no se aplicó a la base original. D1/R2 originales permanecen con los conteos esperados.
+- Worker 55/55 + typecheck; frontend 52/52 + build. Sin deploy, webhook definitivo ni mutaciones de datos.
+- Estado: implementación parcial. Falta confirmar la cuenta propietaria, probar mensajes/voz y escrituras en un entorno temporal con recursos propios, y revisar resultados antes de cualquier activación.
+
+## Rediseño visual SneakerHub Premium — FASE 1 (2026-11-02)
+
+### Alcance implementado y verificado
+- Sistema de diseño: tokens `--color-*` (10) + tipografía (Inter/Manrope por defecto) + radios/densidad/componentes unificados en `frontend/src/styles/globals.css`, `tailwind.config.js` y `frontend/src/types/theme.ts`.
+- `mergeTheme` migra `style.canvas/surface/ink/fontPrimary` y columnas legacy `primaryColor/secondaryColor/accentColor/buttonColor`; la paleta es la única fuente de verdad del storefront.
+- Header reescrito: topbar opcional, logo sin distorsión, nav de categorías, buscador, carrito con contador, menú móvil (Escape/fondo), contacto WhatsApp, sticky configurable.
+- Hero reescrito: foto desktop/móvil opcional, overlay direccional, alineación izquierda/centro/derecha, altura y overlay configurables, CTA con enlaces reales, conteos reales, sin valoración inventada.
+- Home: secciones toggleables (hero, categorías, destacados, promo, ofertas, nuevos, beneficios, contacto, testimonios, cta); se ocultan sin datos.
+- Tarjetas, galería, precios, badges, skeleton y estados vacíos rediseñados al sistema visual.
+- Admin `Appearance.tsx` reescrito al nuevo esquema (paleta completa, tipografía, header, hero, secciones, presets por `id`); `Settings.tsx` y `Onboarding.tsx` sincronizan colores a la paleta.
+- `index.html`: fuentes preconectadas, descripción y `theme-color` del tema.
+- `database/seeds/demo-store.sql`: seed idempotente de 18 productos, 5 categorías, variantes y stock; nunca toca productos reales.
+
+### Evidencia de lo verificado
+- `frontend`: `npx tsc --noEmit` → 0 errores; `npx vitest run` → **52/52** en 16 archivos.
+- `worker`: `npx tsc --noEmit` → 0 errores; `npx vitest run` → **23/23** en 3 archivos.
+- Worker en `http://127.0.0.1:8788`: `/api/products` → **18 productos**, `/api/categories` → **5 categorías**, `/api/store` → paleta por defecto y hero `/seed-images/sneakerhub/hero-editorial.jpg`.
+- Seed aplicado a D1 local con `wrangler d1 execute --local --file database/seeds/demo-store.sql` → éxito.
+- Navegador en `http://localhost:5173/`: título "SneakerHub Premium", **0 errores de consola**, hero y menú renderizan.
+
+### Documentación creada/actualizada
+- `docs/STREETWEAR_PREMIUM.md` (nueva): alcance, sistema de diseño, archivos, cómo iniciar, límites.
+- `docs/GUIA_PERSONALIZACION.md` (nueva): cómo editar colores, tipografía, header, hero y secciones desde `/admin/apariencia`.
+- `docs/PRUEBAS_VISUALES.md` (nueva): qué se verificó y qué queda pendiente.
+- `docs/ASSETS_DEMO.md` (actualizada): hero-editorial.jpg como portada por defecto, TERA-15.jpg como banner promo, TERA-16 sin "portada por defecto".
+
+### Límites y honestidad (no afirmar como hecho)
+- **No se captaron pantallas a 375/390/768/1024/1440 px:** `browser.screenshot` requiere una pestaña visible en ventana de escritorio, no disponible en este entorno. Ver `docs/PRUEBAS_VISUALES.md`.
+- **Persistencia remota en D1 desde `/admin/apariencia`:** no se comprobó con sesión de administrador conectada.
+- **Render React en vivo y HTTP de las 18 fotos:** localhost estuvo bloqueado por permisos de socket en momentos de la sesión; se confirmó a nivel de archivo (18 JPEG decodificados) y de API (18 filas), no a través del navegador por cada imagen.
+- Tres imágenes heredadas sin ficha de origen: `ASTRAL-03.jpg`, `NORD-02.jpg`, `VOLTA-04.jpg`. Confirmar o sustituir antes de redistribuir comercialmente (ver `docs/ASSETS_DEMO.md`).
+- No se tocó Telegram, Gemini, credenciales, producción ni productos reales en esta fase.
+
+### Próximo (FASE 2)
+- Fotografía y catálogo: página individual de producto (`/producto/:slug`), galerías y curaduría de las 18 fotos; completar licencias heredadas o sustituirlas.
+
+## Pruebas reales de Telegram + Gemini — staging local (2026-11-02)
+
+- Preparado `--env staging` con Worker/nombre propios, D1 UUID local dedicado, R2 de staging y persistencia separada `.tmp/sneakerhub-telegram-staging/persist-v2`. Health/catalog y put/get/delete de R2 verificados. Secretos locales en `worker/.dev.vars.staging` (ignorado); plantilla sin secretos en `worker/.dev.vars.staging.example`.
+- Aplicadas las migraciones 0001–0004 solo a esa D1 y cargado el seed ficticio `TEST-TRN-001` (1 producto, 2 variantes, 1 categoría, cero pedidos). El Worker staging respondió health 200 y mostró exclusivamente el SKU ficticio.
+- Prueba de servicio transaccional sobre la D1 staging: cambio de stock aplicado una vez, segunda confirmación rechazada como `not_pending`; fallo del insert de auditoría revirtió la segunda modificación y conservó estado previo.
+- Gemini API real aceptó JSON estructurado para interpretación de lectura usando el modelo configurado; no se consultó D1. Mocks Worker 64/64, TypeScript OK; frontend 52/52 y build OK.
+- D1/R2 original permanecen en 19 productos, 90 variantes, 5 categorías, 4 pedidos, 1 configuración, 10 auditorías y 7 objetos. Sin deploy, recursos remotos ni webhook.
+- Pendiente para primera prueba Telegram: credenciales de un bot de prueba distinto y API key Gemini exclusiva de staging; después se requerirán autorización específica, endpoint HTTPS y webhook solo para ese bot. No se activará el definitivo.
+
+## Activación HTTPS staging preparada (2026-11-02)
+
+- Revisión final local: health 200; catálogo devuelve solo `TEST-TRN-001`; `/api/admin/stats` sin token devuelve 401; webhook local sin token de bot de pruebas devuelve 503 antes de procesar.
+- D1 staging: cancelación aplicada al registro de prueba pendiente; el stock ficticio permanece en 6, con 1 operación aplicada, 1 cancelada y una auditoría. Doble confirmación y rollback por auditoría ya se verificaron contra la D1 local staging.
+- La verificación anterior de Telegram/Gemini se hizo con valores que la comparación actual encontró iguales a `.dev.vars`; no se consideran credenciales staging independientes. Reemplazar y volver a verificar antes de otras llamadas.
+- D1/R2 original se compararon con la línea base: todas las tablas/filas de aplicación D1 idénticas; los 7 objetos R2 coinciden por metadatos y SHA de blobs. Solo difiere metadata interna `_cf_METADATA` de Wrangler.
+- Plan de recursos/comandos HTTPS: [`docs/SNEAKERHUB_STAGING_HTTPS_PLAN.md`](docs/SNEAKERHUB_STAGING_HTTPS_PLAN.md). No se desplegó ni se registró webhook.
+- Actualización remota: creada D1 `sneakerhub-telegram-staging-db` (UUID `18ac228c-c142-45c7-b801-6ae0c6e1f8eb`), migraciones 0001–0004 y seed ficticio aplicados. No se desplegó ni registró webhook.
+
+## Preparación del deploy HTTPS staging — 2026-11-02
+
+- Cloudflare acceso verificado; R2 habilitado y bucket `sneakerhub-telegram-staging-assets` existente. La D1 con UUID esperado mantiene ledger 0001–0004 y solo el SKU ficticio `TEST-TRN-001`.
+- Wrangler confirmó que el Worker remoto `sneakerhub-telegram-staging` aún no existe; su nombre no coincide con el Worker principal `catalogo-lite-api`. La configuración remota refiere solo la D1/R2 staging.
+- `.dev.vars.staging` está ignorado por Git, tiene el propietario numérico y el modelo. El propietario autorizó reutilizar la clave Gemini principal; la prueba real pasó. `getMe` del token disponible identificó `@SneakerHubPruebas_bot`, no `@SneakerHubAdmin_bot`; se detuvo sin modificar webhooks.
+- Dry-run pasó. El deploy falló antes de publicar porque el proceso no tiene `CLOUDFLARE_API_TOKEN`; el flujo OAuth interactivo se detuvo sin automatizar autenticación. No se creó Worker ni URL.
+- D1/R2 staging verificados, D1 devuelve solo `TEST-TRN-001`; no se ejecutaron migraciones ni escrituras. Worker 64/64 + TypeScript; frontend 52/52 + build. Producción sin cambios.
+- Worker 64/64, TypeScript OK; frontend 52/52 y build OK. D1/R2 originales no fueron consultados para escritura ni modificados.
+
+## Plataforma 3.0 multitienda — 2026-11-03
+
+Punto de partida verificado: árbol sin commitear equivalente a producción (Worker 121/121, frontend 55/55, build OK). Punto de restauración: `.tmp/platform30-checkpoint-*/` (tar de archivos modificados/nuevos + commit de `git stash create`).
+
+| Fase | Estado | Evidencia |
+|---|---|---|
+| 1. Estabilizar | **Verificada** | Línea base OK. Defectos corregidos: navegación durante el render en `LoginPage`; tiendas no disponibles mostraban la identidad de SneakerHub; edición de producto inexistente devolvía 400 en vez de 404; intérprete no reconocía SKU alfanuméricos sin guion en cambios de stock. |
+| 2. Asistente IA | **Implementada; verificada con Telegram/Gemini simulados** | 21 pruebas: saludo y menú, poco stock con números en palabras, más vendidos honesto, cambio de precio confirmado una sola vez, “este producto”, ocultar agotados, cancelación, propuesta obsoleta, rol operador, varias tiendas, tienda suspendida, alta con fotos + visión + precio + stock + SKU sugerido + publicación, presupuesto agotado, aviso al 80 %, CSV, banner por foto, error sin detalles técnicos. Falta prueba con Telegram y Gemini reales. |
+| 3. Multitienda | **Verificada localmente** | Migración `0007` + reversión verificadas sobre copia del respaldo de producción (hashes idénticos, secuencias preservadas) y en Wrangler D1 local. 11 pruebas negativas de aislamiento. |
+| 4. Bot maestro | **Implementada; verificada con Telegram simulado** | 8 pruebas: acceso solo por ID, deduplicación propia, `/crear_tienda` completo, edición/cancelación, doble toque sin duplicado, suspensión por lenguaje natural con confirmación y auditoría, límites de IA y planes. Falta crear el bot real. |
+| 5. Aprovisionamiento | **Verificada localmente** | 10 pruebas (idempotencia, reanudación tras fallo, slug ocupado, correo reservado, activación de propietario, estados) + smoke 19/19 en `workerd` sobre la copia migrada + creación y activación desde `/plataforma` en navegador. |
+| 6. Preparación comercial | **Parcial** | Docs: `PLATAFORMA_3_0.md`, `DESPLIEGUE_Y_RECUPERACION_3_0.md`, `GUIA_BOTS_3_0.md`. Planes/servicios registrables sin cobros. Despliegue y bots reales pendientes de autorización. |
+
+Totales: Worker **156/156** (19 archivos) y `tsc` OK; frontend **58/58**, `tsc` y build OK (JS inicial 521 kB; `/plataforma` y activación cargan aparte).
+
+No se ejecutó nada remoto: sin migraciones en D1 remota, sin deploy, sin cambios de webhook, sin secretos, sin Netlify. No se crearon productos en staging ni producción; las pruebas locales usaron SQLite en memoria y una copia aislada en `.tmp/platform30-d1-local-*`.
+
+Archivos principales: `database/migrations/0007_multi_tenant_platform.sql`, `database/rollback/0007_…down.sql`, `scripts/verify-d1-migration.mjs`, `worker/src/tenancy/*`, `worker/src/services/{provisioning,platform,platformUsers,templates}.ts`, `worker/src/services/assistant/*`, `worker/src/services/master/bot.ts`, `worker/src/routes/{platform,auth,master}.ts`, `frontend/src/lib/tenant.ts`, `frontend/src/admin/{PlatformPage,ActivationPage}.tsx`.
+
+Siguiente paso recomendado: aplicar `0007` y desplegar en **staging** con autorización, luego producción siguiendo `docs/DESPLIEGUE_Y_RECUPERACION_3_0.md`.
+
+### Staging 3.0 desplegado — 2026-11-03
+
+Con autorización: migración `0007` aplicada en `sneakerhub-telegram-staging-db` (datos idénticos al respaldo, 0 violaciones de FK) y Worker `sneakerhub-telegram-staging` actualizado de `ec76398d` a `267eab01-6dcb-4ba1-b750-2a1e06adbe78`. Smoke test HTTPS 13/13; webhook de `@SneakerHubPruebas_bot` sin cambios ni errores. Producción no se tocó. Detalle y reversión en `docs/DESPLIEGUE_Y_RECUPERACION_3_0.md`. Pendiente: probar el asistente nuevo escribiendo al bot de pruebas.
+
+Después (autorizado): la autenticación reconoce `ENVIRONMENT = "staging"` con reglas de no producción; Worker de staging redesplegado a `f4ff0779-da64-4021-a093-3060e4eca0a4`. Worker 157/157 y `tsc` OK. Verificado por HTTPS: login de superadministrador 200 y `/api/admin/session`, estadísticas, resumen y salud de plataforma con datos reales de staging. La salud marca “propietario” pendiente en la tienda 1 (dueño heredado por `TELEGRAM_OWNER_ID`, sin membresía de plataforma).
+
+### Producción 3.0 desplegada — 2026-11-03
+
+Con autorización: respaldo fresco verificado (`c6403037…`), migración `0007` aplicada en `catalogo-lite-production-db` con datos idénticos (20 productos, 95 variantes, 5 categorías, 7 pedidos), y Worker `catalogo-lite-api` actualizado de `f4619f2f` a `7def7c60-24d1-4f10-8662-8098bf5faf50`. Smoke test HTTPS 15/15 y tienda pública en navegador sin errores. Sin pedidos ni datos de prueba en producción; secretos y webhooks sin cambios. Pendiente: publicar el frontend 3.0 en Netlify (requiere commit y push a `main`), crear el bot maestro y probar el asistente nuevo con `@SneakerHubAdmin_bot`. Reversión en `docs/DESPLIEGUE_Y_RECUPERACION_3_0.md`.
+

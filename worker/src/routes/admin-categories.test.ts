@@ -1,68 +1,37 @@
-import { describe, expect, it } from 'vitest'
-import { Hono } from 'hono'
-import adminRoutes from './admin'
-import { createAdminToken } from '../services/auth'
-import type { Env } from '../index'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { createHarness, seedCatalog, superadminToken, type Harness } from '../testing/harness'
 
-const SECRET = 'test-secret-with-at-least-32-characters'
+let h: Harness
+let token: string
 
-function appWithDb(duplicateSlug: boolean) {
-  const app = new Hono<Env>()
-  app.route('/api/admin', adminRoutes)
-  const db = {
-    prepare: (sql: string) => ({
-      bind() { return this },
-      first: async () => sql.includes('id !=') ? (duplicateSlug ? { id: 8 } : null) : { id: 3 },
-      run: async () => ({ success: true }),
-    }),
-  }
-  return {
-    app,
-    env: {
-      DB: db,
-      JWT_SECRET: SECRET,
-      ADMIN_EMAIL: 'admin@local.test',
-      ADMIN_PASSWORD: 'test-password',
-      ENVIRONMENT: 'test',
-    } as unknown as Env['Bindings'],
-  }
-}
+beforeEach(async () => {
+  h = createHarness()
+  token = await superadminToken()
+  await seedCatalog(h.db, 1, { categories: [{ name: 'Running', slug: 'running' }, { name: 'Lifestyle', slug: 'lifestyle' }] })
+})
+
+const categoryId = (slug: string) => h.db.query<{ id: number }>('SELECT id FROM categories WHERE slug = ?', slug)[0]!.id
 
 describe('PUT /api/admin/categories/:id', () => {
   it('rechaza solicitudes sin token', async () => {
-    const { app, env } = appWithDb(false)
-    const response = await app.request('/api/admin/categories/3', { method: 'PUT', body: JSON.stringify({ name: 'Calzado', slug: 'calzado' }) }, env)
-    expect(response.status).toBe(401)
+    expect((await h.request(`/api/admin/categories/${categoryId('running')}`, { method: 'PUT', body: { name: 'X', slug: 'x' } })).status).toBe(401)
   })
 
-  it('rechaza un slug que ya pertenece a otra categoría', async () => {
-    const { app, env } = appWithDb(true)
-    const token = await createAdminToken('admin@example.com', SECRET)
-    const response = await app.request('/api/admin/categories/3', {
-      method: 'PUT', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'Calzado', slug: 'calzado' }),
-    }, env)
+  it('rechaza un slug que ya pertenece a otra categoría de la misma tienda', async () => {
+    const response = await h.request(`/api/admin/categories/${categoryId('running')}`, { method: 'PUT', token, body: { name: 'Running', slug: 'lifestyle' } })
     expect(response.status).toBe(409)
   })
 
-  it('actualiza una categoría existente con una sesión válida', async () => {
-    const { app, env } = appWithDb(false)
-    const token = await createAdminToken('admin@example.com', SECRET)
-    const response = await app.request('/api/admin/categories/3', {
-      method: 'PUT', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'Calzado', slug: 'calzado' }),
-    }, env)
+  it('actualiza una categoría existente con una sesión válida y la audita', async () => {
+    const response = await h.request(`/api/admin/categories/${categoryId('running')}`, { method: 'PUT', token, body: { name: 'Correr', slug: 'correr' } })
     expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toMatchObject({ success: true, id: 3, slug: 'calzado' })
+    expect(h.db.query('SELECT name, slug FROM categories WHERE slug = ?', 'correr')).toEqual([{ name: 'Correr', slug: 'correr' }])
+    expect(h.db.query("SELECT store_id FROM audit_log WHERE action = 'category_updated'")).toEqual([{ store_id: 1 }])
   })
 
   it('valida el nombre y slug antes de escribir', async () => {
-    const { app, env } = appWithDb(false)
-    const token = await createAdminToken('admin@example.com', SECRET)
-    const response = await app.request('/api/admin/categories/3', {
-      method: 'PUT', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: ' ', slug: '' }),
-    }, env)
+    const response = await h.request(`/api/admin/categories/${categoryId('running')}`, { method: 'PUT', token, body: { name: '', slug: '' } })
     expect(response.status).toBe(400)
+    expect(h.db.query('SELECT name FROM categories WHERE slug = ?', 'running')).toEqual([{ name: 'Running' }])
   })
 })

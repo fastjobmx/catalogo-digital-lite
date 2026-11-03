@@ -4,6 +4,10 @@ compatibility_date = "2024-12-05"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 
+# Purge expired Telegram product drafts and recover R2 objects left by partial publishes.
+[triggers]
+crons = ["*/15 * * * *"]
+
 [vars]
 ENVIRONMENT = "production"
 STORE_NAME = "SneakerHub Premium"
@@ -11,6 +15,10 @@ STORE_CURRENCY = "COP"
 STORE_COUNTRY = "CO"
 ALLOWED_ORIGIN = "https://catalogo-digital-ia.netlify.app"
 COMMERCE_ENABLED = "true"
+# Plataforma 3.0: base pública para enlaces de tiendas (/t/<dirección>) y activaciones.
+PUBLIC_STORE_BASE_URL = "https://catalogo-digital-ia.netlify.app"
+# Secretos adicionales (wrangler secret put): MASTER_BOT_TOKEN, MASTER_WEBHOOK_SECRET,
+# MASTER_ADMIN_TELEGRAM_IDS. Opcional: TELEGRAM_BOT_USERNAME, PLATFORM_AI_MONTHLY_CAP_MICROS.
 
 [[d1_databases]]
 binding = "DB"

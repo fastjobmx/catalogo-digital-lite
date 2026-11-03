@@ -1,0 +1,13 @@
+{
+  "description": "Tienda demo de cuidado y accesorios para perros y gatos. Catálogo de muestra para validar la tienda antes de cargar productos reales.",
+  "slogan": "Bienestar para cada patita",
+  "businessType": "Mascotas",
+  "primaryColor": "#4A6B55",
+  "secondaryColor": "#E5ECDD",
+  "accentColor": "#C18455",
+  "buttonColor": "#385642",
+  "coverImage": "/seed-images/patitas/treats.jpg",
+  "deliveryMethods": ["envio", "recogida"],
+  "pickupAvailable": true,
+  "defaultWhatsappMessage": "Hola Patitas Felices, quiero información sobre un producto:"
+}

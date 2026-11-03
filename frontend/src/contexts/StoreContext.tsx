@@ -5,6 +5,7 @@ import { STORE_PRESET_CTA } from '../data/storePresetCta'
 import { isIndependentInstallation, storeStorageKey } from '../lib/installation'
 import { getClosingCtaDefaults, normalizeStoreTheme } from '../lib/storeTheme'
 import { IS_PUBLIC_DEMO } from '../lib/publicDemo'
+import { TENANT_SLUG } from '../lib/tenant'
 import {
   DEFAULT_THEME,
   DENSITY_VALUES,
@@ -205,7 +206,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
  setStoreState(mapApiToStoreConfig(apiConfig))
  setStoreLoadError(null)
  } catch (err) {
- setStoreLoadError(err instanceof Error ? err.message : 'No se pudo cargar la configuración de la tienda.')
+ const unavailable = err instanceof Error && /Store not (available|found)/i.test(err.message)
+ setStoreLoadError(unavailable
+   ? 'Esta tienda no está disponible en este momento. Si eres el propietario, inicia sesión en el panel para ver la vista previa.'
+   : err instanceof Error ? err.message : 'No se pudo cargar la configuración de la tienda.')
  }
  } else {
  setIsDemoMode(true)
@@ -348,8 +352,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
  link.href = store.favicon
  }
 
- document.title = store.name
- }, [store.theme, store.favicon, store.name])
+ // A platform store keeps its neutral title until its own configuration loads.
+ if (!TENANT_SLUG || (!isLoading && !storeLoadError && !isDemoMode)) document.title = store.name
+ }, [store.theme, store.favicon, store.name, isLoading, storeLoadError, isDemoMode])
 
  return (
  <StoreContext.Provider value={{ store, setStore, isLoading, isDemoMode, backendAvailable, storeLoadError, refreshFromApi: loadFromApi }}>

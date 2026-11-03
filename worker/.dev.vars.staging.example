@@ -1,0 +1,16 @@
+# Copiar a .dev.vars.staging (ignorado por Git) y completar con credenciales
+# independientes del bot y proyecto de Gemini de pruebas.
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_WEBHOOK_SECRET=
+TELEGRAM_OWNER_ID=
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-3.8-flash
+JWT_SECRET=
+ADMIN_EMAIL=
+ADMIN_PASSWORD=
+# Plataforma 3.0 (bot maestro de PRUEBAS, nunca el de producción)
+PUBLIC_STORE_BASE_URL=
+TELEGRAM_BOT_USERNAME=
+MASTER_BOT_TOKEN=
+MASTER_WEBHOOK_SECRET=
+MASTER_ADMIN_TELEGRAM_IDS=

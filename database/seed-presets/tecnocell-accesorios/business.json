@@ -1,0 +1,13 @@
+{
+  "description": "Tienda demo de accesorios y tecnología móvil. Los productos y fotografías son referencias ilustrativas para validar el catálogo.",
+  "slogan": "Conecta con lo que importa",
+  "businessType": "Accesorios para celulares y tecnología",
+  "primaryColor": "#2763A5",
+  "secondaryColor": "#DCE8F5",
+  "accentColor": "#37A6B7",
+  "buttonColor": "#183B65",
+  "coverImage": "/seed-images/tecnocell-demo/wireless-earbuds.jpg",
+  "deliveryMethods": ["envio", "recogida"],
+  "pickupAvailable": true,
+  "defaultWhatsappMessage": "Hola TecnoCell Accesorios, quiero información sobre un producto:"
+}

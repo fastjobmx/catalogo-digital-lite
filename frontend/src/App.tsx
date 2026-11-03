@@ -21,6 +21,12 @@ import AdminAppearance from './admin/pages/Appearance'
 import NotFoundPage from './pages/NotFoundPage'
 import RouteScrollManager from './components/RouteScrollManager'
 import { IS_PUBLIC_DEMO } from './lib/publicDemo'
+import { ROUTER_BASENAME } from './lib/tenant'
+import { lazy, Suspense } from 'react'
+
+// Platform-only screens load on demand so the storefront bundle stays small.
+const ActivationPage = lazy(() => import('./admin/ActivationPage'))
+const PlatformPage = lazy(() => import('./admin/PlatformPage'))
 
 function ProtectedAdminRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth()
@@ -45,7 +51,7 @@ function ProtectedAdminRoute({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={ROUTER_BASENAME}>
       <RouteScrollManager />
       <StoreProvider>
         <AuthProvider>
@@ -66,8 +72,11 @@ export default function App() {
                 <Route path="/admin/*" element={<Navigate to="/" replace />} />
               ) : (
                 <>
-                  {/* Admin login (public) */}
+                  {/* Admin login and one-time account activation (public) */}
                   <Route path="/admin/login" element={<LoginPage />} />
+                  <Route path="/admin/activar" element={<Suspense fallback={null}><ActivationPage /></Suspense>} />
+                  {/* Platform panel (superadmin; the API enforces the role) */}
+                  <Route path="/plataforma" element={<Suspense fallback={null}><PlatformPage /></Suspense>} />
 
                   {/* Admin routes (protected) */}
                   <Route

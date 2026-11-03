@@ -1,10 +1,15 @@
 import { SignJWT, jwtVerify } from 'jose'
 import type { Env } from '../index'
+import type { Principal } from '../tenancy/access'
 
 export interface AdminToken {
  email: string
  iat: number
  exp: number
+ /** Platform user id for store users. Absent for the platform superadmin. */
+ sub?: string
+ /** Explicit superadmin claim issued only after validating Worker secrets. */
+ sa?: boolean
 }
 
 const MIN_JWT_SECRET_BYTES = 32
@@ -21,8 +26,10 @@ function isProduction(env: Env['Bindings']): boolean {
  return String(env.ENVIRONMENT || '').trim().toLowerCase() === 'production'
 }
 
+// Staging is a remote test environment: it follows the non-production rules
+// (test password secret) but still requires a strong JWT secret.
 function isRuntimeConfigured(env: Env['Bindings']): boolean {
- return ['development', 'test', 'production'].includes(String(env.ENVIRONMENT || '').trim().toLowerCase())
+ return ['development', 'test', 'staging', 'production'].includes(String(env.ENVIRONMENT || '').trim().toLowerCase())
 }
 
 function isStrongJwtSecret(secret: string, production: boolean): boolean {
@@ -78,6 +85,13 @@ export async function hashAdminPassword(password: string, salt = crypto.getRando
  return `pbkdf2_sha256$${PBKDF2_ITERATIONS}$${encodeBase64Url(salt)}$${encodeBase64Url(new Uint8Array(bits))}`
 }
 
+/** Hash used for store users' passwords (same PBKDF2 scheme as the superadmin). */
+export const hashPassword = hashAdminPassword
+
+export async function verifyPasswordHash(password: string, encoded: string): Promise<boolean> {
+ return verifyAdminPassword(password, encoded)
+}
+
 async function verifyAdminPassword(password: string, encoded: string): Promise<boolean> {
  const [algorithm, iterationText, saltText, hashText, extra] = encoded.split('$')
  const iterations = Number(iterationText)
@@ -94,10 +108,14 @@ async function verifyAdminPassword(password: string, encoded: string): Promise<b
  } catch { return false }
 }
 
-export async function createAdminToken(email: string, secret: string): Promise<string> {
+export async function createAdminToken(email: string, secret: string, claims: { sub?: string; sa?: boolean } = { sa: true }): Promise<string> {
  const secretKey = new TextEncoder().encode(secret)
 
- const jwt = await new SignJWT({ email })
+ const payload: Record<string, unknown> = { email }
+ if (claims.sa) payload.sa = true
+ const builder = new SignJWT(payload)
+ if (claims.sub) builder.setSubject(claims.sub)
+ const jwt = await builder
  .setProtectedHeader({ alg: 'HS256' })
  .setIssuedAt()
  .setExpirationTime('24h')
@@ -111,6 +129,8 @@ export async function verifyAdminToken(token: string, secret: string): Promise<A
  const secretKey = new TextEncoder().encode(secret)
  const { payload } = await jwtVerify(token, secretKey)
   if (typeof payload.email !== 'string' || !payload.email || typeof payload.iat !== 'number' || typeof payload.exp !== 'number') return null
+  if (payload.sub !== undefined && !/^\d{1,12}$/.test(String(payload.sub))) return null
+  if (payload.sub !== undefined && payload.sa) return null
   return payload as unknown as AdminToken
  } catch {
  return null
@@ -135,4 +155,22 @@ export function getJwtSecret(env: Env['Bindings']): string | null {
  if (!isRuntimeConfigured(env)) return null
  const secret = String(env.JWT_SECRET || '')
  return isStrongJwtSecret(secret, isProduction(env)) ? secret : null
+}
+
+/** Maps a verified token to the acting principal. Store-user tokens always carry
+ * a numeric subject and can never become superadmin. Tokens issued before the
+ * multi-store release only carried the superadmin email. */
+export function principalFromToken(token: AdminToken, env: Env['Bindings']): Principal | null {
+ if (token.sub !== undefined) {
+  const userId = Number(token.sub)
+  return Number.isSafeInteger(userId) && userId > 0 ? { kind: 'user', userId, email: token.email } : null
+ }
+ const adminEmail = String(env.ADMIN_EMAIL || '').trim().toLowerCase()
+ if (adminEmail && token.email.trim().toLowerCase() === adminEmail) return { kind: 'superadmin', email: token.email }
+ return null
+}
+
+export function isSuperadminEmail(email: string, env: Env['Bindings']): boolean {
+ const adminEmail = String(env.ADMIN_EMAIL || '').trim().toLowerCase()
+ return Boolean(adminEmail) && email.trim().toLowerCase() === adminEmail
 }

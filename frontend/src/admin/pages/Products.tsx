@@ -5,6 +5,7 @@ import { useCatalog } from '../../contexts/CatalogContext'
 import { useStore } from '../../contexts/StoreContext'
 import { useAuth } from '../../contexts/AuthContext'
 import { formatMoney } from '../../lib/format'
+import { resolveImageUrl } from '../../lib/imageSources'
 import { uploadImage, type CreateProductPayload, type ProductApi } from '../../services/api'
 
 const emptyForm = (): CreateProductPayload => ({
@@ -251,7 +252,7 @@ export default function Products() {
             <div className="flex flex-wrap items-center gap-4">
               {(form.imageUrls || []).filter(Boolean).map((url, i) => (
                 <div key={`${url}-${i}`} className="relative w-24 h-24 rounded-btn overflow-hidden border border-line group">
-                  <img src={url} alt={`Foto ${i + 1}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                  <img src={resolveImageUrl(url) || undefined} alt={`Foto ${i + 1}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                   {i === 0 && <span className="absolute bottom-1 left-1 rounded bg-ink/80 px-1.5 py-0.5 text-[9px] font-bold text-white">Principal</span>}
                   {i > 0 && <button type="button" aria-label={`Hacer principal la foto ${i + 1}`} onClick={() => { const images = [...(form.imageUrls || [])]; [images[0], images[i]] = [images[i]!, images[0]!]; setForm({ ...form, imageUrls: images }) }} className="absolute bottom-1 left-1 rounded bg-white/90 p-1 text-ink opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"><ChevronLeft size={14}/></button>}
                   <button
@@ -363,7 +364,7 @@ export default function Products() {
             <thead className="bg-canvas text-left text-[11px] uppercase tracking-wider text-muted"><tr><th className="p-4">Producto</th><th className="p-4">Categoría</th><th className="p-4 text-right">Precio</th><th className="p-4 text-right">Stock</th><th className="p-4">Estado</th><th className="p-4">Acciones</th></tr></thead>
             <tbody className="divide-y divide-line">{filtered.map((product) => (
               <tr key={product.id} className="hover:bg-canvas/60">
-                <td className="p-4"><div className="flex items-center gap-3"><div className="h-12 w-12 shrink-0 overflow-hidden rounded-btn border border-line bg-canvas">{product.imageUrls[0] ? <img src={product.imageUrls[0]} alt="" className="h-full w-full object-cover"/> : <Package className="m-3 text-muted" size={24}/>}</div><div><p className="font-semibold text-ink">{product.name}</p><p className="text-xs text-muted">{product.sku}</p></div></div></td>
+                <td className="p-4"><div className="flex items-center gap-3"><div className="h-12 w-12 shrink-0 overflow-hidden rounded-btn border border-line bg-canvas">{product.imageUrls[0] ? <img src={resolveImageUrl(product.imageUrls[0]) || undefined} alt="" className="h-full w-full object-cover"/> : <Package className="m-3 text-muted" size={24}/>}</div><div><p className="font-semibold text-ink">{product.name}</p><p className="text-xs text-muted">{product.sku}</p></div></div></td>
                 <td className="p-4 text-muted">{product.categoryName || 'Sin categoría'}</td>
                 <td className="p-4 text-right font-semibold tabular-nums">{formatMoney(product.price, store.currency)}</td>
                 <td className="p-4 text-right tabular-nums">{product.variants.reduce((sum, variant) => sum + variant.stock, 0)}</td>

@@ -1,0 +1,9 @@
+{
+  "license": "Pexels License (https://www.pexels.com/legal-pages/license/): free commercial use and editing; attribution not required; no implied endorsement.",
+  "processing": "JPEG, max 1400 px, quality 84, optimized locally on 2026-11-01.",
+  "assets": [
+    { "file": "pet-bowl.jpg", "author": "MART PRODUCTION", "source": "https://www.pexels.com/photo/bowl-of-dog-food-8434633/", "download": "https://images.pexels.com/photos/8434633/pexels-photo-8434633.jpeg?cs=srgb&dl=pexels-mart-production-8434633.jpg&fm=jpg", "sha256": "99744b9769b92ebcea8fb15f96fd9744dd8f1b7b46a3ec5005f713550eb190cb" },
+    { "file": "cat-scratcher.jpg", "author": "Hasan Olker", "source": "https://www.pexels.com/photo/adorable-cat-sitting-by-scratching-post-indoors-37197301/", "download": "https://images.pexels.com/photos/37197301/pexels-photo-37197301.jpeg?cs=srgb&dl=pexels-hasan-olker-2148049930-37197301.jpg&fm=jpg", "sha256": "092b5e30bdf74382b67c30002efdd15788a65ecf1268be040b01cc760f444b33" },
+    { "file": "treats.jpg", "author": "RDNE Stock project", "source": "https://www.pexels.com/photo/a-person-holding-dog-food-7309448/", "download": "https://images.pexels.com/photos/7309448/pexels-photo-7309448.jpeg?cs=srgb&dl=pexels-rdne-7309448.jpg&fm=jpg", "sha256": "25bd64e9e181c576c64c6ae5b26e8ff2d09124df123bad5e4291ba281fdc36d4" }
+  ]
+}

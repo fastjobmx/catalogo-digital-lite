@@ -9,18 +9,26 @@ ENVIRONMENT = "development"
 STORE_NAME = "SneakerHub Lite"
 STORE_CURRENCY = "COP"
 STORE_COUNTRY = "CO"
-ADMIN_EMAIL = "admin@example.com"
-ADMIN_PASSWORD = "admin123"
-JWT_SECRET = "dev-only-secret-change-in-production-32ch"
+# Authentication values belong in worker/.dev.vars locally and Wrangler secrets in production.
 
 # Telegram Bot (configurar en .env o secrets)
 # TELEGRAM_BOT_TOKEN = ""
 # TELEGRAM_WEBHOOK_SECRET = ""
 # TELEGRAM_OWNER_ID = ""
 
+# Plataforma multitienda 3.0 (valores reales en .dev.vars / secrets)
+# PUBLIC_STORE_BASE_URL = "http://localhost:5173"
+# TELEGRAM_BOT_USERNAME = ""          # asistente compartido de tiendas (enlaces t.me)
+# MASTER_BOT_TOKEN = ""               # bot maestro de la plataforma (secreto)
+# MASTER_WEBHOOK_SECRET = ""          # secreto del webhook del bot maestro
+# MASTER_ADMIN_TELEGRAM_IDS = ""      # IDs numéricos autorizados, separados por coma
+# GEMINI_PRICE_INPUT_MICROS_PER_MTOK = "300000"    # estimación de costo (USD micros / 1M tokens)
+# GEMINI_PRICE_OUTPUT_MICROS_PER_MTOK = "2500000"
+# PLATFORM_AI_MONTHLY_CAP_MICROS = "" # tope global opcional de IA
+
 # Google Gemini AI (configurar en .env o secrets)
 # GEMINI_API_KEY = ""
-# GEMINI_MODEL = "gemini-2.0-flash"
+# GEMINI_MODEL = "gemini-3.8-flash"
 
 # Base de datos D1
 [[d1_databases]]
@@ -41,3 +49,24 @@ port = 8788
 [env.production]
 [env.production.vars]
 ENVIRONMENT = "production"
+
+# Entorno local de pruebas del agente. Usar siempre --local y --persist-to
+# con una carpeta aislada; no ejecutar deploy con este entorno.
+[env.staging]
+name = "sneakerhub-telegram-staging"
+
+[env.staging.vars]
+ENVIRONMENT = "development"
+STORE_NAME = "SneakerHub Agent Test"
+STORE_CURRENCY = "COP"
+STORE_COUNTRY = "CO"
+TELEGRAM_ENV_LABEL = "STAGING - CATALOGO FICTICIO"
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "sneakerhub-telegram-test-db"
+database_id = "a0d6409c-2777-44c0-8dd1-ef546018b404"
+
+[[env.staging.r2_buckets]]
+binding = "ASSETS"
+bucket_name = "sneakerhub-telegram-test-assets"

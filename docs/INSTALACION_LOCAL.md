@@ -69,13 +69,13 @@ Elimina el estado local de D1, reaplica las migraciones y recarga los datos demo
 
 ## Credenciales de demo
 
-| Campo | Valor |
-|---|---|
-| Email admin | `admin@example.com` |
-| Password admin | `admin123` |
-| WhatsApp tienda | `+573001112233` |
+El correo y la contraseña se configuran en `worker/.dev.vars` y no se incluyen
+como valores de ejemplo en esta guía. Las instalaciones generadas reciben
+credenciales aleatorias propias; conserva ese archivo fuera de Git. La tienda
+debe tener un WhatsApp válido configurado antes de aceptar pedidos.
 
-> ⚠️ Estas credenciales son solo para desarrollo local. En producción, configura `ADMIN_EMAIL` y `ADMIN_PASSWORD` como secrets en Cloudflare.
+En producción, configura `ADMIN_EMAIL`, `ADMIN_PASSWORD` y `JWT_SECRET` como
+secrets del Worker, según [`CHECKLIST_PRODUCCION.md`](CHECKLIST_PRODUCCION.md).
 
 ## Estructura de archivos generados
 

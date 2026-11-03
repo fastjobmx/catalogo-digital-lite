@@ -20,6 +20,23 @@ describe('Gemini structured proposal validation', () => {
     expect(request.generationConfig.responseFormat.text.schema.properties.params.properties.stock.type).toBe('integer')
   })
 
+  it('accepts only typed and validated Telegram store settings actions from text or voice', async () => {
+    const proposals = [
+      { action: 'update_store_name', params: { name: 'EROS SHOP' }, missing: [], summary: 'Cambiar nombre' },
+      { action: 'update_store_colors', params: { primaryColor: '#153D70' }, missing: [], summary: 'Cambiar color' },
+      { action: 'update_hero_title', params: { title: 'Viste a tu manera' }, missing: [], summary: 'Cambiar portada' },
+      { action: 'update_whatsapp', params: { whatsappPhone: '+57 350 691 2734' }, missing: [], summary: 'Cambiar WhatsApp' },
+    ]
+    for (const proposal of proposals) {
+      const fetcher = vi.fn().mockResolvedValue(response(candidate(JSON.stringify(proposal))))
+      const result = await interpretWithGemini('Cambiar configuración de la tienda', env, fetcher, { mimeType: 'audio/ogg', data: 'b2dn' })
+      expect(result.action).toBe(proposal.action)
+      expect(result.needsConfirmation).toBe(true)
+      const request = JSON.parse(String(fetcher.mock.calls[0]![1]?.body))
+      expect(request.systemInstruction.parts[0].text).toContain('Transcribe el audio completo')
+    }
+  })
+
   it('turns invalid params into a clarification instead of an executable proposal', async () => {
     const fetcher = vi.fn().mockResolvedValue(response(candidate(JSON.stringify({
       action: 'update_price', params: { sku: 'SH-1', price: -1 }, missing: [], summary: 'Cambiar precio',

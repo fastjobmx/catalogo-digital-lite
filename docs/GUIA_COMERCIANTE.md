@@ -8,7 +8,7 @@ Esta guía explica, en lenguaje sencillo, cómo administrar tu tienda sin conoci
 2. Escribe tu correo y contraseña.
 3. Pulsa **Entrar**.
 
-> Si tu instalación está en modo demostración, las credenciales son `admin@example.com` / `admin123`. Cámbialas antes de publicar.
+> En una demo local, consulta el archivo privado `worker/.dev.vars` de esa instalación. El generador crea credenciales únicas y el archivo no debe subirse a Git ni copiarse a chats. En producción usa los secrets del Worker.
 
 El menú lateral tiene siete secciones:
 

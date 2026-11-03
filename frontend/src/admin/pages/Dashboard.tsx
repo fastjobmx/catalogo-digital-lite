@@ -6,6 +6,7 @@ import { useStore } from '../../contexts/StoreContext'
 import { useCatalog } from '../../contexts/CatalogContext'
 import { getOrders, type OrderApi } from '../../services/api'
 import { formatMoney } from '../../lib/format'
+import { resolveImageUrl } from '../../lib/imageSources'
 
 export default function Dashboard() {
   const { stats, token, isDemoSession } = useAuth()
@@ -114,7 +115,7 @@ export default function Dashboard() {
         </div>
         <div className="card p-6">
           <div className="mb-4 flex items-center justify-between"><div><h2 className="text-lg font-bold text-ink">Stock bajo</h2><p className="text-sm text-muted">Productos con 1 a 5 unidades disponibles</p></div><Link to="/admin/products" className="text-sm font-semibold text-brand">Administrar inventario</Link></div>
-          {lowStock.length === 0 ? <p className="text-sm text-muted">No hay productos con stock bajo en el catálogo cargado.</p> : <ul className="divide-y divide-line">{lowStock.map(({ product, stock }) => <li key={product.id} className="flex items-center justify-between gap-3 py-3"><div className="flex min-w-0 items-center gap-3">{product.imageUrls[0] ? <img src={product.imageUrls[0]} alt="" className="h-10 w-10 rounded-btn object-cover"/> : <AlertTriangle size={18} className="text-amber-600"/>}<div className="min-w-0"><p className="truncate text-sm font-semibold text-ink">{product.name}</p><p className="text-xs text-muted">{product.sku}</p></div></div><span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-800">{stock} uds.</span></li>)}</ul>}
+          {lowStock.length === 0 ? <p className="text-sm text-muted">No hay productos con stock bajo en el catálogo cargado.</p> : <ul className="divide-y divide-line">{lowStock.map(({ product, stock }) => <li key={product.id} className="flex items-center justify-between gap-3 py-3"><div className="flex min-w-0 items-center gap-3">{product.imageUrls[0] ? <img src={resolveImageUrl(product.imageUrls[0]) || undefined} alt="" className="h-10 w-10 rounded-btn object-cover"/> : <AlertTriangle size={18} className="text-amber-600"/>}<div className="min-w-0"><p className="truncate text-sm font-semibold text-ink">{product.name}</p><p className="text-xs text-muted">{product.sku}</p></div></div><span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-800">{stock} uds.</span></li>)}</ul>}
         </div>
       </section>
 

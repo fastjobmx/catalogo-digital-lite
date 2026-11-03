@@ -1,0 +1,104 @@
+import { Hono } from 'hono'
+import type { Context } from 'hono'
+import type { Env } from '../index'
+import { platformAuth } from '../middleware/auth'
+import { provisionStore, ProvisioningError } from '../services/provisioning'
+import {
+  addStoreService, assignOwner, getStoreDetail, listStores, platformSummary, PlatformError, recentEvents, regenerateOwnerAccess,
+  renameStoreSlug, requestCustomDomain, setStoreAiBudget, setStorePlan, setStoreStatus, storesHealth,
+} from '../services/platform'
+import type { StoreStatus } from '../tenancy/stores'
+
+const app = new Hono<Env>()
+app.use('*', platformAuth)
+
+function actor(c: Context<Env>): string {
+  return `platform:${c.get('adminEmail') || 'superadmin'}`
+}
+
+function fail(c: Context<Env>, error: unknown) {
+  if (error instanceof PlatformError || error instanceof ProvisioningError) {
+    const status = error.code.endsWith('NOT_FOUND') ? 404 : ['SLUG_TAKEN', 'DOMAIN_TAKEN', 'INVALID_TRANSITION', 'TELEGRAM_IN_USE'].includes(error.code) ? 409 : 400
+    return c.json({ error: error.message, code: error.code }, status)
+  }
+  throw error
+}
+
+app.get('/summary', async (c) => c.json(await platformSummary(c.env.DB)))
+app.get('/plans', async (c) => c.json({ items: (await c.env.DB.prepare('SELECT code, name, setup_price AS setupPrice, monthly_price AS monthlyPrice, currency, ai_monthly_budget_micros AS aiBudgetMicros, max_products AS maxProducts, features_json AS features FROM plans WHERE is_active = 1 ORDER BY sort_order').all()).results || [] }))
+app.get('/events', async (c) => c.json({ items: await recentEvents(c.env.DB, { level: c.req.query('level'), limit: Number(c.req.query('limit') || 20) }) }))
+app.get('/health', async (c) => c.json({ items: await storesHealth(c.env.DB) }))
+app.get('/stores', async (c) => c.json({ items: await listStores(c.env.DB, { status: c.req.query('status'), query: c.req.query('q') }) }))
+
+app.get('/stores/:slug', async (c) => {
+  try { return c.json(await getStoreDetail(c.env.DB, c.env, c.req.param('slug'))) } catch (error) { return fail(c, error) }
+})
+
+// POST /api/platform/stores — automated provisioning (idempotent by Idempotency-Key)
+app.post('/stores', async (c) => {
+  const body = await c.req.json().catch(() => null)
+  const requestKey = (c.req.header('Idempotency-Key') || '').trim()
+  if (!body) return c.json({ error: 'Invalid JSON body' }, 400)
+  if (!/^[\w.:-]{8,120}$/.test(requestKey)) return c.json({ error: 'A valid Idempotency-Key header is required' }, 400)
+  try {
+    const result = await provisionStore(c.env.DB, c.env, body, { requestKey, actor: actor(c) })
+    return c.json(result, result.status === 'completed' ? (result.replayed ? 200 : 201) : result.status === 'running' ? 202 : 422)
+  } catch (error) { return fail(c, error) }
+})
+
+app.post('/stores/:slug/status', async (c) => {
+  const body = await c.req.json().catch(() => null) as { status?: StoreStatus; reason?: string } | null
+  if (!body?.status || !['active', 'suspended', 'cancelled', 'draft'].includes(body.status)) return c.json({ error: 'Invalid status' }, 400)
+  try { return c.json(await setStoreStatus(c.env.DB, c.req.param('slug'), body.status, actor(c), body.reason)) } catch (error) { return fail(c, error) }
+})
+
+app.put('/stores/:slug/plan', async (c) => {
+  const body = await c.req.json().catch(() => null) as { planCode?: string } | null
+  if (!body?.planCode) return c.json({ error: 'planCode is required' }, 400)
+  try { return c.json(await setStorePlan(c.env.DB, c.req.param('slug'), body.planCode, actor(c))) } catch (error) { return fail(c, error) }
+})
+
+app.put('/stores/:slug/ai', async (c) => {
+  const body = await c.req.json().catch(() => null) as { budgetUsd?: number; enabled?: boolean; warnPercent?: number } | null
+  if (!body) return c.json({ error: 'Invalid JSON body' }, 400)
+  try { return c.json(await setStoreAiBudget(c.env.DB, c.req.param('slug'), body, actor(c))) } catch (error) { return fail(c, error) }
+})
+
+app.post('/stores/:slug/owner', async (c) => {
+  const body = await c.req.json().catch(() => null) as { email?: string; telegramUserId?: string; name?: string } | null
+  if (!body) return c.json({ error: 'Invalid JSON body' }, 400)
+  try { return c.json(await assignOwner(c.env.DB, c.env, c.req.param('slug'), body, actor(c))) } catch (error) { return fail(c, error) }
+})
+
+app.post('/stores/:slug/access', async (c) => {
+  try { return c.json(await regenerateOwnerAccess(c.env.DB, c.env, c.req.param('slug'), actor(c))) } catch (error) { return fail(c, error) }
+})
+
+app.post('/stores/:slug/services', async (c) => {
+  const body = await c.req.json().catch(() => null) as { serviceCode?: string; billing?: string; price?: number; status?: string; notes?: string } | null
+  const codes = ['instalacion', 'mantenimiento_mensual', 'dominio_propio', 'personalizacion_visual', 'asistente_ia', 'soporte_prioritario', 'otro']
+  if (!body?.serviceCode || !codes.includes(body.serviceCode)) return c.json({ error: 'Invalid serviceCode' }, 400)
+  if (body.billing && !['unico', 'mensual', 'anual'].includes(body.billing)) return c.json({ error: 'Invalid billing' }, 400)
+  if (body.status && !['pendiente', 'activo', 'suspendido', 'cancelado'].includes(body.status)) return c.json({ error: 'Invalid status' }, 400)
+  try { return c.json(await addStoreService(c.env.DB, c.req.param('slug'), { ...body, serviceCode: body.serviceCode }, actor(c)), 201) } catch (error) { return fail(c, error) }
+})
+
+app.put('/stores/:slug/domain', async (c) => {
+  const body = await c.req.json().catch(() => null) as { domain?: string } | null
+  if (!body?.domain) return c.json({ error: 'domain is required' }, 400)
+  try { return c.json(await requestCustomDomain(c.env.DB, c.req.param('slug'), body.domain, actor(c))) } catch (error) { return fail(c, error) }
+})
+
+app.put('/stores/:slug/slug', async (c) => {
+  const body = await c.req.json().catch(() => null) as { slug?: string } | null
+  if (!body?.slug) return c.json({ error: 'slug is required' }, 400)
+  try { return c.json(await renameStoreSlug(c.env.DB, c.req.param('slug'), body.slug.trim().toLowerCase(), actor(c))) } catch (error) { return fail(c, error) }
+})
+
+app.get('/jobs/:id', async (c) => {
+  const job = await c.env.DB.prepare('SELECT id, slug, store_id AS storeId, status, current_step AS currentStep, steps_json AS steps, error_code AS errorCode, attempts, created_at AS createdAt, completed_at AS completedAt FROM provisioning_jobs WHERE id = ?').bind(c.req.param('id')).first<Record<string, unknown>>()
+  if (!job) return c.json({ error: 'Job not found' }, 404)
+  return c.json({ ...job, steps: JSON.parse(String(job.steps || '[]')) })
+})
+
+export default app

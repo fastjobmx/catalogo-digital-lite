@@ -29,7 +29,7 @@ adicionales; por eso se descartaron candidatas con logotipos visibles.
 | `RUTA-20.jpg` | Ruta Canvas Tote | [David Eluwole, Pexels 14967410](https://www.pexels.com/photo/14967410/) | Pexels; uso comercial permitido bajo su licencia. |
 | `TERA-08.jpg` | Tera Trail GTX | [Pexels 35206081](https://www.pexels.com/photo/35206081/); autor no registrado en el manifiesto local | Pexels; uso comercial permitido bajo su licencia. |
 | `TERA-15.jpg` | Tera Alpine Boot | [John Baker, Pexels 32189248](https://www.pexels.com/photo/32189248/) | Pexels; uso comercial permitido bajo su licencia. |
-| `TERA-16.jpg` | Tera Ridge Low y portada por defecto | [Katya Wolf, Pexels 8729056](https://www.pexels.com/photo/8729056/) | Pexels; uso comercial permitido bajo su licencia. |
+| `TERA-16.jpg` | Tera Ridge Low | [Katya Wolf, Pexels 8729056](https://www.pexels.com/photo/8729056/) | Pexels; uso comercial permitido bajo su licencia. |
 | `VANTA-01.jpg` | Vanta Knit Low; foto y descripción demo actualizadas el 2026-11-01 | [Ahimsa - OM, Pexels 19537610](https://www.pexels.com/photo/new-white-running-shoes-19537610/) | Pexels; uso comercial permitido bajo su licencia. Foto optimizada localmente. |
 | `VANTA-18.jpg` | Vanta Crew Socks | [Jan van der Wolf, Pexels 10563910](https://www.pexels.com/photo/10563910/) | Pexels; uso comercial permitido bajo su licencia. |
 | `VOLTA-04.jpg` | Volta Street Mid | Archivo heredado; no se encontró ficha de origen | **Pendiente de verificar** antes de redistribuir la plantilla comercialmente. |
@@ -46,9 +46,11 @@ productos.
 
 | Archivo | Uso | Autor y fuente | Licencia / estado |
 |---|---|---|---|
-| `hero-editorial.jpg` | Portada anterior, conservada pero ya no predeterminada | Archivo heredado; no se encontró ficha de origen | **Pendiente de verificar**; evitar redistribuirla hasta confirmar derechos. |
+| `hero-editorial.jpg` | Portada predeterminada del hero (escritorio) | Archivo heredado; no se encontró ficha de origen | **Pendiente de verificar**; evitar redistribuir hasta confirmar derechos. |
+| `hero-editorial.jpg` (móvil) | No hay `imageUrlMobile` configurada; el hero usa la de escritorio también en móvil. | — | — |
+| `TERA-15.jpg` | Banner editorial predeterminado de la sección "promo" | [John Baker, Pexels 32189248](https://www.pexels.com/photo/32189248/) | Pexels; uso comercial permitido bajo su licencia. |
+| `promo-01.jpg` | Recurso alternativo del banner editorial (ya no usado por defecto) | [Yunus Kılıç, Pexels 27853651](https://www.pexels.com/photo/27853651/) | Pexels; uso comercial permitido bajo su licencia. |
 | `logo.jpg` | Recurso gráfico local de la demo | Archivo heredado; no se encontró ficha de origen | **Pendiente de verificar** antes de redistribuir la plantilla comercialmente. |
-| `promo-01.jpg` | Banner editorial demo | [Yunus Kılıç, Pexels 27853651](https://www.pexels.com/photo/27853651/) | Pexels; uso comercial permitido bajo su licencia. |
 
 La fotografía móvil de portada es opcional y el tema utiliza una imagen local
 validada como fallback. No se añaden dependencias de red para mostrar las fotos.
@@ -68,3 +70,29 @@ reemplazarlas desde las funciones de imagen existentes.
 - Las fichas sin autor o fuente recuperable están señaladas arriba. No se debe
   considerar cerrada la revisión de licencias hasta confirmar o sustituir esos
   archivos heredados.
+
+## Presets aislados de tiendas locales
+
+Las fotos a continuación alimentan solo las nuevas instalaciones `PatitasFelices`
+y `TecnoCellAccesorios`. Se descargaron de la página oficial Pexels y se
+optimizaron localmente (JPEG, lado máximo 1400 px). El registro de archivo,
+autor, URL original, licencia y SHA-256 queda en `database/seed-presets/` y en
+el `manifest.json` de cada instalación generada.
+
+| Archivo | Autor y página de origen | Uso demo |
+|---|---|---|
+| `patitas/pet-bowl.jpg` | [MART PRODUCTION, Pexels 8434633](https://www.pexels.com/photo/bowl-of-dog-food-8434633/) | Snack en tazón; validar producto real. |
+| `patitas/cat-scratcher.jpg` | [Hasan Ölker, Pexels 37197301](https://www.pexels.com/photo/adorable-cat-sitting-by-scratching-post-indoors-37197301/) | Gato y rascador; no representa un modelo concreto. |
+| `patitas/treats.jpg` | [RDNE Stock project, Pexels 7309448](https://www.pexels.com/photo/a-person-holding-dog-food-7309448/) | Referencia de premios para mascotas. |
+| `tecnocell-demo/wireless-earbuds.jpg` | [Atahan Demir, Pexels 3585797](https://www.pexels.com/photo/wireless-earphones-3585797/) | Audífonos inalámbricos genéricos. |
+| `tecnocell-demo/smartwatch.jpg` | [MOISES RIBEIRO, Pexels 11031462](https://www.pexels.com/photo/a-person-wearing-smartwatch-in-close-up-photography-11031462/) | Reloj en uso; no atribuir marca o compatibilidad. |
+| `tecnocell-demo/powerbank.jpg` | [Eleonora Vokueva, Pexels 37475677](https://www.pexels.com/photo/smartphone-charging-with-portable-power-bank-37475677/) | Teléfono cargando desde batería portátil. |
+| `tecnocell-demo/smartphone-mockup.jpg` | [MART PRODUCTION, Pexels 8217298](https://www.pexels.com/photo/close-up-shot-person-using-a-smartphone-8217298/) | Referencia de teléfono; no identifica un producto. |
+
+La licencia de Pexels permite el uso comercial gratuito y la adaptación, sin
+atribución obligatoria. Prohíbe sugerir que una persona o marca que aparezca en
+la foto respalda el producto. Las fotos solo son ilustrativas; precios, stock,
+marcas, compatibilidad, composición y características de los seeds son ficticios
+y deben sustituirse o confirmarse antes de cualquier venta. La antigua carpeta
+`frontend/public/seed-images/tecnocell/` se dejó intacta y no se incluye en el
+preset por falta de trazabilidad documentada.
