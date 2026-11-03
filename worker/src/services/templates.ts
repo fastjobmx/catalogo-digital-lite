@@ -50,11 +50,9 @@ function hex(value: string | undefined): string | null {
   return /^#[0-9A-F]{6}$/.test(normalized) ? normalized : null
 }
 
-export function buildTheme(input: { template: TemplateKey; name: string; businessType: string; description?: string; primaryColor?: string }): Record<string, unknown> {
+export function buildTheme(input: { template: TemplateKey; name: string; businessType: string; description?: string; primaryColor?: string; accentColor?: string }): Record<string, unknown> {
   const base = input.template === 'personalizado' ? 'moderno' : input.template
-  const palette = { ...PALETTES[base] }
-  const custom = hex(input.primaryColor)
-  if (custom) Object.assign(palette, { primary: custom, button: custom })
+  const palette = templatePalette(input.template, input.primaryColor, input.accentColor)
   const profile = businessProfile(input.businessType)
   return {
     style: { ...STYLE[base], palette },
@@ -101,10 +99,14 @@ export function buildTheme(input: { template: TemplateKey; name: string; busines
   }
 }
 
-export function templatePalette(template: TemplateKey, primaryColor?: string): Palette {
+/** Template palette with the brand colors on top: primary drives buttons and
+ * headings, accent the highlights. Either may be omitted. */
+export function templatePalette(template: TemplateKey, primaryColor?: string, accentColor?: string): Palette {
   const base = template === 'personalizado' ? 'moderno' : template
   const palette = { ...PALETTES[base] }
   const custom = hex(primaryColor)
   if (custom) Object.assign(palette, { primary: custom, button: custom })
+  const accent = hex(accentColor)
+  if (accent) palette.accent = accent
   return palette
 }

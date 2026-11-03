@@ -4,6 +4,7 @@ import { currentPeriod } from '../ai/usage'
 import { createAccessToken, ensureUser, normalizeEmail, upsertMembership } from './platformUsers'
 import { isSuperadminEmail } from './auth'
 import { verifyStore, type HealthCheck } from './provisioning'
+import { storeAssetPrefix } from '../lib/assets'
 
 export type StoreListItem = {
   id: number; slug: string; name: string; status: StoreStatus; planCode: string; template: string; businessType: string
@@ -214,6 +215,81 @@ export async function storesHealth(db: D1Database): Promise<Array<{ slug: string
     output.push({ slug: store.slug, name: store.name, status: store.status, checks: await verifyStore(db, store.id), errorsLast24h: Number(errors?.n || 0) })
   }
   return output
+}
+
+/** Stores a validated logo under the store's own prefix and points the
+ * configuration to it. Keeps an existing logo unless `replace` is set, so a
+ * repeated provisioning run does not overwrite what the owner uploaded. */
+export async function setStoreLogo(
+  db: D1Database,
+  bucket: R2Bucket,
+  storeId: number,
+  image: { bytes: Uint8Array; contentType: string; extension: string },
+  actor: string,
+  options: { replace?: boolean } = {},
+): Promise<{ logoUrl: string; changed: boolean }> {
+  const current = await db.prepare('SELECT logo_url FROM store_config WHERE id = ?').bind(storeId).first<{ logo_url: string | null }>()
+  if (!current) throw new PlatformError('STORE_NOT_FOUND', 'La tienda no existe.')
+  if (current.logo_url && !options.replace) return { logoUrl: current.logo_url, changed: false }
+  const key = `${storeAssetPrefix(storeId)}store/logo-${crypto.randomUUID()}.${image.extension}`
+  await bucket.put(key, image.bytes, { httpMetadata: { contentType: image.contentType, cacheControl: 'public, max-age=31536000, immutable' }, customMetadata: { storeId: String(storeId), purpose: 'store-logo' } })
+  const logoUrl = `/api/assets/${key}`
+  await db.prepare(`UPDATE store_config SET logo_url = ?, updated_at = datetime('now') WHERE id = ?`).bind(logoUrl, storeId).run()
+  await platformAudit(db, 'store_logo_set', storeId, { logoUrl }, actor)
+  return { logoUrl, changed: true }
+}
+
+/**
+ * Permanently removes one store and everything that belongs only to it (for
+ * test stores and cancelled clients). Never the primary store, never an active
+ * store, and only with the store's address typed as confirmation. Users who
+ * belonged only to this store are removed too; shared users keep their other
+ * memberships. Runs as a single D1 batch, so it applies completely or not at all.
+ */
+export async function purgeStore(db: D1Database, bucket: R2Bucket | undefined, slugOrId: string, confirm: string, actor: string) {
+  const store = await requireStore(db, slugOrId)
+  if (store.id === PRIMARY_STORE_ID) throw new PlatformError('PRIMARY_STORE', 'La tienda principal no se puede eliminar.')
+  if (store.status === 'active') throw new PlatformError('STORE_ACTIVE', 'Suspende la tienda antes de eliminarla.')
+  if (confirm.trim().toLowerCase() !== store.slug) throw new PlatformError('CONFIRMATION_REQUIRED', `Para eliminarla escribe exactamente su dirección: ${store.slug}.`)
+  const id = store.id
+  const orphanUsers = (await db.prepare(
+    `SELECT user_id AS id FROM store_memberships m WHERE m.store_id = ?
+       AND NOT EXISTS (SELECT 1 FROM store_memberships o WHERE o.user_id = m.user_id AND o.store_id <> ?)`,
+  ).bind(id, id).all<{ id: number }>()).results?.map((row) => row.id) || []
+  const counts = await db.prepare(
+    `SELECT (SELECT COUNT(*) FROM products WHERE store_id = ?1) AS products, (SELECT COUNT(*) FROM categories WHERE store_id = ?1) AS categories,
+            (SELECT COUNT(*) FROM orders WHERE store_id = ?1) AS orders, (SELECT COUNT(*) FROM store_memberships WHERE store_id = ?1) AS members`,
+  ).bind(id).first<Record<string, number>>()
+  const storeOrders = 'SELECT id FROM orders WHERE store_id = ?'
+  const storeVariants = 'SELECT v.id FROM product_variants v JOIN products p ON p.id = v.product_id WHERE p.store_id = ?'
+  const users = orphanUsers.length ? `(${orphanUsers.map(() => '?').join(',')})` : '(NULL)'
+  await db.batch([
+    db.prepare(`DELETE FROM order_inventory_operations WHERE order_id IN (${storeOrders}) OR variant_id IN (${storeVariants})`).bind(id, id),
+    db.prepare(`DELETE FROM order_events WHERE order_id IN (${storeOrders})`).bind(id),
+    db.prepare('DELETE FROM orders WHERE store_id = ?').bind(id),
+    db.prepare('DELETE FROM product_variants WHERE product_id IN (SELECT id FROM products WHERE store_id = ?)').bind(id),
+    db.prepare('DELETE FROM products WHERE store_id = ?').bind(id),
+    db.prepare('DELETE FROM categories WHERE store_id = ?').bind(id),
+    ...['ai_usage_events', 'ai_usage_monthly', 'assistant_messages', 'telegram_operations', 'platform_events', 'audit_log', 'store_domains', 'store_services', 'user_access_tokens', 'provisioning_jobs', 'store_memberships']
+      .map((table) => db.prepare(`DELETE FROM ${table} WHERE store_id = ?`).bind(id)),
+    db.prepare(`DELETE FROM user_access_tokens WHERE user_id IN ${users}`).bind(...orphanUsers),
+    db.prepare(`DELETE FROM platform_users WHERE id IN ${users}`).bind(...orphanUsers),
+    db.prepare('UPDATE telegram_sessions SET active_store_id = NULL, context_json = ? WHERE active_store_id = ?').bind('{}', id),
+    db.prepare('DELETE FROM store_config WHERE id = ?').bind(id),
+    db.prepare('DELETE FROM stores WHERE id = ?').bind(id),
+    db.prepare(`INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source, store_id) VALUES ('store_purged', 'store', ?, ?, ?, 'platform', NULL)`)
+      .bind(String(id), JSON.stringify({ slug: store.slug, name: store.name, ...counts, usersRemoved: orphanUsers.length }), actor),
+  ])
+  let assetsRemoved = 0
+  if (bucket) {
+    let cursor: string | undefined
+    do {
+      const page = await bucket.list({ prefix: storeAssetPrefix(id), limit: 1000, ...(cursor ? { cursor } : {}) })
+      for (const object of page.objects) { await bucket.delete(object.key); assetsRemoved++ }
+      cursor = page.truncated ? page.cursor : undefined
+    } while (cursor)
+  }
+  return { slug: store.slug, name: store.name, ...counts, usersRemoved: orphanUsers.length, assetsRemoved }
 }
 
 export async function renameStoreSlug(db: D1Database, slugOrId: string, newSlug: string, actor: string) {

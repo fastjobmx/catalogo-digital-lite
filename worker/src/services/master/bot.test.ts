@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { callbackUpdate, createHarness, createStoreUser, seedStore, stubTelegram, textUpdate, type Harness } from '../../testing/harness'
-import { detectMasterIntent } from './bot'
+import { createPng } from '../../../test/sqliteD1'
+import { callbackUpdate, createHarness, createStoreUser, photoUpdate, seedStore, stubTelegram, textUpdate, type Harness } from '../../testing/harness'
+import { detectMasterIntent, parseColors, parseOwner } from './bot'
 
 const ADMIN = 9001
 const SECRET = 'master-webhook-secret'
@@ -14,6 +15,12 @@ afterEach(() => vi.unstubAllGlobals())
 const deliver = (update: unknown, secret = SECRET) => h.request('/api/master/webhook', { method: 'POST', body: update, headers: secret ? { 'X-Telegram-Bot-Api-Secret-Token': secret } : {} })
 const say = (text: string) => deliver(textUpdate(ADMIN, text))
 const tap = (data: string) => deliver(callbackUpdate(ADMIN, data))
+/** Telegram stub that also serves an image for getFile downloads (logo uploads). */
+const stubWithImages = (png = createPng(512, 512)) => stubTelegram((url) => {
+  if (url.includes('/getFile')) return new Response(JSON.stringify({ ok: true, result: { file_path: 'photos/logo.png', file_size: png.byteLength } }))
+  if (url.includes('/file/bot')) return new Response(png, { headers: { 'content-length': String(png.byteLength) } })
+  return undefined
+})
 const button = (telegram: ReturnType<typeof stubTelegram>, label: RegExp) => (telegram.lastMarkup()?.inline_keyboard || []).flat().find((item) => label.test(item.text))?.callback_data
 
 describe('master bot access', () => {
@@ -68,60 +75,99 @@ describe('master bot access', () => {
 })
 
 describe('/crear_tienda guided flow', () => {
-  it('creates, verifies and delivers a store from a short conversation, without duplicates on a double tap', async () => {
-    const telegram = stubTelegram()
+  it('asks the requested questions in order, shows a summary and delivers the store without internal data', async () => {
+    const telegram = stubWithImages()
     await say('/crear_tienda')
-    expect(telegram.messages().at(-1)).toContain('¿Cómo se llamará?')
+    expect(telegram.messages().at(-1)).toContain('¿Cómo se llama el negocio?')
     await say('Moda Urbana')
-    expect(telegram.messages().at(-1)).toContain('¿Qué tipo de productos venderá?')
+    expect(telegram.messages().at(-1)).toContain('¿Qué tipo de comercio es?')
     await say('Ropa y accesorios')
-    expect(telegram.messages().at(-1)).toContain('estilo visual')
-    expect((telegram.lastMarkup()?.inline_keyboard || []).flat().map((item) => item.text)).toEqual(expect.arrayContaining(['⚪ Minimalista', '🔷 Moderno', '✨ Premium', '🎨 Personalizado']))
-    await tap('mt:wz:style:personalizado')
-    expect(telegram.messages().at(-1)).toContain('color principal')
-    await say('azul oscuro')
+    expect(telegram.messages().at(-1)).toContain('¿Quién es el propietario?')
+    await say('Laura Ríos, duena@modaurbana.test')
+    expect(telegram.messages().at(-1)).toContain('WhatsApp comercial')
     await say('+57 300 123 4567')
-    await say('duena@modaurbana.test')
+    expect(telegram.messages().at(-1)).toContain('plantilla visual')
+    expect((telegram.lastMarkup()?.inline_keyboard || []).flat().map((item) => item.text)).toEqual(expect.arrayContaining(['⚪ Minimalista', '🔷 Moderno', '✨ Premium', '🎨 Personalizado']))
+    await tap('mt:wz:style:premium')
+    expect(telegram.messages().at(-1)).toContain('colores principales')
+    await say('azul oscuro y dorado')
+    expect(telegram.messages().at(-1)).toContain('logotipo')
+    await say('no tengo')
+    expect(telegram.messages().at(-1)).toContain('Envíame el logotipo como imagen')
+    await deliver(photoUpdate(ADMIN, 'logo-file-id'))
     expect(telegram.messages().at(-1)).toContain('plan')
     await tap('mt:wz:plan:profesional')
     const summary = telegram.messages().at(-1)!
     expect(summary).toContain('Resumen de la nueva tienda')
-    expect(summary).toContain('moda-urbana')
-    expect(summary).toContain('#153D70')
-    expect((telegram.lastMarkup()?.inline_keyboard || []).flat().map((item) => item.text)).toEqual(['✅ Crear tienda', '✏️ Modificar datos', '✖ Cancelar'])
+    expect(summary).toContain('https://tiendas.test/t/moda-urbana')
+    expect(summary).toContain('Laura Ríos · duena@modaurbana.test')
+    expect(summary).toContain('Premium · colores: #153D70 y #B08D57')
+    expect(summary).toContain('Logotipo: ✅ recibido')
+    expect(summary).toContain('Plan: Profesional')
+    expect((telegram.lastMarkup()?.inline_keyboard || []).flat().map((item) => item.text)).toEqual(['✅ Crear tienda', '✏️ Modificar información', '✖ Cancelar'])
     expect(h.db.query("SELECT COUNT(*) AS n FROM stores WHERE slug = 'moda-urbana'")).toEqual([{ n: 0 }])
 
     await tap('mt:wz:create')
     const delivered = telegram.messages().at(-1)!
-    expect(delivered).toContain('Tienda creada y verificada')
-    expect(delivered).toContain('https://tiendas.test/t/moda-urbana')
-    expect(delivered).toContain('/admin/activar?token=')
+    expect(delivered).toContain('¡Tienda creada!')
+    expect(delivered).toContain('Moda Urbana')
+    expect(delivered).toContain('Dirección pública: https://tiendas.test/t/moda-urbana')
+    expect(delivered).toContain('Estado: 📝 Borrador')
+    expect(delivered).toContain('https://tiendas.test/t/moda-urbana/admin/activar?token=')
     expect(delivered).toContain('https://t.me/TiendasAsistenteBot?start=link_')
-    expect(delivered).toContain('✅ Verificar funcionamiento')
+    expect(delivered).toContain('Cómo administrarla')
+    expect(delivered).toContain('Logotipo aplicado')
     const store = h.db.query<any>("SELECT id, status, template FROM stores WHERE slug = 'moda-urbana'")[0]
-    expect(store).toMatchObject({ status: 'draft', template: 'personalizado' })
-    expect(h.db.query('SELECT primary_color FROM store_config WHERE id = ?', store.id)).toEqual([{ primary_color: '#153D70' }])
+    // No infrastructure details: no internal ids, job ids or provider names.
+    for (const internal of [`#${store.id}`, 'job', 'D1', 'R2', 'Worker', 'provisioning']) expect(delivered).not.toContain(internal)
+    expect(store).toMatchObject({ status: 'draft', template: 'premium' })
+    const config = h.db.query<any>('SELECT primary_color, accent_color, logo_url FROM store_config WHERE id = ?', store.id)[0]
+    expect(config).toMatchObject({ primary_color: '#153D70', accent_color: '#B08D57' })
+    expect(config.logo_url).toMatch(new RegExp(`^/api/assets/stores/${store.id}/store/logo-[0-9a-f-]{36}\\.png$`))
+    expect(await h.assets.get(config.logo_url.replace('/api/assets/', ''))).not.toBeNull()
+    expect(h.db.query("SELECT display_name, email FROM platform_users WHERE email = 'duena@modaurbana.test'")).toEqual([{ display_name: 'Laura Ríos', email: 'duena@modaurbana.test' }])
+    expect(h.db.query('SELECT action FROM audit_log WHERE store_id = ? ORDER BY id', store.id).map((row: any) => row.action)).toEqual(['store_provisioned', 'store_logo_set'])
 
     // A delayed second tap on the same summary does not create a second store.
     await h.db.prepare(`INSERT INTO platform_conversations (chat_id, flow, step, data_json, expires_at) VALUES (?, 'create_store', 'summary', ?, unixepoch() + 600)`)
-      .bind(String(ADMIN), JSON.stringify({ name: 'Moda Urbana', slug: 'moda-urbana', businessType: 'Ropa y accesorios', template: 'personalizado', primaryColor: '#153D70', whatsapp: '+573001234567', ownerEmail: 'duena@modaurbana.test', planCode: 'profesional', editing: true })).run()
+      .bind(String(ADMIN), JSON.stringify({ name: 'Moda Urbana', slug: 'moda-urbana', businessType: 'Ropa y accesorios', ownerName: 'Laura Ríos', ownerEmail: 'duena@modaurbana.test', whatsapp: '+573001234567', template: 'premium', primaryColor: '#153D70', accentColor: '#B08D57', logoFileId: 'logo-file-id', planCode: 'profesional', editing: true })).run()
     await tap('mt:wz:create')
     expect(telegram.messages().at(-1)).toContain('no se duplicó')
+    expect(telegram.messages().at(-1)).not.toContain('activar?token=')
     expect(h.db.query("SELECT COUNT(*) AS n FROM stores WHERE slug LIKE 'moda-urbana%'")).toEqual([{ n: 1 }])
+    expect(h.db.query("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'store_logo_set'")).toEqual([{ n: 1 }])
   })
 
-  it('lets the operator edit a field from the summary and cancel at any time', async () => {
+  it('rejects an unusable logo and keeps asking, without creating anything', async () => {
+    const telegram = stubWithImages(createPng(64, 64))
+    await h.db.prepare(`INSERT INTO platform_conversations (chat_id, flow, step, data_json, expires_at) VALUES (?, 'create_store', 'logo', '{"name":"Velas Luz","slug":"velas-luz"}', unixepoch() + 600)`).bind(String(ADMIN)).run()
+    await deliver(photoUpdate(ADMIN, 'tiny-logo'))
+    expect(telegram.messages().at(-1)).toContain('No pude usar esa imagen')
+    expect(h.db.query<any>('SELECT step FROM platform_conversations')[0].step).toBe('logo')
+    expect(h.db.query("SELECT COUNT(*) AS n FROM stores WHERE slug = 'velas-luz'")).toEqual([{ n: 0 }])
+  })
+
+  it('lets the operator skip optional steps, edit a field from the summary and cancel at any time', async () => {
     const telegram = stubTelegram()
     await say('crea una tienda llamada Pixel Accesorios')
     expect(telegram.messages().at(-1)).toContain('Pixel Accesorios')
     await say('Accesorios para celulares')
-    await tap('mt:wz:style:moderno')
-    await tap('mt:wz:skipwa')
     await say('8811223344')
+    await tap('mt:wz:skipwa')
+    await tap('mt:wz:style:moderno')
+    await tap('mt:wz:skipcolor')
+    await tap('mt:wz:skiplogo')
     await tap('mt:wz:plan:basico')
+    expect(telegram.messages().at(-1)).toContain('colores: los de la plantilla')
+    expect(telegram.messages().at(-1)).toContain('Telegram 8811223344')
+    await tap('mt:wz:edit')
+    expect((telegram.lastMarkup()?.inline_keyboard || []).flat().map((item) => item.text)).toEqual(expect.arrayContaining(['Colores', 'Logotipo', 'Tipo de comercio']))
     await tap('mt:wz:field:slug')
     await say('pixel')
-    expect(telegram.messages().at(-1)).toContain('<code>pixel</code>')
+    expect(telegram.messages().at(-1)).toContain('https://tiendas.test/t/pixel')
+    await tap('mt:wz:field:color')
+    await say('#0F766E')
+    expect(telegram.messages().at(-1)).toContain('colores: #0F766E')
     await tap('mt:wz:cancel')
     expect(telegram.messages().at(-1)).toContain('No se creó ninguna tienda')
     expect(h.db.query("SELECT COUNT(*) AS n FROM stores WHERE slug = 'pixel'")).toEqual([{ n: 0 }])
@@ -131,7 +177,7 @@ describe('/crear_tienda guided flow', () => {
     const telegram = stubTelegram()
     const before = h.db.query<{ n: number }>('SELECT COUNT(*) AS n FROM stores')[0]!.n
     await tap('mt:create')
-    expect(telegram.messages().at(-1)).toContain('¿Cómo se llamará?')
+    expect(telegram.messages().at(-1)).toContain('¿Cómo se llama el negocio?')
     await say('Tienda de Prueba')
     await say('Velas artesanales')
     await say('/cancelar')
@@ -143,6 +189,18 @@ describe('/crear_tienda guided flow', () => {
     // After cancelling, plain text is no longer taken as a wizard answer.
     await say('Ropa')
     expect(h.db.query('SELECT COUNT(*) AS n FROM platform_conversations')).toEqual([{ n: 0 }])
+  })
+})
+
+describe('wizard answer parsing', () => {
+  it('reads one or two brand colors and the owner name with contact', () => {
+    expect(parseColors('azul oscuro y dorado')).toEqual(['#153D70', '#B08D57'])
+    expect(parseColors('#153d70, 0f766e')).toEqual(['#153D70', '#0F766E'])
+    expect(parseColors('verde')).toEqual(['#237A57'])
+    expect(parseColors('década')).toEqual([])
+    expect(parseOwner('María Gómez maria@correo.com')).toEqual({ name: 'María Gómez', email: 'maria@correo.com' })
+    expect(parseOwner('correo: Pedro@Tienda.co, telegram 123456789')).toEqual({ email: 'pedro@tienda.co', telegramId: '123456789' })
+    expect(parseOwner('Ana')).toBeNull()
   })
 })
 
@@ -251,5 +309,19 @@ describe('master natural language', () => {
     expect(detectMasterIntent('cambia el plan de moda-urbana a premium')).toEqual({ action: 'set_plan', store: 'moda-urbana', plan: 'premium' })
     expect(detectMasterIntent('muéstrame las tiendas activas')).toEqual({ action: 'list_stores', status: 'activas' })
     expect(detectMasterIntent('¿cuántas tiendas tengo?')).toEqual({ action: 'summary' })
+  })
+})
+
+describe('owner access delivery', () => {
+  it('names the shared assistant with a one-tap link even when TELEGRAM_BOT_USERNAME is not configured', async () => {
+    h = createHarness({ MASTER_BOT_TOKEN: 'master-token', MASTER_WEBHOOK_SECRET: SECRET, MASTER_ADMIN_TELEGRAM_IDS: String(ADMIN), TELEGRAM_BOT_TOKEN: 'assistant-token' })
+    const telegram = stubTelegram((url) => url.includes('/botassistant-token/getMe') ? new Response(JSON.stringify({ ok: true, result: { id: 1, is_bot: true, username: 'AsistenteTiendasBot' } })) : undefined)
+    const storeId = await seedStore(h.db, { slug: 'moda-urbana', name: 'Moda Urbana' })
+    await createStoreUser(h.db, { email: 'duena@modaurbana.test', storeId, role: 'owner', status: 'invited' })
+    await say('/acceso moda-urbana')
+    await tap(button(telegram, /Confirmar/)!)
+    const text = telegram.messages().at(-1)!
+    expect(text).toContain('https://t.me/AsistenteTiendasBot?start=link_')
+    expect(text).toContain('/t/moda-urbana/admin/activar?token=')
   })
 })

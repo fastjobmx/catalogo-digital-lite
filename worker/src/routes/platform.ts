@@ -4,7 +4,7 @@ import type { Env } from '../index'
 import { platformAuth } from '../middleware/auth'
 import { provisionStore, ProvisioningError } from '../services/provisioning'
 import {
-  addStoreService, assignOwner, getStoreDetail, listStores, platformSummary, PlatformError, recentEvents, regenerateOwnerAccess,
+  addStoreService, assignOwner, getStoreDetail, listStores, platformSummary, PlatformError, purgeStore, recentEvents, regenerateOwnerAccess,
   renameStoreSlug, requestCustomDomain, setStoreAiBudget, setStorePlan, setStoreStatus, storesHealth,
 } from '../services/platform'
 import type { StoreStatus } from '../tenancy/stores'
@@ -18,7 +18,7 @@ function actor(c: Context<Env>): string {
 
 function fail(c: Context<Env>, error: unknown) {
   if (error instanceof PlatformError || error instanceof ProvisioningError) {
-    const status = error.code.endsWith('NOT_FOUND') ? 404 : ['SLUG_TAKEN', 'DOMAIN_TAKEN', 'INVALID_TRANSITION', 'TELEGRAM_IN_USE'].includes(error.code) ? 409 : 400
+    const status = error.code.endsWith('NOT_FOUND') ? 404 : ['SLUG_TAKEN', 'DOMAIN_TAKEN', 'INVALID_TRANSITION', 'TELEGRAM_IN_USE', 'STORE_ACTIVE'].includes(error.code) ? 409 : 400
     return c.json({ error: error.message, code: error.code }, status)
   }
   throw error
@@ -93,6 +93,13 @@ app.put('/stores/:slug/slug', async (c) => {
   const body = await c.req.json().catch(() => null) as { slug?: string } | null
   if (!body?.slug) return c.json({ error: 'slug is required' }, 400)
   try { return c.json(await renameStoreSlug(c.env.DB, c.req.param('slug'), body.slug.trim().toLowerCase(), actor(c))) } catch (error) { return fail(c, error) }
+})
+
+// DELETE /api/platform/stores/:slug — permanent removal of a non-active,
+// non-primary store (test stores, cancelled clients). Body: { "confirm": "<slug>" }.
+app.delete('/stores/:slug', async (c) => {
+  const body = await c.req.json().catch(() => null) as { confirm?: string } | null
+  try { return c.json(await purgeStore(c.env.DB, c.env.ASSETS, c.req.param('slug'), String(body?.confirm || ''), actor(c))) } catch (error) { return fail(c, error) }
 })
 
 app.get('/jobs/:id', async (c) => {

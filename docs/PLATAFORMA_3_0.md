@@ -67,7 +67,7 @@ Un bot compartido; cada usuario de Telegram se asocia a sus tiendas (selector si
 
 ## 6. Pruebas
 
-Worker 177/177 (20 archivos) con SQLite real sobre todas las migraciones (`worker/test/sqliteD1.js`): aislamiento entre tiendas (11 pruebas negativas), plataforma y aprovisionamiento (10), asistente (23), bot maestro (14) y su mantenimiento (9), negocio (14), pedidos con disparadores reales (10), webhook (7). Frontend 58/58 y build OK. Detalle de comandos en `docs/PRUEBAS.md`.
+Worker 181/181 (21 archivos) con SQLite real sobre todas las migraciones (`worker/test/sqliteD1.js`): aislamiento entre tiendas (11 pruebas negativas), plataforma y aprovisionamiento (10), asistente (23), bot maestro (17), entrega de extremo a extremo (1) y mantenimiento (9), negocio (14), pedidos con disparadores reales (10), webhook (7). Frontend 58/58 y build OK. Detalle de comandos en `docs/PRUEBAS.md`.
 
 ## 7. Pendiente / planificado
 

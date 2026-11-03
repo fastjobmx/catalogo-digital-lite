@@ -11,6 +11,7 @@ export const provisionInputSchema = z.object({
   businessType: z.string().trim().min(2).max(120),
   template: z.enum(TEMPLATE_KEYS).default('moderno'),
   primaryColor: z.string().trim().regex(/^#?[0-9a-fA-F]{6}$/).optional(),
+  accentColor: z.string().trim().regex(/^#?[0-9a-fA-F]{6}$/).optional(),
   description: z.string().trim().max(300).optional(),
   whatsapp: z.string().trim().max(20).optional().refine((value) => !value || /^\+[1-9]\d{7,14}$/.test(value.replace(/[\s().-]/g, '')), 'WhatsApp debe incluir +código de país'),
   ownerName: z.string().trim().max(120).optional(),
@@ -149,8 +150,8 @@ export async function provisionStore(
     await mark('store', 'ok', `#${storeId}`)
 
     // 3–4. Independent configuration with the selected template.
-    const palette = templatePalette(input.template as TemplateKey, input.primaryColor)
-    const theme = buildTheme({ template: input.template as TemplateKey, name: input.name, businessType: input.businessType, description: input.description, primaryColor: input.primaryColor })
+    const palette = templatePalette(input.template as TemplateKey, input.primaryColor, input.accentColor)
+    const theme = buildTheme({ template: input.template as TemplateKey, name: input.name, businessType: input.businessType, description: input.description, primaryColor: input.primaryColor, accentColor: input.accentColor })
     const whatsapp = input.whatsapp ? input.whatsapp.replace(/[\s().-]/g, '') : ''
     await db.prepare(
       `INSERT OR IGNORE INTO store_config (id, name, description, business_type, primary_color, secondary_color, accent_color, button_color,

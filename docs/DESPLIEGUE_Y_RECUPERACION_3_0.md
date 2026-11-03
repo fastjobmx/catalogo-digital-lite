@@ -64,6 +64,13 @@ Secretos `MASTER_BOT_TOKEN`, `MASTER_WEBHOOK_SECRET` y `MASTER_ADMIN_TELEGRAM_ID
 - Webhook del bot maestro registrado (autorizado, 2026-11-03) con `node scripts/master-maintenance.mjs webhook`: `https://catalogo-lite-api.catalogo-lite-worker.workers.dev/api/master/webhook`, `message` y `callback_query`. Telegram entregó las actualizaciones en cola: 3 procesadas desde 1 chat de administrador, 0 errores del bot maestro, 0 pendientes y sin errores de entrega; 1 tienda (no se creó ninguna). Webhook de `@SneakerHubAdmin_bot` sin cambios y sin pendientes.
 - Para revertir solo este cambio: `npx wrangler rollback f9928a44-557f-4a81-a3b0-6271eb82460f --config wrangler.production.toml`. **No** revertir a versiones anteriores a `f9928a44` o se perderán los secretos maestros.
 
+### Creación automática de tiendas — 2026-11-03
+
+Asistente de `/crear_tienda` con el orden pedido, colores para todas las plantillas, logotipo opcional, entrega sin datos internos y enlace al asistente IA. Además, eliminación protegida de tiendas de prueba (`DELETE /api/platform/stores/<dirección>`). Worker 181/181.
+
+- Staging: `c62112c4` → `374ef15b` (prueba integral) → `8a7afb51-665a-4eaf-a3b3-4fe14d9f3a1e` (smoke 14/14). Tienda de prueba `prueba-entrega-ia` creada, verificada, activada y luego eliminada sin restos; tienda principal de staging con la misma huella antes y después. Detalle en `docs/ENTREGA_DE_TIENDAS.md` §6.
+- Producción (autorizado): `2022415f` → `88c33008-53b2-4b2e-bf69-2837850a5ee8`. Smoke 14/14; los 10 secretos se conservan; `DELETE /api/platform/stores` sin sesión → 401. Bot maestro y asistente con su webhook, 0 pendientes y sin errores nuevos; 1 tienda; 0 errores en la última hora. No se creó ninguna tienda. Para revertir solo este cambio: `npx wrangler rollback 2022415f-d2ae-470d-83cd-796d51e248f2 --config wrangler.production.toml`.
+
 Reversión de producción si fuera necesaria (mientras solo exista la tienda 1):
 
 ```powershell

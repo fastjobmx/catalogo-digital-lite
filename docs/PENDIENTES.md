@@ -11,7 +11,11 @@ Requieren tu autorización o intervención (no se ejecutaron):
 - [x] Bot maestro creado en BotFather y secretos `MASTER_*` cargados en `catalogo-lite-api` (2026-11-03, por el propietario).
 - [x] Menú y verificación del bot maestro en producción (`2022415f`, 2026-11-03); identidad comprobada: `@CatalogoDigitalMaestro_bot`, distinto del asistente.
 - [x] Webhook del bot maestro registrado (2026-11-03); entrega sin errores y mensajes del administrador procesados.
-- [ ] Prueba manual en Telegram del bot maestro: menú de 6 botones, `/crear_tienda` y cancelar; otra cuenta no debe recibir respuesta.
+- [x] Prueba manual en Telegram del bot maestro (menú, `/crear_tienda`, cancelar, rechazo de otra cuenta), confirmada por el propietario.
+- [x] Creación automática de tiendas completa y verificada en staging (2026-11-03, `8a7afb51`); ver `docs/ENTREGA_DE_TIENDAS.md`.
+- [x] Creación automática de tiendas desplegada en producción (`88c33008`, 2026-11-03).
+- [ ] Crear la primera tienda real de un cliente desde `@CatalogoDigitalMaestro_bot` (primera conversación real del asistente de creación).
+- [ ] Asistente IA compartido: decidir si los clientes usarán `@SneakerHubAdmin_bot` o un bot de nombre neutro (BotFather + cambio de webhook autorizado). Los vínculos se conservan porque se basan en el ID de Telegram, no en el bot.
 - [ ] Decidir el bot del **asistente compartido** (seguir con `@SneakerHubAdmin_bot` o un bot de nombre neutro) y definir `TELEGRAM_BOT_USERNAME`. Cambiar de bot implica un cambio de webhook autorizado aparte.
 - [x] Frontend 3.0 publicado en Netlify (commit `ebc2ccb`, bundle `index-BYR7Loqy.js`) el 2026-11-03.
 - [ ] Probar el asistente nuevo en producción escribiendo a `@SneakerHubAdmin_bot` (el dueño vinculado sigue siendo el propietario de la tienda 1).

@@ -41,7 +41,7 @@ Solo responde a los IDs de `MASTER_ADMIN_TELEGRAM_IDS`, en chat privado. `/start
 
 | Comando | Qué hace |
 |---|---|
-| `/crear_tienda` | Asistente guiado: nombre, productos, estilo (Minimalista, Moderno, Premium, Personalizado), color, WhatsApp, propietario, plan → resumen → **Crear tienda**. Entrega URL, enlace de activación y código de Telegram del propietario. |
+| `/crear_tienda` | Asistente guiado: nombre del negocio, tipo de comercio, propietario (nombre y correo o Telegram), WhatsApp, plantilla (Minimalista, Moderno, Premium, Personalizado), colores (uno o dos), logotipo opcional y plan → resumen con **Crear tienda · Modificar información · Cancelar**. Entrega nombre, URL pública, estado, acceso del propietario (activación del panel y enlace al asistente IA) e instrucciones. Ver `docs/ENTREGA_DE_TIENDAS.md`. |
 | `/tiendas [activas\|borrador\|suspendidas]` | Listado con estado, catálogo, pedidos y uso de IA. |
 | `/tienda <dirección>` | Ficha, salud técnica y acciones. |
 | `/activar <dirección>` · `/suspender <dirección> [motivo]` | Publicar o pausar (con confirmación). |

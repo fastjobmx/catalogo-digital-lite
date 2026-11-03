@@ -9,13 +9,14 @@ import { answerCallback, sendTelegramMessage, type TelegramUpdate } from '../ass
 import { escapeHtml } from '../assistant/tools'
 import { callGeminiJson, geminiFailureCode, geminiModel, UNTRUSTED_CONTENT_RULE } from '../../ai/geminiClient'
 import { formatUsd, geminiPrices } from '../../ai/usage'
-import { getStoreBySlug, isValidSlug, PRIMARY_STORE_ID, slugify } from '../../tenancy/stores'
+import { getStoreBySlug, isValidSlug, PRIMARY_STORE_ID, publicStoreUrl, slugify } from '../../tenancy/stores'
 import { parseAdminIds } from './maintenance'
 import { provisionStore, suggestSlug, type ProvisionResult } from '../provisioning'
 import { TEMPLATE_KEYS, TEMPLATE_LABELS, type TemplateKey } from '../templates'
+import { downloadTelegramImage } from '../telegramProductImages'
 import {
   assignOwner, getStoreDetail, listStores, platformSummary, PlatformError, recentEvents, regenerateOwnerAccess,
-  requestCustomDomain, setStoreAiBudget, setStorePlan, setStoreStatus, storesHealth,
+  requestCustomDomain, setStoreAiBudget, setStoreLogo, setStorePlan, setStoreStatus, storesHealth,
 } from '../platform'
 
 type Keyboard = { inline_keyboard: Array<Array<{ text: string; callback_data?: string; url?: string }>> }
@@ -23,10 +24,10 @@ type Keyboard = { inline_keyboard: Array<Array<{ text: string; callback_data?: s
 type MasterContext = { db: D1Database; env: Env['Bindings']; botToken: string; chatId: number; actor: string; updateId: number }
 
 type WizardData = {
-  name?: string; slug?: string; businessType?: string; template?: TemplateKey; primaryColor?: string
-  whatsapp?: string | null; ownerEmail?: string; ownerTelegramId?: string; planCode?: string; editing?: boolean
+  name?: string; slug?: string; businessType?: string; template?: TemplateKey; primaryColor?: string; accentColor?: string
+  whatsapp?: string | null; ownerName?: string; ownerEmail?: string; ownerTelegramId?: string; logoFileId?: string; planCode?: string; editing?: boolean
 }
-type WizardStep = 'name' | 'business' | 'style' | 'color' | 'whatsapp' | 'owner' | 'plan' | 'summary' | 'slug'
+type WizardStep = 'name' | 'business' | 'owner' | 'whatsapp' | 'style' | 'color' | 'logo' | 'plan' | 'summary' | 'slug'
 
 const NAMED_COLORS: Record<string, string> = {
   'azul oscuro': '#153D70', 'azul marino': '#1E3A5F', azul: '#2563EB', negro: '#111111', blanco: '#FFFFFF', rojo: '#C62828',
@@ -94,6 +95,13 @@ export async function processMasterUpdate(update: TelegramUpdate, env: Env['Bind
       return
     }
     const text = (update.message?.text || '').trim()
+    const imageFileId = update.message?.photo?.at(-1)?.file_id || (/^image\//.test(update.message?.document?.mime_type || '') ? update.message?.document?.file_id : undefined)
+    if (imageFileId) {
+      const wizard = await readWizard(ctx)
+      if (wizard?.step === 'logo') await receiveLogo(ctx, wizard.data, imageFileId)
+      else await say(ctx, 'Recibí una imagen. Para usarla como logotipo de una tienda nueva, envíala cuando el asistente de /crear_tienda la pida.', menuKeyboard())
+      return
+    }
     if (!text) { await say(ctx, 'Escríbeme un comando o usa el menú.', menuKeyboard()); return }
     if (text.startsWith('/')) { await handleCommand(ctx, text); return }
     const wizard = await readWizard(ctx)
@@ -390,12 +398,12 @@ async function confirmOperation(ctx: MasterContext, operationId: string): Promis
       }
       case 'assign_owner': {
         const result = await assignOwner(ctx.db, ctx.env, params.slug, { email: params.email, telegramUserId: params.telegramUserId }, ctx.actor)
-        message = `👤 Propietario asignado a <b>${escapeHtml(result.store.name)}</b>.${accessText(result)}`
+        message = `👤 Propietario asignado a <b>${escapeHtml(result.store.name)}</b>.${await ownerAccessText(ctx, result)}`
         break
       }
       case 'regenerate_access': {
         const result = await regenerateOwnerAccess(ctx.db, ctx.env, params.slug, ctx.actor)
-        message = `🔑 Nuevos accesos para <b>${escapeHtml(result.store.name)}</b>.${accessText(result)}`
+        message = `🔑 Nuevos accesos para <b>${escapeHtml(result.store.name)}</b>.${await ownerAccessText(ctx, result)}`
         break
       }
       case 'set_domain': {
@@ -414,11 +422,18 @@ async function confirmOperation(ctx: MasterContext, operationId: string): Promis
   }
 }
 
-function accessText(access: { activationUrl: string | null; telegramLinkCode: string | null; telegramDeepLink: string | null }): string {
+/** Access text naming the shared assistant, with a one-tap link when its username is known. */
+async function ownerAccessText(ctx: MasterContext, access: { activationUrl: string | null; telegramLinkCode: string | null; telegramDeepLink: string | null }): Promise<string> {
+  const username = await assistantUsername(ctx.env)
+  const deepLink = access.telegramDeepLink || (access.telegramLinkCode && username ? `https://t.me/${username}?start=link_${access.telegramLinkCode.replaceAll('-', '')}` : null)
+  return accessText({ ...access, telegramDeepLink: deepLink }, username)
+}
+
+function accessText(access: { activationUrl: string | null; telegramLinkCode: string | null; telegramDeepLink: string | null }, assistant?: string | null): string {
   const lines: string[] = []
   if (access.activationUrl) lines.push(`🔐 Activación del panel (un solo uso, 72 h):\n${escapeHtml(access.activationUrl)}`)
-  if (access.telegramDeepLink) lines.push(`🤖 Vincular Telegram (un toque, 72 h):\n${escapeHtml(access.telegramDeepLink)}`)
-  else if (access.telegramLinkCode) lines.push(`🤖 Código de Telegram (72 h): <code>/link ${escapeHtml(access.telegramLinkCode)}</code>\nEl propietario debe enviarlo al asistente de tiendas.`)
+  if (access.telegramDeepLink) lines.push(`🤖 Asistente IA en Telegram — vincular con un toque (72 h):\n${escapeHtml(access.telegramDeepLink)}`)
+  else if (access.telegramLinkCode) lines.push(`🤖 Código para el asistente IA (72 h): <code>/link ${escapeHtml(access.telegramLinkCode)}</code>\nEl propietario debe enviarlo al asistente de tiendas${assistant ? ` @${escapeHtml(assistant)}` : ''}.`)
   return lines.length ? `\n\n${lines.join('\n\n')}\n\n<i>Comparte estos accesos solo con el propietario. No se guardan en texto plano.</i>` : ''
 }
 
@@ -442,11 +457,11 @@ async function saveWizard(ctx: MasterContext, step: WizardStep, data: WizardData
 async function startWizard(ctx: MasterContext, data: WizardData): Promise<void> {
   if (data.name) {
     await saveWizard(ctx, 'business', { ...data, slug: await suggestSlug(ctx.db, data.name) })
-    await say(ctx, `¡Vamos a crear <b>${escapeHtml(data.name)}</b>! 🎉\n\n¿Qué tipo de productos venderá?`, cancelKeyboard())
+    await say(ctx, `¡Vamos a crear <b>${escapeHtml(data.name)}</b>! 🎉\n\n¿Qué tipo de comercio es? Por ejemplo: ropa, calzado, tecnología, mascotas, belleza…`, cancelKeyboard())
     return
   }
   await saveWizard(ctx, 'name', {})
-  await say(ctx, '¡Vamos a crear una tienda nueva! 🎉\n\n¿Cómo se llamará?', cancelKeyboard())
+  await say(ctx, '¡Vamos a crear una tienda nueva! 🎉 Te haré unas preguntas cortas y al final verás un resumen antes de crear nada.\n\n¿Cómo se llama el negocio?', cancelKeyboard())
 }
 
 function cancelKeyboard(): Keyboard {
@@ -456,21 +471,32 @@ function cancelKeyboard(): Keyboard {
 async function promptStep(ctx: MasterContext, step: WizardStep, data: WizardData): Promise<void> {
   await saveWizard(ctx, step, data)
   switch (step) {
-    case 'name': await say(ctx, '¿Cómo se llamará la tienda?', cancelKeyboard()); return
+    case 'name': await say(ctx, '¿Cómo se llama el negocio?', cancelKeyboard()); return
     case 'slug': await say(ctx, `Escribe la dirección web (solo minúsculas, números y guiones). Actual: <code>${escapeHtml(data.slug || '')}</code>`, cancelKeyboard()); return
-    case 'business': await say(ctx, 'Perfecto. ¿Qué tipo de productos venderá?', cancelKeyboard()); return
+    case 'business': await say(ctx, '¿Qué tipo de comercio es? Por ejemplo: ropa, calzado, tecnología, mascotas, belleza…', cancelKeyboard()); return
+    case 'owner':
+      await say(ctx, '¿Quién es el propietario? Escribe su <b>nombre</b> y su <b>correo</b> (o su ID numérico de Telegram).\nEjemplo: <code>María Gómez maria@correo.com</code>\nRecibirá accesos de un solo uso; nunca enviamos contraseñas.', cancelKeyboard())
+      return
+    case 'whatsapp':
+      await say(ctx, '¿Cuál es el WhatsApp comercial para recibir pedidos? Escríbelo con el código de país, por ejemplo <code>+573001234567</code>.', { inline_keyboard: [[{ text: 'Lo configura el propietario', callback_data: 'mt:wz:skipwa' }], [{ text: '✖ Cancelar', callback_data: 'mt:wz:cancel' }]] })
+      return
     case 'style':
-      await say(ctx, '¿Qué estilo visual prefieres?', { inline_keyboard: [
+      await say(ctx, '¿Qué plantilla visual prefieres?', { inline_keyboard: [
         [{ text: '⚪ Minimalista', callback_data: 'mt:wz:style:minimalista' }, { text: '🔷 Moderno', callback_data: 'mt:wz:style:moderno' }],
         [{ text: '✨ Premium', callback_data: 'mt:wz:style:premium' }, { text: '🎨 Personalizado', callback_data: 'mt:wz:style:personalizado' }],
         [{ text: '✖ Cancelar', callback_data: 'mt:wz:cancel' }],
       ] })
       return
-    case 'color': await say(ctx, 'Escribe el color principal de la marca: un nombre (ej. “azul oscuro”) o un código como <code>#153D70</code>.', cancelKeyboard()); return
-    case 'whatsapp':
-      await say(ctx, '¿Cuál es el WhatsApp para recibir pedidos? Escríbelo con el código de país, por ejemplo <code>+573001234567</code>.', { inline_keyboard: [[{ text: 'Lo configura el propietario', callback_data: 'mt:wz:skipwa' }], [{ text: '✖ Cancelar', callback_data: 'mt:wz:cancel' }]] })
+    case 'color':
+      await say(ctx, 'Escribe los colores principales de la marca: uno o dos (principal y de acento).\nEjemplos: <code>azul oscuro y dorado</code> · <code>#153D70 #B08D57</code>', { inline_keyboard: [
+        [{ text: 'Usar los colores de la plantilla', callback_data: 'mt:wz:skipcolor' }], [{ text: '✖ Cancelar', callback_data: 'mt:wz:cancel' }],
+      ] })
       return
-    case 'owner': await say(ctx, '¿Quién es el propietario? Escribe su <b>correo</b> o su <b>ID numérico de Telegram</b>.\nRecibirá un acceso de un solo uso; no enviaremos contraseñas.', cancelKeyboard()); return
+    case 'logo':
+      await say(ctx, 'Si tienes el logotipo, envíalo como foto o archivo de imagen (PNG, JPG o WebP de al menos 128 px). Es opcional: también se puede subir después desde el panel.', { inline_keyboard: [
+        [{ text: 'Sin logotipo por ahora', callback_data: 'mt:wz:skiplogo' }], [{ text: '✖ Cancelar', callback_data: 'mt:wz:cancel' }],
+      ] })
+      return
     case 'plan': {
       const plans = await ctx.db.prepare(`SELECT code, name, ai_monthly_budget_micros AS budget FROM plans WHERE is_active = 1 AND code <> 'legacy' ORDER BY sort_order`).all<{ code: string; name: string; budget: number }>()
       await say(ctx, '¿Con qué plan empieza?', { inline_keyboard: [...(plans.results || []).map((plan) => [{ text: `${plan.name} · IA ${formatUsd(plan.budget)}/mes`, callback_data: `mt:wz:plan:${plan.code}` }]), [{ text: '✖ Cancelar', callback_data: 'mt:wz:cancel' }]] })
@@ -480,28 +506,63 @@ async function promptStep(ctx: MasterContext, step: WizardStep, data: WizardData
   }
 }
 
+function ownerLabel(data: WizardData): string {
+  const contact = [data.ownerEmail, data.ownerTelegramId ? `Telegram ${data.ownerTelegramId}` : null].filter(Boolean).join(' · ')
+  return [data.ownerName, contact].filter(Boolean).join(' · ') || '—'
+}
+
 async function showWizardSummary(ctx: MasterContext, data: WizardData): Promise<void> {
   const existingName = await ctx.db.prepare('SELECT slug FROM stores WHERE lower(name) = lower(?)').bind(data.name || '').first<{ slug: string }>()
+  const plan = await ctx.db.prepare('SELECT name FROM plans WHERE code = ?').bind(data.planCode || 'basico').first<{ name: string }>()
+  const colors = data.primaryColor ? `${data.primaryColor}${data.accentColor ? ` y ${data.accentColor}` : ''}` : 'los de la plantilla'
   await say(ctx,
     `<b>Resumen de la nueva tienda</b>\n\n` +
-    `Nombre: <b>${escapeHtml(data.name)}</b>\nDirección: <code>${escapeHtml(data.slug)}</code>\n` +
-    `Productos: ${escapeHtml(data.businessType)}\nEstilo: ${escapeHtml(TEMPLATE_LABELS[data.template || 'moderno'])}${data.primaryColor ? ` · color ${escapeHtml(data.primaryColor)}` : ''}\n` +
-    `WhatsApp: ${escapeHtml(data.whatsapp || 'lo configura el propietario')}\nPropietario: ${escapeHtml(data.ownerEmail || (data.ownerTelegramId ? `Telegram ${data.ownerTelegramId}` : '—'))}\n` +
-    `Plan: ${escapeHtml(data.planCode || 'basico')}\n\n` +
+    `Negocio: <b>${escapeHtml(data.name)}</b>\nDirección pública: ${escapeHtml(publicStoreUrl(ctx.env.PUBLIC_STORE_BASE_URL, { id: 0, slug: data.slug || '' }))}\n` +
+    `Tipo de comercio: ${escapeHtml(data.businessType)}\nPropietario: ${escapeHtml(ownerLabel(data))}\n` +
+    `WhatsApp: ${escapeHtml(data.whatsapp || 'lo configura el propietario')}\n` +
+    `Plantilla: ${escapeHtml(TEMPLATE_LABELS[data.template || 'moderno'])} · colores: ${escapeHtml(colors)}\n` +
+    `Logotipo: ${data.logoFileId ? '✅ recibido' : 'sin logotipo (se puede subir después)'}\n` +
+    `Plan: ${escapeHtml(plan?.name || data.planCode || 'Básico')}\n\n` +
     (existingName ? `⚠️ Ya existe una tienda con ese nombre (${escapeHtml(existingName.slug)}). Revisa que no sea un duplicado.\n\n` : '') +
     `La tienda se creará en <b>borrador</b>: privada hasta que la actives.`,
     { inline_keyboard: [
       [{ text: '✅ Crear tienda', callback_data: 'mt:wz:create' }],
-      [{ text: '✏️ Modificar datos', callback_data: 'mt:wz:edit' }, { text: '✖ Cancelar', callback_data: 'mt:wz:cancel' }],
+      [{ text: '✏️ Modificar información', callback_data: 'mt:wz:edit' }, { text: '✖ Cancelar', callback_data: 'mt:wz:cancel' }],
     ] })
 }
 
-function parseColor(text: string): string | null {
-  const hex = text.match(/#?([0-9a-fA-F]{6})\b/)
-  if (hex) return `#${hex[1]!.toUpperCase()}`
-  const lower = text.toLowerCase()
-  const named = Object.keys(NAMED_COLORS).sort((a, b) => b.length - a.length).find((name) => lower.includes(name))
-  return named ? NAMED_COLORS[named]! : null
+/** Up to two brand colors (primary, accent) from names or hex codes, in the order written. */
+export function parseColors(text: string): string[] {
+  const found: Array<{ index: number; value: string }> = []
+  let rest = text.toLowerCase()
+  for (const match of rest.matchAll(/#([0-9a-f]{6})\b|\b(?=[0-9a-f]*\d)([0-9a-f]{6})\b/g)) found.push({ index: match.index!, value: `#${(match[1] || match[2])!.toUpperCase()}` })
+  for (const name of Object.keys(NAMED_COLORS).sort((a, b) => b.length - a.length)) {
+    for (let at = rest.indexOf(name); at >= 0; at = rest.indexOf(name)) {
+      found.push({ index: at, value: NAMED_COLORS[name]! })
+      rest = `${rest.slice(0, at)}${' '.repeat(name.length)}${rest.slice(at + name.length)}`
+    }
+  }
+  return [...new Set(found.sort((a, b) => a.index - b.index).map((item) => item.value))].slice(0, 2)
+}
+
+/** Owner answer: name plus email and/or numeric Telegram id, in any order. */
+export function parseOwner(text: string): { name?: string; email?: string; telegramId?: string } | null {
+  const email = text.match(/[^\s@,;<>()]{1,64}@[^\s@,;<>()]{1,190}\.[a-z]{2,24}/i)?.[0]
+  const telegramId = text.match(/(?:^|[\s,;])(\d{4,15})(?=$|[\s,;])/)?.[1]
+  if (!email && !telegramId) return null
+  const name = text.replace(email || '\u0000', ' ').replace(telegramId || '\u0000', ' ').replace(/[,;:<>()]|\b(?:correo|email|telegram|id)\b/gi, ' ').replace(/\s+/g, ' ').trim().slice(0, 120)
+  return { ...(name.length >= 2 ? { name } : {}), ...(email ? { email: email.toLowerCase() } : {}), ...(telegramId ? { telegramId } : {}) }
+}
+
+async function receiveLogo(ctx: MasterContext, data: WizardData, fileId: string): Promise<void> {
+  try {
+    await downloadTelegramImage(ctx.botToken, fileId)
+  } catch {
+    await say(ctx, 'No pude usar esa imagen. Envía un logotipo PNG, JPG o WebP de al menos 128 px, o toca “Sin logotipo por ahora”.')
+    return
+  }
+  // Only the Telegram file id is kept; the image is stored under the new store once it exists.
+  await promptStep(ctx, data.editing ? 'summary' : 'plan', { ...data, logoFileId: fileId })
 }
 
 async function wizardAnswer(ctx: MasterContext, step: WizardStep, data: WizardData, text: string): Promise<void> {
@@ -526,13 +587,15 @@ async function wizardAnswer(ctx: MasterContext, step: WizardStep, data: WizardDa
     case 'business': {
       if (text.length < 2 || text.length > 120) { await say(ctx, 'Descríbelo en pocas palabras, por ejemplo “ropa y accesorios”.'); return }
       next.businessType = text.trim()
-      await advance('style')
+      await advance('owner')
       return
     }
-    case 'color': {
-      const color = parseColor(text)
-      if (!color) { await say(ctx, 'No reconocí ese color. Escribe un nombre como “azul oscuro” o un código como #153D70.'); return }
-      next.primaryColor = color
+    case 'owner': {
+      const owner = parseOwner(text.trim())
+      if (!owner) { await say(ctx, 'Escribe el nombre y un correo válido (o el ID numérico de Telegram) del propietario. Ejemplo: María Gómez maria@correo.com'); return }
+      next.ownerName = owner.name
+      next.ownerEmail = owner.email
+      next.ownerTelegramId = owner.telegramId
       await advance('whatsapp')
       return
     }
@@ -540,17 +603,20 @@ async function wizardAnswer(ctx: MasterContext, step: WizardStep, data: WizardDa
       const phone = text.replace(/[\s().-]/g, '')
       if (!/^\+[1-9]\d{7,14}$/.test(phone)) { await say(ctx, 'Escríbelo con + y código de país, por ejemplo +573001234567, o toca “Lo configura el propietario”.'); return }
       next.whatsapp = phone
-      await advance('owner')
+      await advance('style')
       return
     }
-    case 'owner': {
-      const value = text.trim()
-      if (/^\d{4,15}$/.test(value)) { next.ownerTelegramId = value; delete next.ownerEmail }
-      else if (/^[^\s@]{1,64}@[^\s@]{1,190}\.[a-z]{2,24}$/i.test(value)) { next.ownerEmail = value.toLowerCase(); delete next.ownerTelegramId }
-      else { await say(ctx, 'Escribe un correo válido o el ID numérico de Telegram del propietario.'); return }
-      await advance('plan')
+    case 'color': {
+      const [primary, accent] = parseColors(text)
+      if (!primary) { await say(ctx, 'No reconocí esos colores. Escribe nombres como “azul oscuro y dorado” o códigos como #153D70.'); return }
+      next.primaryColor = primary
+      next.accentColor = accent
+      await advance('logo')
       return
     }
+    case 'logo':
+      await say(ctx, 'Envíame el logotipo como imagen, o toca “Sin logotipo por ahora”.')
+      return
     default:
       await say(ctx, 'Usa los botones del último mensaje, o /cancelar para salir.')
   }
@@ -569,12 +635,20 @@ async function handleWizardCallback(ctx: MasterContext, action: string, value?: 
     case 'style':
       if (!value || !(TEMPLATE_KEYS as readonly string[]).includes(value)) return
       data.template = value as TemplateKey
-      if (value !== 'personalizado') delete data.primaryColor
-      await promptStep(ctx, value === 'personalizado' ? 'color' : data.editing ? 'summary' : 'whatsapp', data)
+      await promptStep(ctx, data.editing && (value !== 'personalizado' || data.primaryColor) ? 'summary' : 'color', data)
       return
     case 'skipwa':
       data.whatsapp = null
-      await promptStep(ctx, data.editing ? 'summary' : 'owner', data)
+      await promptStep(ctx, data.editing ? 'summary' : 'style', data)
+      return
+    case 'skipcolor':
+      delete data.primaryColor
+      delete data.accentColor
+      await promptStep(ctx, data.editing ? 'summary' : 'logo', data)
+      return
+    case 'skiplogo':
+      delete data.logoFileId
+      await promptStep(ctx, data.editing ? 'summary' : 'plan', data)
       return
     case 'plan':
       data.planCode = value || 'basico'
@@ -584,13 +658,14 @@ async function handleWizardCallback(ctx: MasterContext, action: string, value?: 
     case 'edit':
       await say(ctx, '¿Qué dato quieres modificar?', { inline_keyboard: [
         [{ text: 'Nombre', callback_data: 'mt:wz:field:name' }, { text: 'Dirección', callback_data: 'mt:wz:field:slug' }],
-        [{ text: 'Productos', callback_data: 'mt:wz:field:business' }, { text: 'Estilo', callback_data: 'mt:wz:field:style' }],
-        [{ text: 'WhatsApp', callback_data: 'mt:wz:field:whatsapp' }, { text: 'Propietario', callback_data: 'mt:wz:field:owner' }],
+        [{ text: 'Tipo de comercio', callback_data: 'mt:wz:field:business' }, { text: 'Propietario', callback_data: 'mt:wz:field:owner' }],
+        [{ text: 'WhatsApp', callback_data: 'mt:wz:field:whatsapp' }, { text: 'Plantilla', callback_data: 'mt:wz:field:style' }],
+        [{ text: 'Colores', callback_data: 'mt:wz:field:color' }, { text: 'Logotipo', callback_data: 'mt:wz:field:logo' }],
         [{ text: 'Plan', callback_data: 'mt:wz:field:plan' }, { text: '↩ Volver al resumen', callback_data: 'mt:wz:field:summary' }],
       ] })
       return
     case 'field':
-      if (!value || !['name', 'slug', 'business', 'style', 'whatsapp', 'owner', 'plan', 'summary'].includes(value)) return
+      if (!value || !['name', 'slug', 'business', 'owner', 'whatsapp', 'style', 'color', 'logo', 'plan', 'summary'].includes(value)) return
       data.editing = true
       await promptStep(ctx, value as WizardStep, data)
       return
@@ -610,31 +685,72 @@ async function runProvisioning(ctx: MasterContext, data: WizardData): Promise<vo
   // double tap or a retry resumes the same job instead of creating two stores.
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify({ chat: ctx.chatId, ...data, editing: undefined })))
   const fingerprint = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('').slice(0, 32)
-  await say(ctx, '⏳ Creando la tienda… (registro, configuración, plantilla, categorías, propietario, accesos y verificación)')
+  await say(ctx, '⏳ Creando la tienda… esto toma unos segundos.')
   const result = await provisionStore(ctx.db, ctx.env, {
-    name: data.name, slug: data.slug, businessType: data.businessType, template: data.template || 'moderno', primaryColor: data.primaryColor,
-    whatsapp: data.whatsapp || undefined, ownerEmail: data.ownerEmail, ownerTelegramId: data.ownerTelegramId, planCode: data.planCode || 'basico',
+    name: data.name, slug: data.slug, businessType: data.businessType, template: data.template || 'moderno', primaryColor: data.primaryColor, accentColor: data.accentColor,
+    whatsapp: data.whatsapp || undefined, ownerName: data.ownerName, ownerEmail: data.ownerEmail, ownerTelegramId: data.ownerTelegramId, planCode: data.planCode || 'basico',
   }, { requestKey: `master:${fingerprint}`, actor: ctx.actor })
-  await reportProvisioning(ctx, result)
+  const logo = result.status === 'completed' && data.logoFileId ? await applyLogo(ctx, result.storeId!, data.logoFileId) : 'none'
+  await reportProvisioning(ctx, result, data, logo)
 }
 
-async function reportProvisioning(ctx: MasterContext, result: ProvisionResult): Promise<void> {
-  const steps = result.steps.map((step) => `${step.status === 'ok' ? '✅' : step.status === 'error' ? '❌' : '➖'} ${escapeHtml(step.label)}${step.detail ? ` · <i>${escapeHtml(step.detail)}</i>` : ''}`).join('\n')
-  if (result.status === 'running') { await say(ctx, `⏳ La creación ya está en curso.\n${steps}`); return }
+/** Stores the wizard's logo under the new store. A failure never undoes the store. */
+async function applyLogo(ctx: MasterContext, storeId: number, fileId: string): Promise<'ok' | 'failed'> {
+  if (!ctx.env.ASSETS) return 'failed'
+  try {
+    const image = await downloadTelegramImage(ctx.botToken, fileId)
+    await setStoreLogo(ctx.db, ctx.env.ASSETS, storeId, image, ctx.actor)
+    return 'ok'
+  } catch (error) {
+    console.error('Master logo upload failed:', error instanceof Error ? error.message : 'unknown')
+    await ctx.db.prepare(`INSERT INTO platform_events (store_id, level, source, code, detail) VALUES (?, 'warning', 'master_bot', 'LOGO_FAILED', ?)`)
+      .bind(storeId, (error instanceof Error ? error.message : 'unknown').slice(0, 120)).run().catch(() => undefined)
+    return 'failed'
+  }
+}
+
+/** Public username of the shared store assistant, for one-tap linking. */
+async function assistantUsername(env: Env['Bindings']): Promise<string | null> {
+  const configured = env.TELEGRAM_BOT_USERNAME?.replace(/^@/, '').trim()
+  if (configured) return configured
+  if (!env.TELEGRAM_BOT_TOKEN) return null
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/getMe`, { signal: AbortSignal.timeout(8000) })
+    const body = await response.json() as { ok?: boolean; result?: { username?: string } }
+    return body.ok && body.result?.username ? body.result.username : null
+  } catch {
+    return null
+  }
+}
+
+async function reportProvisioning(ctx: MasterContext, result: ProvisionResult, data: WizardData, logo: 'ok' | 'failed' | 'none'): Promise<void> {
+  if (result.status === 'running') { await say(ctx, '⏳ La creación de esta tienda ya está en curso. Espera unos segundos y toca “Crear tienda” otra vez para ver el resultado.'); return }
   if (result.status === 'failed') {
-    await say(ctx, `❌ <b>No se pudo crear la tienda.</b>\n${steps}\n\nNo se publicó nada. Corrige el dato indicado y vuelve a tocar “Crear tienda”; el proceso continúa donde quedó sin duplicar la tienda.`,
-      { inline_keyboard: [[{ text: '✏️ Modificar datos', callback_data: 'mt:wz:edit' }, { text: '🔁 Reintentar', callback_data: 'mt:wz:create' }], [{ text: '✖ Cancelar', callback_data: 'mt:wz:cancel' }]] })
+    const failed = result.steps.find((step) => step.status === 'error')
+    await say(ctx, `❌ <b>No se pudo crear la tienda.</b>\n${escapeHtml(failed?.detail || 'Ocurrió un error; quedó registrado.')}\n\nNo se publicó nada. Corrige el dato y toca “Reintentar”: el proceso continúa donde quedó, sin duplicar la tienda.`,
+      { inline_keyboard: [[{ text: '✏️ Modificar información', callback_data: 'mt:wz:edit' }, { text: '🔁 Reintentar', callback_data: 'mt:wz:create' }], [{ text: '✖ Cancelar', callback_data: 'mt:wz:cancel' }]] })
     return
   }
   await ctx.db.prepare('DELETE FROM platform_conversations WHERE chat_id = ?').bind(String(ctx.chatId)).run()
-  const access = accessText({ activationUrl: result.activationUrl ?? null, telegramLinkCode: result.telegramLinkCode ?? null, telegramDeepLink: result.telegramDeepLink ?? null })
+  const username = await assistantUsername(ctx.env)
+  const access = result.replayed
+    ? '\n\n<b>Acceso del propietario</b>\nLos accesos se entregaron cuando se creó. Si se perdieron, toca “🔑 Nuevos accesos”.'
+    : `\n\n<b>Acceso del propietario</b>${await ownerAccessText(ctx, { activationUrl: result.activationUrl ?? null, telegramLinkCode: result.telegramLinkCode ?? null, telegramDeepLink: result.telegramDeepLink ?? null })}` +
+      (data.ownerTelegramId ? `\n🤖 Su Telegram ya quedó vinculado: puede escribir directamente al asistente${username ? ` @${escapeHtml(username)}` : ''}.` : '')
   await say(ctx,
-    `🎉 <b>¡Tienda creada y verificada!</b>${result.replayed ? ' (ya existía: no se duplicó)' : ''}\n<b>${escapeHtml(result.name)}</b> · <code>${escapeHtml(result.slug)}</code>\n\n${steps}\n\n` +
-    `🛍️ Tienda (borrador, vista privada): ${escapeHtml(result.publicUrl)}\n🧭 Panel: ${escapeHtml(result.adminUrl)}${access}\n\n` +
-    `Siguiente paso: el propietario sube sus productos (por Telegram o el panel) y luego la activas.`,
+    `🎉 <b>¡Tienda creada!</b>${result.replayed ? ' (ya existía: no se duplicó)' : ''}\n\n` +
+    `🏪 <b>${escapeHtml(result.name)}</b>\n🌐 Dirección pública: ${escapeHtml(result.publicUrl)}\n` +
+    `📌 Estado: 📝 Borrador — privada hasta que la actives; los compradores todavía no la ven.\n🧭 Panel de administración: ${escapeHtml(result.adminUrl)}` +
+    (logo === 'ok' ? '\n🖼️ Logotipo aplicado.' : logo === 'failed' ? '\n⚠️ El logotipo no se pudo guardar; súbelo desde el panel (Apariencia).' : '') +
+    access +
+    '\n\n<b>Cómo administrarla</b>\n' +
+    '1. Envía estos accesos solo al propietario (vencen en 72 h).\n' +
+    '2. El propietario crea su contraseña con el enlace y entra al panel, o carga productos por Telegram enviando fotos al asistente.\n' +
+    '3. Logotipo, colores y portada se ajustan en el panel → Apariencia.\n' +
+    '4. Cuando tenga productos, toca “🚀 Activar ahora” para publicarla.',
     { inline_keyboard: [
       [{ text: '🚀 Activar ahora', callback_data: `mt:activate:${result.slug}` }, { text: '🏪 Ver ficha', callback_data: `mt:store:${result.slug}` }],
-      [{ text: '➕ Crear otra', callback_data: 'mt:create' }],
+      [{ text: '🔑 Nuevos accesos', callback_data: `mt:access:${result.slug}` }, { text: '➕ Crear otra', callback_data: 'mt:create' }],
     ] })
 }
 
