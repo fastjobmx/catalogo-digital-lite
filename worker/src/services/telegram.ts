@@ -25,6 +25,8 @@ import { askWhatToDoWithPhoto, beginAttachPhotos, getPendingAttach, handleAttach
 import { handleDocument, isSupportedDocument } from './assistant/documents'
 import { answerWithStoreFacts, draftProductDescription, interpretRequest } from './assistant/ai'
 import { detectIntent } from './assistant/intents'
+import { detectMovementsQuery, detectStockMovement, proposeStockMovement, showStockMovements } from './assistant/inventory'
+import { acceptTrackingText, detectOrderIntent, handleOrderCallback, handleOrderIntent, showOrders } from './assistant/orders'
 import { catalogFacts, deterministicAdvice, escapeHtml } from './assistant/tools'
 import {
   advanceAfterConfirmedBanner, advanceAfterConfirmedLogo, continueOnboarding,
@@ -180,6 +182,7 @@ async function handleCallback(ctx: AssistantContext, data: string): Promise<void
     if (pending.action === 'update_store_banner') await advanceAfterConfirmedBanner(ctx)
     return
   }
+  if (key.startsWith('ord:') && await handleOrderCallback(ctx, key)) return
   const paletteIdea = key.match(/^pal:(\d+):([0-9A-F]{6}):(faithful|balanced|vibrant)$/i)
   if (paletteIdea) {
     if (Number(paletteIdea[1]) !== ctx.store.id) { await say(ctx, otherStoreButton(ctx)); return }
@@ -242,8 +245,8 @@ async function handleMenu(ctx: AssistantContext, key: string): Promise<void> {
     case 'm:hide_out': await proposeChange(ctx, 'hide_out_of_stock', {}); return
     case 'm:no_description': await readAndReply(ctx, 'get_products_without_description', {}, inventoryKeyboard()); return
     case 'm:no_photos': await readAndReply(ctx, 'get_products_without_photos', {}, inventoryKeyboard()); return
-    case 'm:orders': await readAndReply(ctx, 'get_sales_summary', { days: 30 }, orderMenuKeyboard()); return
-    case 'm:orders_pending': await readAndReply(ctx, 'get_pending_orders', {}, orderMenuKeyboard()); return
+    case 'm:orders': await showOrders(ctx); return
+    case 'm:orders_pending': await showOrders(ctx, 'pendiente'); return
     case 'm:sales': await readAndReply(ctx, 'get_sales_summary', { days: 30 }, orderMenuKeyboard()); return
     case 'm:top': await readAndReply(ctx, 'get_top_products', { days: 30 }, orderMenuKeyboard()); return
     case 'm:reports': await readAndReply(ctx, 'get_sales_summary', { days: 30 }, orderMenuKeyboard()); return
@@ -379,7 +382,7 @@ async function handleCommand(ctx: AssistantContext, text: string): Promise<boole
     case '/inventario': await readAndReply(ctx, 'get_inventory', {}, inventoryKeyboard()); return true
     case '/agotados': await readAndReply(ctx, 'get_out_of_stock'); return true
     case '/pedido':
-    case '/pedidos': await readAndReply(ctx, 'get_pending_orders', {}, orderMenuKeyboard()); return true
+    case '/pedidos': await showOrders(ctx); return true
     case '/categorias': await handleMenu(ctx, 'm:categories'); return true
     case '/nuevo_producto':
     case '/crear_producto':
@@ -428,6 +431,16 @@ async function handleText(ctx: AssistantContext, text: string): Promise<void> {
   if (CONFIRM_WORDS.test(text)) { await say(ctx, 'No hay nada pendiente por confirmar. ¿Qué necesitas?', mainMenuKeyboard(ctx.memberships.length > 1)); return }
 
   const session = await readSession(ctx.db, ctx.telegramUserId)
+  if (session.state.awaiting === 'order_tracking' && session.state.targetOrder) {
+    await acceptTrackingText(ctx, text, session.state.targetOrder)
+    return
+  }
+  const orderIntent = detectOrderIntent(text)
+  if (orderIntent) { await handleOrderIntent(ctx, orderIntent); return }
+  const movementsQuery = detectMovementsQuery(text)
+  if (movementsQuery) { await showStockMovements(ctx, movementsQuery.sku); return }
+  const movement = detectStockMovement(text)
+  if (movement) { await proposeStockMovement(ctx, movement); return }
   if (session.state.awaiting === 'ask_ai') {
     await updateSessionState(ctx, { awaiting: undefined })
     await handleProposal(ctx, { action: 'ask_ai', params: { question: text }, missing: [], summary: '', needsConfirmation: false }, text)

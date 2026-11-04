@@ -29,6 +29,8 @@ function DetailModal({ order, onClose, onSaved }: { order: OrderDetailApi; onClo
   const [paymentStatus, setPaymentStatus] = useState(order.paymentStatus)
   const [shipping, setShipping] = useState(order.shippingCost == null ? '' : String(order.shippingCost))
   const [notes, setNotes] = useState(order.internalNotes || '')
+  const [carrier, setCarrier] = useState(order.carrier || '')
+  const [tracking, setTracking] = useState(order.trackingNumber || '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [zoomUrl, setZoomUrl] = useState<string | null>(null)
@@ -37,7 +39,7 @@ function DetailModal({ order, onClose, onSaved }: { order: OrderDetailApi; onClo
     if (!token) return
     setSaving(true); setError('')
     try {
-      await updateOrder(order.id, { status, paymentStatus, internalNotes: notes, shippingCost: shipping === '' ? null : Number(shipping), expectedRevision: order.revision }, token)
+      await updateOrder(order.id, { status, paymentStatus, internalNotes: notes, shippingCost: shipping === '' ? null : Number(shipping), carrier: carrier.trim() || null, trackingNumber: tracking.trim() || null, expectedRevision: order.revision }, token)
       onSaved(await getOrder(order.id, token))
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar el pedido') } finally { setSaving(false) }
   }
@@ -79,6 +81,8 @@ function DetailModal({ order, onClose, onSaved }: { order: OrderDetailApi; onClo
           <div className="no-print space-y-3"><label className="block text-xs font-semibold">Estado<select className="input-field mt-1" value={status} onChange={(e) => setStatus(e.target.value)}>{(NEXT_STATUSES[order.status] || [order.status]).map((s) => <option key={s} value={s}>{s}</option>)}</select></label>
             <label className="block text-xs font-semibold">Estado de pago<select className="input-field mt-1" value={paymentStatus} onChange={(e) => setPaymentStatus(e.target.value)}>{PAYMENT_STATUSES.map((s) => <option key={s} value={s}>{s.replaceAll('_', ' ')}</option>)}</select></label>
             <label className="block text-xs font-semibold">Envío (dejar vacío para “Por cotizar”)<input type="number" min="0" step="1" className="input-field mt-1" value={shipping} onChange={(e) => setShipping(e.target.value)}/></label>
+            <label className="block text-xs font-semibold">Transportadora<input className="input-field mt-1" maxLength={60} value={carrier} onChange={(e) => setCarrier(e.target.value)} placeholder="Ej.: Servientrega"/></label>
+            <label className="block text-xs font-semibold">Número de guía<input className="input-field mt-1" maxLength={80} value={tracking} onChange={(e) => setTracking(e.target.value)} placeholder="Sin seguimiento automático"/></label>
             <label className="block text-xs font-semibold">Notas internas<textarea maxLength={4000} rows={3} className="input-field mt-1" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Solo visible para el equipo administrador"/></label>
             {error && <p role="alert" className="text-sm text-red-700">{error}</p>}<button className="btn-brand w-full" onClick={() => void save()} disabled={saving}>{saving ? 'Guardando…' : 'Guardar cambios'}</button>
           </div>

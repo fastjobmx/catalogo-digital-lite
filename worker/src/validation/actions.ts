@@ -34,6 +34,10 @@ export const actionSchemas = {
     sku: z.string().min(1),
     size: z.string().min(1),
     stock: z.number().int().nonnegative(),
+    /** Set when the owner reports an entry or exit; the new absolute stock is computed by the server. */
+    movementKind: z.enum(['entrada', 'salida']).optional(),
+    movementQuantity: z.number().int().positive().max(100000).optional(),
+    movementReason: z.string().trim().min(2).max(80).optional(),
   }),
   update_price: z.object({
     sku: z.string().min(1),

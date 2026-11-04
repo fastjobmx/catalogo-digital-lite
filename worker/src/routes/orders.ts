@@ -1,4 +1,6 @@
 import { Hono } from 'hono'
+import { canTransition } from '../services/orders'
+import { notifyNewOrder } from '../services/assistant/orders'
 import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
 import type { Env } from '../index'
@@ -93,6 +95,7 @@ function mapOrder(o: Record<string, any>) {
     currency: String(o.currency || 'COP'), status: String(o.status || 'pendiente'),
     paymentStatus: String(o.payment_status || 'pendiente'), internalNotes: o.internal_notes ?? '',
     revision: Number(o.revision || 1), createdAt: String(o.created_at || ''), updatedAt: String(o.updated_at || ''),
+    carrier: o.carrier ?? null, trackingNumber: o.tracking_number ?? null, shippedAt: o.shipped_at ?? null, deliveredAt: o.delivered_at ?? null,
   }
 }
 
@@ -169,6 +172,8 @@ app.post('/', publicStore, zValidator('json', createOrderSchema), async (c) => {
     return c.json({ id: Number(raced.id), displayId: String(raced.display_id), subtotal: Number(raced.subtotal), discountTotal: 0, total: null, currency: String(raced.currency), status: String(raced.status), paymentStatus: String(raced.payment_status), items: parseItems(raced.items_json), replayed: true })
   }
   const orderId = Number(result.meta.last_row_id)
+  // Tell the store team in Telegram without delaying the buyer's checkout.
+  try { c.executionCtx.waitUntil(notifyNewOrder(c.env, db, { storeId, orderId }).catch(() => undefined)) } catch { /* no execution context in some tests */ }
   return c.json({ id: orderId, displayId, subtotal, discountTotal: 0, total: null, currency, status: 'pendiente', paymentStatus: 'pendiente', items: snapshots, replayed: false }, 201)
 })
 
@@ -206,25 +211,28 @@ app.patch('/:id', adminAuth, requireRole('operator'), async (c) => {
   const patchSchema = z.object({
     status: z.enum(ALLOWED_STATUSES).optional(), paymentStatus: z.enum(ALLOWED_PAYMENT_STATUSES).optional(),
     internalNotes: z.string().max(4000).optional(), shippingCost: z.number().int().nonnegative().max(100000000).nullable().optional(),
+    carrier: z.string().trim().max(60).nullable().optional(), trackingNumber: z.string().trim().max(80).nullable().optional(),
     expectedRevision: z.number().int().positive(),
   }).strict()
   const parsed = patchSchema.safeParse(body)
   if (!parsed.success || !Object.keys(parsed.data).some((key) => key !== 'expectedRevision')) return c.json({ error: 'Invalid order update' }, 400)
   const storeId = c.get('storeId')!
-  const current = await c.env.DB.prepare('SELECT status, payment_status, internal_notes, shipping_cost, revision FROM orders WHERE id = ? AND store_id = ?').bind(id, storeId).first<Record<string, any>>()
+  const current = await c.env.DB.prepare('SELECT status, payment_status, internal_notes, shipping_cost, carrier, tracking_number, revision FROM orders WHERE id = ? AND store_id = ?').bind(id, storeId).first<Record<string, any>>()
   if (!current) return c.json({ error: 'Order not found' }, 404)
   if (parsed.data.expectedRevision !== undefined && Number(current.revision) !== parsed.data.expectedRevision) return c.json({ error: 'Order was changed by another admin. Reload and retry.' }, 409)
   if (parsed.data.status && parsed.data.status !== current.status) {
-    const transitions: Record<string, string[]> = {
-      pendiente: ['confirmado', 'cancelado'], confirmado: ['preparando', 'cancelado'],
-      preparando: ['enviado', 'cancelado'], enviado: ['entregado'], entregado: [], cancelado: [],
-    }
-    if (!transitions[String(current.status)]?.includes(parsed.data.status)) return c.json({ error: 'Invalid order status transition' }, 409)
+    if (!canTransition(String(current.status), parsed.data.status)) return c.json({ error: 'Invalid order status transition' }, 409)
   }
 
   const updates: string[] = [], values: unknown[] = [], events: Array<{ type: string; from: string | null; to: string | null }> = []
   const p = parsed.data
-  if (p.status !== undefined && p.status !== current.status) { updates.push('status = ?'); values.push(p.status); events.push({ type: 'status', from: String(current.status), to: p.status }) }
+  if (p.status !== undefined && p.status !== current.status) {
+    updates.push('status = ?'); values.push(p.status); events.push({ type: 'status', from: String(current.status), to: p.status })
+    if (p.status === 'enviado') updates.push("shipped_at = datetime('now')")
+    if (p.status === 'entregado') updates.push("delivered_at = datetime('now')")
+  }
+  if (p.carrier !== undefined && (p.carrier || null) !== (current.carrier ?? null)) { updates.push('carrier = ?'); values.push(p.carrier || null); events.push({ type: 'carrier', from: current.carrier ?? null, to: p.carrier || null }) }
+  if (p.trackingNumber !== undefined && (p.trackingNumber || null) !== (current.tracking_number ?? null)) { updates.push('tracking_number = ?'); values.push(p.trackingNumber || null); events.push({ type: 'tracking_number', from: current.tracking_number ?? null, to: p.trackingNumber || null }) }
   if (p.paymentStatus !== undefined && p.paymentStatus !== current.payment_status) { updates.push('payment_status = ?'); values.push(p.paymentStatus); events.push({ type: 'payment_status', from: String(current.payment_status), to: p.paymentStatus }) }
   if (p.internalNotes !== undefined && p.internalNotes !== current.internal_notes) { updates.push('internal_notes = ?'); values.push(p.internalNotes); events.push({ type: 'internal_note', from: null, to: 'updated' }) }
   if (p.shippingCost !== undefined && p.shippingCost !== current.shipping_cost) { updates.push('shipping_cost = ?'); values.push(p.shippingCost); events.push({ type: 'shipping_cost', from: current.shipping_cost == null ? null : String(current.shipping_cost), to: p.shippingCost == null ? null : String(p.shippingCost) }) }

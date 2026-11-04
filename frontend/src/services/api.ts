@@ -444,6 +444,10 @@ export interface OrderApi {
   currency: string
   status: string
   paymentStatus: string
+  carrier?: string | null
+  trackingNumber?: string | null
+  shippedAt?: string | null
+  deliveredAt?: string | null
   paymentMethod: string | null
   customerNotes: string | null
   customerCity: string | null
@@ -474,7 +478,7 @@ export async function getOrder(id: number, token: string): Promise<OrderDetailAp
   return fetchApi<OrderDetailApi>(`/api/orders/${id}`, { headers: { Authorization: `Bearer ${token}` } })
 }
 
-export async function updateOrder(id: number, patch: { status?: string; paymentStatus?: string; internalNotes?: string; shippingCost?: number | null; expectedRevision: number }, token: string): Promise<{ success: boolean; revision: number }> {
+export async function updateOrder(id: number, patch: { status?: string; paymentStatus?: string; internalNotes?: string; shippingCost?: number | null; carrier?: string | null; trackingNumber?: string | null; expectedRevision: number }, token: string): Promise<{ success: boolean; revision: number }> {
   return fetchApi<{ success: boolean; revision: number }>(`/api/orders/${id}`, {
     method: 'PATCH', headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(patch),
   })

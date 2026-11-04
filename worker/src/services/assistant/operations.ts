@@ -6,6 +6,7 @@ import { say, sayPhoto, type AssistantContext } from './context'
 import { operationKeyboard, backToMenu } from './menus'
 import { escapeHtml, formatMoney } from './tools'
 import { contrastRatio, isLegiblePalette } from './logoPalette'
+import { annotateStockMovement, lowStockWarning } from './inventory'
 
 export interface PendingOperation {
   operation_id: string
@@ -533,13 +534,26 @@ export async function confirmOperation(ctx: AssistantContext, pending: PendingOp
     return
   }
   if (promotedKey && ctx.env.ASSETS) await ctx.env.ASSETS.delete(String(params.draftKey)).catch(() => undefined)
-  await say(ctx, `✅ ¡Listo! ${successMessage(pending.action, params, after, ctx.store.currency)}`, backToMenu())
+  let lowStock = ''
+  if (pending.action === 'update_stock') {
+    // The database trigger wrote the movement; label it with who, why and which confirmation.
+    const changed = parseVariants(after.variants).filter((variant) => parseVariants(before.variants).find((item) => item.id === variant.id)?.stock !== variant.stock).map((variant) => variant.id)
+    const kind = params.movementKind === 'entrada' || params.movementKind === 'salida' ? params.movementKind : 'ajuste'
+    await annotateStockMovement(ctx.db, {
+      storeId: ctx.store.id, variantIds: changed, kind, reason: String(params.movementReason || 'Ajuste desde Telegram'),
+      reference: `telegram:${pending.operation_id}`, actor,
+    }).catch((error) => console.error('Movement annotation failed:', error instanceof Error ? error.message : 'unknown'))
+    lowStock = await lowStockWarning(ctx.db, ctx.store.id, changed)
+  }
+  await say(ctx, `✅ ¡Listo! ${successMessage(pending.action, params, after, ctx.store.currency)}${lowStock}`, backToMenu())
 }
 
 function successMessage(action: string, params: Record<string, any>, after: Record<string, any>, currency: string): string {
   switch (action) {
     case 'update_price': return `El precio de ${escapeHtml(params.sku)} ahora es ${formatMoney(params.price, currency)}.`
-    case 'update_stock': return `Stock de ${escapeHtml(params.sku)}${params.size ? ` talla ${escapeHtml(params.size)}` : ''} actualizado a ${params.stock} unidades.`
+    case 'update_stock': return params.movementKind
+      ? `Registré la ${params.movementKind === 'entrada' ? 'entrada' : 'salida'} de ${params.movementQuantity} u. de ${escapeHtml(params.sku)}${params.size ? ` talla ${escapeHtml(params.size)}` : ''}. Ahora hay ${params.stock} unidades.`
+      : `Stock de ${escapeHtml(params.sku)}${params.size ? ` talla ${escapeHtml(params.size)}` : ''} actualizado a ${params.stock} unidades.`
     case 'update_product': return `Actualicé el producto ${escapeHtml(params.sku)}.`
     case 'update_store_name': return `Tu tienda ahora se llama “${escapeHtml(after.name)}”.`
     case 'update_store_colors': return params.palette ? 'Tu nueva paleta ya está aplicada en toda la tienda.' : `El color principal ahora es ${escapeHtml(after.primary_color)}.`

@@ -416,3 +416,7 @@ Producción (autorizado, 2026-11-04): commit `7a7dd26`, Worker `ac6acb57` → `e
 ### Tallas con letras — 2026-11-04
 
 El asistente rechazaba `S:10, M:10, L:15, XL:20.` (solo leía tallas numéricas). Corregido: tallas XS–6XL y preguntas ante rangos ("20 de la talla S a la XL") sin inventar existencias. Worker 218/218. Staging `d788f84d`; producción (autorizado) `ebf20122` → `226aef4e-a545-428c-91e6-079232507d84`, commit `68a8f84`; smoke OK, secretos intactos.
+
+### Plataforma de comercio — auditoría y Fase 2 — 2026-11-04
+
+Auditoría y matriz en `docs/PLATAFORMA_COMERCIO_AUDITORIA.md`. Fase 1 (multitienda) verificada en producción. Fase 2 implementada: pedidos desde Telegram (lista, detalle, transiciones confirmadas, pago verificado, despacho con guía, aviso de pedidos nuevos), transportadora y guía en el panel, migración `0009` con libro de movimientos de inventario y bloqueo de stock negativo, entradas y salidas con motivo por Telegram y alertas de stock bajo. Worker 229/229, frontend 67/67. Staging: `0009` aplicada (respaldo `.tmp/staging-0009/`), Worker `c2ca4381`, prueba de escritura 18/18. Producción sin cambios; el push debe ir después del Worker de producción.

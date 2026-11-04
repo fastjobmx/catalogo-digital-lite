@@ -31,7 +31,9 @@ export interface AssistantContext {
 
 export type SessionState = {
   lastSkus?: string[]
-  awaiting?: 'ask_ai' | 'banner_photo' | 'logo_photo' | 'product_photos_for_sku' | 'document_import'
+  awaiting?: 'ask_ai' | 'banner_photo' | 'logo_photo' | 'product_photos_for_sku' | 'document_import' | 'order_tracking'
+  targetOrder?: { id: number; revision: number }
+  pendingDelivery?: { orderId: number; carrier?: string; trackingNumber?: string }
   targetSku?: string
   pendingPhotoFileId?: string
   updatedAt?: number
