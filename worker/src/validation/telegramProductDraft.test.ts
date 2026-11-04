@@ -74,3 +74,36 @@ describe('Telegram product draft validation', () => {
     expect(inferColor('Tenis blanco y negro')).toBeUndefined()
   })
 })
+
+describe('letter sizes and size ranges (Muy Parcero, 2026-11-04)', () => {
+  const variantsFor = (text: string) => {
+    const draft = { ...createTelegramProductDraft(), defaultColor: 'Negro' }
+    return parseProductDraftFieldReply('variants', text, draft)
+  }
+
+  it('reads clothing sizes written with letters, as the owner typed them', () => {
+    const result = variantsFor('S:10, M:10, L:15, XL:20.')
+    expect(result.error).toBeUndefined()
+    expect(result.draft.variants).toEqual([
+      { size: 'S', color: 'Negro', stock: 10 }, { size: 'M', color: 'Negro', stock: 10 },
+      { size: 'L', color: 'Negro', stock: 15 }, { size: 'XL', color: 'Negro', stock: 20 },
+    ])
+    expect(variantsFor('xs:2; xxl:4 y 2xl:1').draft.variants.map((v) => v.size)).toEqual(['XS', 'XXL', 'XXL'])
+    expect(variantsFor('Rojo talla M:3, Azul talla L:2').draft.variants).toEqual([{ size: 'M', color: 'Rojo', stock: 3 }, { size: 'L', color: 'Azul', stock: 2 }])
+    expect(variantsFor('tallas S, M y L; stock 5 por talla').draft.variants.map((v) => `${v.size}:${v.stock}`)).toEqual(['S:5', 'M:5', 'L:5'])
+  })
+
+  it('asks for the units of each size instead of guessing a range', () => {
+    const result = variantsFor('TENGO 20 DE LA TALLA S A LA XL')
+    expect(result.draft.variants).toEqual([])
+    expect(result.error).toContain('Entendí las tallas S, M, L, XL')
+    expect(result.error).toContain('S:20, M:20, L:20, XL:20')
+    expect(variantsFor('tallas 38 a 41').error).toContain('38:5, 39:5, 40:5, 41:5')
+  })
+
+  it('still rejects text that is not a size list and keeps numeric sizes working', () => {
+    expect(variantsFor('Negro:3').error).toContain('No entendí')
+    expect(variantsFor('38:3, 39:2').draft.variants.map((v) => `${v.size}:${v.stock}`)).toEqual(['38:3', '39:2'])
+    expect(variantsFor('10').draft.variants).toEqual([{ size: 'Única', color: 'Negro', stock: 10 }])
+  })
+})

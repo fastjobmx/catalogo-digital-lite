@@ -144,8 +144,9 @@ export function parseProductDraftFieldReply(
   } else if (field === 'variants') {
     const fallbackColor = draft.defaultColor || inferColor(`${draft.fields.name || ''} ${draft.hint || ''}`)
     const result = parseVariantStockReply(compact, draft.variants, fallbackColor)
+    if ('clarify' in result) return { draft, error: result.clarify }
     if ('unreadable' in result) {
-      return { draft, error: `No entendí “${result.unreadable}”. Escribe cada talla con sus unidades, por ejemplo: 38:3, 39:2 (o Negro talla 38:3 si hay varios colores). Si es talla única, escribe solo la cantidad.` }
+      return { draft, error: `No entendí “${result.unreadable}”. Escribe cada talla con sus unidades, por ejemplo: S:10, M:10 o 38:3, 39:2 (o Negro talla M:3 si hay varios colores). Si es talla única, escribe solo la cantidad.` }
     }
     next.variants = result.variants
   } else if (field === 'category') {
@@ -175,7 +176,34 @@ function capitalize(value: string): string {
   return clean.charAt(0).toLocaleUpperCase('es') + clean.slice(1)
 }
 
-function parseVariantStockReply(text: string, previous: TelegramProductDraft['variants'], defaultColor?: string): { variants: TelegramProductDraft['variants'] } | { unreadable: string } {
+/** Clothing letter sizes in ascending order; 2XL/3XL are aliases of XXL/XXXL. */
+const LETTER_SIZES = ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', '4XL', '5XL', '6XL']
+const LETTER_SIZE = '(?:[2-6]x|x{1,3})?[sl]|m|[4-6]xl'
+/** Numeric (38, 7.5, 10C), letter (S, XL, 2XL) or single size. */
+const SIZE_TOKEN = `\\d{1,3}(?:[.,]5)?[a-z]?|${LETTER_SIZE}|[uú]nica`
+
+export function normalizeSize(raw: string): string {
+  const value = raw.trim()
+  if (/^[uú]nica$/i.test(value)) return 'Única'
+  if (/^\d/.test(value) && !/xl$/i.test(value)) return value.replace(',', '.').toUpperCase()
+  const upper = value.toUpperCase()
+  return upper === '2XL' ? 'XXL' : upper === '3XL' ? 'XXXL' : upper
+}
+
+/** "20 de la talla S a la XL" / "tallas 38 a 41": the sizes are clear, the units per size are not. */
+function sizeRange(text: string): { sizes: string[]; matched: string } | null {
+  const range = text.match(new RegExp(`tallas?\\s+(${SIZE_TOKEN})\\s+(?:a|hasta|al?)\\s+(?:la\\s+)?(${SIZE_TOKEN})\\b`, 'iu'))
+  if (!range) return null
+  const from = normalizeSize(range[1]!), to = normalizeSize(range[2]!)
+  const a = LETTER_SIZES.indexOf(from), b = LETTER_SIZES.indexOf(to)
+  if (a >= 0 && b > a) return { sizes: LETTER_SIZES.slice(a, b + 1), matched: range[0] }
+  if (/^\d{1,3}$/.test(from) && /^\d{1,3}$/.test(to) && Number(to) > Number(from) && Number(to) - Number(from) <= 15) {
+    return { sizes: Array.from({ length: Number(to) - Number(from) + 1 }, (_, index) => String(Number(from) + index)), matched: range[0] }
+  }
+  return null
+}
+
+function parseVariantStockReply(text: string, previous: TelegramProductDraft['variants'], defaultColor?: string): { variants: TelegramProductDraft['variants'] } | { unreadable: string } | { clarify: string } {
   const knownColor = () => {
     const colors = new Set(previous.map((variant) => variant.color).filter(Boolean))
     return (colors.size === 1 ? previous.find((variant) => variant.color)?.color : undefined) || defaultColor || 'Único'
@@ -189,25 +217,33 @@ function parseVariantStockReply(text: string, previous: TelegramProductDraft['va
   // y 40; stock inicial: 2 unidades por talla” without asking the owner to
   // reformat data they already supplied.
   const natural = text.match(/(?:color\s*[:=]\s*|\b)([\p{L}][\p{L}\s-]{1,30}?)(?=\s+tallas?\b)/iu)
-  const naturalSizes = text.match(/tallas?\s*[:=]?\s*([\d\s,;/y.-]+?)(?=\s*(?:stock|$))/iu)
+  const naturalSizes = text.match(/tallas?\s*[:=]?\s*((?:\d|[smlx]|[\s,;/y.-])+?)(?=\s*(?:stock|$))/iu)
   const uniformStock = text.match(/(?:stock(?:\s+inicial)?\s*[:=]?\s*)(\d+)\s*(?:unidades?\s+)?por\s+talla/iu)
   if (naturalSizes && uniformStock) {
     const explicit = natural?.[1]?.replace(/^color\s*[:=]?\s*/i, '').trim()
     const color = explicit ? capitalize(explicit) : knownColor()
     const sizes = naturalSizes[1]!.split(/[\s,;/y.-]+/i).filter(Boolean)
     const stock = Number(uniformStock[1])
-    if (sizes.length && Number.isSafeInteger(stock) && stock >= 0 && sizes.every((size) => /^\d{1,3}[a-z]?$/i.test(size))) {
-      return { variants: sizes.map((size) => ({ size, color, stock })) }
+    if (sizes.length && Number.isSafeInteger(stock) && stock >= 0 && sizes.every((size) => new RegExp(`^(?:${SIZE_TOKEN})$`, 'iu').test(size))) {
+      return { variants: sizes.map((size) => ({ size: normalizeSize(size), color, stock })) }
     }
+  }
+  // A size range never becomes stock by guessing: ask for the units of each size.
+  const found = sizeRange(text)
+  if (found) {
+    const range = found.sizes
+    const amount = text.replace(found.matched, ' ').match(/\b(\d{1,6})\b/)?.[1]
+    const example = range.map((size) => `${size}:${amount || 5}`).join(', ')
+    return { clarify: `Entendí las tallas ${range.join(', ')}. ¿Cuántas unidades hay de cada una?${amount ? ` Si son ${amount} de cada talla, escribe:` : ' Escribe, por ejemplo:'}\n${example}` }
   }
   // "38:22, 39:21 y 40:3", "Negro talla 38:22; Negro talla 39:21", one per line.
   const entries = text.split(/\s*(?:[;,\n]|\s+y\s+)\s*/i).map((part) => part.replace(/[\s.!]+$/u, '').trim()).filter(Boolean)
   if (!entries.length) return { unreadable: text.slice(0, 40) }
   const variants: TelegramProductDraft['variants'] = []
   for (const entry of entries) {
-    const match = entry.match(/^(?:(.+?)\s+)?(?:talla\s*)?(\d{1,3}[a-z]?)\s*[:=]\s*(\d+)\s*(?:unidades?|u\.?|pares?)?$/i)
+    const match = entry.match(new RegExp(`^(?:(.+?)\\s+)?(?:talla\\s*)?(${SIZE_TOKEN})\\s*[:=]\\s*(\\d+)\\s*(?:unidades?|u\\.?|pares?|piezas?)?$`, 'iu'))
     if (!match) return { unreadable: entry.slice(0, 40) }
-    const size = match[2]!
+    const size = normalizeSize(match[2]!)
     const stock = Number(match[3])
     if (!Number.isSafeInteger(stock) || stock < 0) return { unreadable: entry.slice(0, 40) }
     const prior = previous.find((variant) => variant.size?.toLowerCase() === size.toLowerCase())
