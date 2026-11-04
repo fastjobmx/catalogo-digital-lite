@@ -25,6 +25,8 @@ import { askWhatToDoWithPhoto, beginAttachPhotos, getPendingAttach, handleAttach
 import { handleDocument, isSupportedDocument } from './assistant/documents'
 import { answerWithStoreFacts, draftProductDescription, interpretRequest } from './assistant/ai'
 import { detectIntent } from './assistant/intents'
+import { handleTeamCallback, showTeam } from './assistant/team'
+import { acceptCampaignText, createCampaign, detectCouponDraft, detectMarketingIntent, handleMarketingCallback, proposeCoupon, showCampaigns, showCoupons, showFollowUps, unsubscribe } from './assistant/marketing'
 import { detectMovementsQuery, detectStockMovement, proposeStockMovement, showStockMovements } from './assistant/inventory'
 import { acceptTrackingText, detectOrderIntent, handleOrderCallback, handleOrderIntent, showOrders } from './assistant/orders'
 import { catalogFacts, deterministicAdvice, escapeHtml } from './assistant/tools'
@@ -183,6 +185,8 @@ async function handleCallback(ctx: AssistantContext, data: string): Promise<void
     return
   }
   if (key.startsWith('ord:') && await handleOrderCallback(ctx, key)) return
+  if (key.startsWith('team:') && await handleTeamCallback(ctx, key)) return
+  if (key.startsWith('mk:') && await handleMarketingCallback(ctx, key)) return
   const paletteIdea = key.match(/^pal:(\d+):([0-9A-F]{6}):(faithful|balanced|vibrant)$/i)
   if (paletteIdea) {
     if (Number(paletteIdea[1]) !== ctx.store.id) { await say(ctx, otherStoreButton(ctx)); return }
@@ -366,6 +370,10 @@ async function handleCommand(ctx: AssistantContext, text: string): Promise<boole
       return true
     }
     case '/continuar': await continueOnboarding(ctx); return true
+    case '/equipo': await showTeam(ctx); return true
+    case '/cupones': await showCoupons(ctx); return true
+    case '/campanas':
+    case '/campañas': await showCampaigns(ctx); return true
     case '/configurar': await showSettingsCenter(ctx); return true
     case '/menu': await say(ctx, '¿Qué hacemos ahora?', mainMenuKeyboard(ctx.memberships.length > 1)); return true
     case '/ayuda':
@@ -435,8 +443,26 @@ async function handleText(ctx: AssistantContext, text: string): Promise<void> {
     await acceptTrackingText(ctx, text, session.state.targetOrder)
     return
   }
+  if (session.state.awaiting === 'campaign_text' && session.state.targetCampaign) {
+    await acceptCampaignText(ctx, session.state.targetCampaign, text)
+    return
+  }
+  const couponDraft = detectCouponDraft(text)
+  if (couponDraft) { await proposeCoupon(ctx, couponDraft); return }
+  const marketing = detectMarketingIntent(text)
+  if (marketing) {
+    if (marketing.kind === 'coupons') await showCoupons(ctx)
+    else if (marketing.kind === 'campaigns') await showCampaigns(ctx)
+    else if (marketing.kind === 'new_campaign') await createCampaign(ctx, marketing.coupon, marketing.message)
+    else if (marketing.kind === 'coupon_results') await handleMarketingCallback(ctx, `mk:${ctx.store.id}:res:${marketing.code}`)
+    else if (marketing.kind === 'coupon_off') await handleMarketingCallback(ctx, `mk:${ctx.store.id}:off:${marketing.code}`)
+    else if (marketing.kind === 'unsubscribe') await unsubscribe(ctx, marketing.phone)
+    else await showFollowUps(ctx)
+    return
+  }
   const orderIntent = detectOrderIntent(text)
   if (orderIntent) { await handleOrderIntent(ctx, orderIntent); return }
+  if (/\b(mi equipo|mis empleados|invitar a (un|una|alguien)|agregar (un|una) (vendedor|vendedora|empleado|empleada|colaborador|colaboradora)|dar acceso a (un|una|mi))\b/i.test(text)) { await showTeam(ctx); return }
   const movementsQuery = detectMovementsQuery(text)
   if (movementsQuery) { await showStockMovements(ctx, movementsQuery.sku); return }
   const movement = detectStockMovement(text)
@@ -595,6 +621,11 @@ export async function linkTelegramAccount(
       const already = await db.prepare('SELECT 1 FROM store_memberships WHERE store_id = ? AND user_id = ?').bind(token.storeId, existing.id).first()
       if (already) return { success: false, message: 'Tu cuenta de Telegram ya tiene acceso a esa tienda; no cambié nada. Ese código era para otra persona: pide al propietario que genere uno nuevo para ella.' }
       await upsertMembership(db, { storeId: token.storeId, userId: existing.id, role: granted.role, createdBy: `telegram:${telegramUserId}` })
+      // A pure invitation placeholder (no email, password or Telegram) is not a person: retire it.
+      await db.prepare(
+        `UPDATE store_memberships SET status = 'revoked', updated_at = datetime('now') WHERE store_id = ? AND user_id = ?
+         AND EXISTS (SELECT 1 FROM platform_users WHERE id = ? AND email IS NULL AND password_hash IS NULL AND telegram_user_id IS NULL)`,
+      ).bind(token.storeId, token.userId, token.userId).run()
       const added = await db.prepare('SELECT name FROM stores WHERE id = ?').bind(token.storeId).first<{ name: string }>()
       await db.prepare(`INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source, store_id) VALUES ('telegram_store_added', 'user', ?, ?, ?, 'telegram', ?)`)
         .bind(String(existing.id), JSON.stringify({ role: granted.role, viaUser: token.userId }), `telegram:${telegramUserId}`, token.storeId).run()

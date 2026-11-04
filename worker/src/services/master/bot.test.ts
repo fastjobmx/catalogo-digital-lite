@@ -119,7 +119,9 @@ describe('/crear_tienda guided flow', () => {
     expect(delivered).toContain('Logotipo aplicado')
     const store = h.db.query<any>("SELECT id, status, template FROM stores WHERE slug = 'moda-urbana'")[0]
     // No infrastructure details: no internal ids, job ids or provider names.
-    for (const internal of [`#${store.id}`, 'job', 'D1', 'R2', 'Worker', 'provisioning']) expect(delivered).not.toContain(internal)
+    // Random one-time codes and links may contain "R2" or "D1" by chance: check only the prose.
+    const prose = delivered.replace(/<code>[^<]*<\/code>/g, '').replace(/https?:\/\/\S+/g, '')
+    for (const internal of [`#${store.id}`, 'job', 'D1', 'R2', 'Worker', 'provisioning']) expect(prose).not.toContain(internal)
     expect(store).toMatchObject({ status: 'draft', template: 'premium' })
     const config = h.db.query<any>('SELECT primary_color, accent_color, logo_url FROM store_config WHERE id = ?', store.id)[0]
     expect(config).toMatchObject({ primary_color: '#153D70', accent_color: '#B08D57' })

@@ -74,7 +74,98 @@ Verificado con lecturas en producción: tu cuenta tiene membresía de propietari
 
 Reversión: Worker anterior + `database/rollback/0009_orders_inventory.down.sql`.
 
-## 4. Próximas fases propuestas
+### Fase 3 — Inteligencia comercial (staging)
+
+Consultas tipificadas de solo lectura. Gemini solo elige la acción y el servidor calcula con datos de la tienda activa; no hay SQL libre.
+
+- **Ventas por día, semana o mes** (“ventas por semana”): solo pedidos confirmados, con descuentos ya restados.
+- **Productos sin movimiento** (“¿qué productos no se han vendido?”): sin ventas confirmadas en 60 días. Los productos nuevos se excluyen.
+- **Rotación por talla** (“¿qué tallas se venden más?”).
+- **Clientes recurrentes**: solo con 5 o más compradores; teléfonos enmascarados (•••1234).
+- **Rentabilidad**: se niega a calcularla porque no hay costos registrados; no inventa cifras.
+- El resumen de pedidos muestra “Recibido (sin confirmar)” aparte de las ventas.
+
+### Fase 4 — Empleados (staging)
+
+- **Roles nuevos:**
+  - **Vendedor:** gestiona pedidos y consultas.
+  - **Encargado de inventario:** gestiona existencias y movimientos.
+  - **Operador:** pedidos e inventario; sin cambios para quienes ya lo tienen.
+- Se suman a propietario y administrador.
+- **Permisos explícitos** (`can(role, capability)`) además de la jerarquía:
+  - Un vendedor no cambia stock y un encargado de inventario no gestiona pedidos, ni en Telegram ni en el panel (`PATCH /api/orders` → 403).
+  - Cupones y campañas solo para propietario y administrador.
+- **`/equipo` en Telegram:**
+  - Lista del equipo.
+  - Invitación con el rol mínimo, mediante un enlace o código `/link` de un solo uso que vence en 72 h; solo se guarda el hash.
+  - Quitar acceso con confirmación; también invalida los códigos pendientes de esa persona.
+  - Todo queda auditado.
+- **Al vincularse:** si la persona ya tiene cuenta, se le agrega la tienda y se retira la cuenta provisional de la invitación.
+- **API del panel:** `POST /api/admin/team` acepta los roles nuevos.
+- **Migración `0010`:** reconstruye `store_memberships` para ampliar la restricción de roles. Sobre copias de staging y de producción, filas idénticas e índice recreado.
+
+### Fase 5 — Marketing con consentimiento (staging)
+
+- **Cupones:**
+  - Por Telegram: “crea un cupón VERANO10 de 10% hasta el 31/12, máximo 50 usos”, con vista previa y confirmación.
+  - `/cupones` para la lista, resultados y desactivación.
+  - Porcentaje de 1 a 90 o valor fijo, con mínimo de compra, vigencia y límite de usos.
+- **Checkout:**
+  - Campo de cupón con vista previa (`POST /api/orders/coupon`).
+  - El servidor vuelve a validar el cupón con los precios del catálogo y respeta el límite de usos aunque haya pedidos simultáneos.
+  - El descuento queda en `discount_total`.
+- **Consentimiento:** casilla **sin marcar por defecto** (“Quiero recibir promociones… puedo darme de baja”). Solo con la casilla marcada se guarda el contacto.
+- **Bajas:** “dar de baja 3001234567” aplica de inmediato y queda en la auditoría con el número enmascarado.
+- **Campañas:**
+  - Se crean en borrador con vista previa y el número de destinatarios.
+  - Requieren tu aprobación. Al aprobar, se generan **enlaces de WhatsApp** para que tú los envíes a mano, solo a contactos con consentimiento y sin baja; cada mensaje incluye cómo darse de baja.
+  - **La plataforma nunca envía nada por su cuenta.**
+- **Resultados del cupón:** cuentan solo pedidos confirmados.
+- **Recuperación:** “pedidos sin confirmar” lista las solicitudes de más de 1 día con un enlace para escribirle al cliente. No hay carritos abandonados porque el carrito no se guarda en el servidor.
+
+### Fase 6 — Administración SaaS (staging)
+
+- **Límite de productos del plan** (`max_products`) aplicado en el panel (409 `PLAN_PRODUCT_LIMIT`) y en Telegram.
+- **Facturas:**
+  - Tabla `store_invoices`, generada a partir de servicios activos (mensuales, anuales en su mes y únicos) y del precio mensual del plan. Es idempotente: no se duplican.
+  - Estados pendiente → pagada o anulada; pagada y anulada son definitivos. Todo queda auditado.
+  - **Sin cobros automáticos.**
+- **Dominios propios:** pendiente → verificado → activo → retirado. Para activarlo, el plan debe incluir `dominio_propio`. El DNS y Netlify siguen siendo pasos manuales.
+- **Alertas de consumo de IA:** tiendas sobre su umbral de aviso.
+- **API de plataforma:**
+  - `GET /api/platform/invoices`
+  - `POST /api/platform/invoices/generate`
+  - `POST /api/platform/invoices/:id/status`
+  - `POST /api/platform/domains/:domain/status`
+  - `GET /api/platform/ai-alerts`
+- **Bot maestro:** `/facturas`, `/facturar [AAAA-MM]`, `/pagada n`, `/anular n`, `/dominio_estado`, `/consumo`. Todos los cambios piden confirmación.
+
+**Verificación de las fases 3 a 6:**
+- Worker **245/245** (`platform-phases.test.ts`, 16 escenarios) y `tsc`; frontend **67/67** con compilación correcta.
+- Staging: `0010` aplicada (respaldo `.tmp/staging-0010/`), Worker `e136904a`.
+- Prueba de escritura 24/25 sobre una tienda ficticia eliminada al final, sin restos y con la tienda principal idéntica. El único punto marcado es que Telegram no pudo entregar las respuestas al usuario ficticio (“chat not found”); los cálculos sí se ejecutaron.
+- En staging se encontró y corrigió un error: “crea una campaña con el cupón X” se interpretaba como un cupón nuevo.
+
+**Pendiente o fuera de alcance:**
+- Inventario por presentación y por ubicación (bodega).
+- Pantalla de facturas en `/plataforma`: hoy se gestionan por API y por el bot maestro.
+- Cobros en línea.
+- Integración de seguimiento con transportadoras.
+- Envío automático de campañas: no se hará sin un canal oficial (WhatsApp Business API) y tu decisión.
+
+## 4. Publicación de las fases 2 a 6
+
+Producción está en el Worker `226aef4e` y la migración `0008`. Orden obligatorio:
+
+1. Respaldo fresco de `catalogo-lite-production-db` y bookmark de Time Travel.
+2. Migraciones `0009` (solo agrega) y `0010` (agrega tablas y reconstruye `store_memberships` con las mismas filas).
+3. Despliegue del Worker.
+4. **Después**, push a `main` (Netlify publica el carrito con cupón y consentimiento, y los campos de envío del panel). El panel y el carrito nuevos envían campos que el Worker actual rechaza.
+5. Smoke test en producción y verificación de las membresías (deben seguir siendo 2, idénticas).
+
+Reversión: Worker anterior, luego `0010_team_marketing_billing.down.sql` y `0009_orders_inventory.down.sql`, en ese orden, o Time Travel al bookmark previo.
+
+## 5. Fases propuestas originalmente (referencia)
 
 | Fase | Contenido | Requiere |
 |---|---|---|

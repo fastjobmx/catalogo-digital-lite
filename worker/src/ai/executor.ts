@@ -3,6 +3,7 @@ import {
   getInventoryTool, lowStockTool, outOfStockTool, pendingOrdersTool, salesSummaryTool, searchProductsTool,
   storeSummaryTool, topProductsTool, withoutDescriptionTool, withoutPhotosTool, type ToolResult,
 } from '../services/assistant/tools'
+import { profitabilityTool, repeatCustomersTool, salesByPeriodTool, sizeRotationTool, slowMoversTool } from '../services/assistant/insights'
 
 export type ReadScope = { storeId: number; currency: string }
 
@@ -33,6 +34,11 @@ export async function executeReadAction(
     case 'get_pending_orders': result = await pendingOrdersTool(db, storeId); break
     case 'get_top_products': result = await topProductsTool(db, storeId, currency, typeof p.days === 'number' ? p.days : 30); break
     case 'get_sales_summary': result = await salesSummaryTool(db, storeId, currency, typeof p.days === 'number' ? p.days : 30); break
+    case 'get_sales_by_period': result = await salesByPeriodTool(db, storeId, currency, p.days, p.granularity); break
+    case 'get_slow_movers': result = await slowMoversTool(db, storeId, currency, p.days); break
+    case 'get_size_rotation': result = await sizeRotationTool(db, storeId, p.days); break
+    case 'get_repeat_customers': result = await repeatCustomersTool(db, storeId, currency, p.days); break
+    case 'get_profitability': result = profitabilityTool(); break
     default: return { ok: false, message: 'Esta consulta necesita el asistente de IA.' }
   }
   return { ok: true, message: result.text, skus: result.skus }

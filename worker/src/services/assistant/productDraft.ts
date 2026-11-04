@@ -1,4 +1,4 @@
-import { applyConfirmedTelegramProductCreation, createCatalogCategory } from '../business'
+import { applyConfirmedTelegramProductCreation, createCatalogCategory, productLimit } from '../business'
 import { deleteTelegramDraftImages, deleteTelegramDraftTempImages, downloadTelegramImage, promoteTelegramDraftImages, storeTelegramDraftImage } from '../telegramProductImages'
 import {
   createTelegramProductDraft, mergeGeminiProductFields, missingProductDraftFields, parseProductDraftFieldReply,
@@ -217,7 +217,13 @@ async function sendDraftPreview(ctx: AssistantContext, operationId: string, draf
   const ai = new Set(draft.aiSuggested || [])
   const mark = (field: string) => ai.has(field) ? ' ✨' : ''
   const variants = draft.variants.map((variant) => `• ${escapeHtml([variant.color, variant.size && variant.size !== 'Única' ? `talla ${variant.size}` : variant.size].filter(Boolean).join(' · '))}: ${variant.stock} u.`).join('\n')
+  // Same name with another code is likely the same product uploaded twice: warn, never block.
+  const similar = draft.fields.name
+    ? await ctx.db.prepare(`SELECT sku FROM products WHERE store_id = ? AND is_archived = 0 AND lower(trim(name)) = lower(trim(?)) AND upper(sku) <> upper(?) LIMIT 1`)
+      .bind(ctx.store.id, draft.fields.name, draft.fields.sku || '').first<{ sku: string }>()
+    : null
   const caption = `<b>Vista previa del producto</b>\n\n` +
+    (similar ? `⚠️ Ya tienes un producto con el mismo nombre (código ${escapeHtml(similar.sku)}). Revisa que no sea un duplicado.\n\n` : '') +
     `<b>${escapeHtml(draft.fields.name)}</b>${mark('name')}\n` +
     `Precio: ${formatMoney(Number(draft.fields.price), ctx.store.currency)}\n` +
     `Categoría: ${escapeHtml(draft.fields.categoryName)}${mark('category')}\n` +
@@ -489,6 +495,8 @@ export async function publishProductDraft(ctx: AssistantContext, active: Pending
   if (!category || category.name !== draft.fields.categoryName) { await say(ctx, 'La categoría cambió o ya no está activa. Elige otra en “Editar información”.'); return }
   const duplicate = await ctx.db.prepare('SELECT id FROM products WHERE store_id = ? AND sku = ?').bind(ctx.store.id, draft.fields.sku).first()
   if (duplicate) { await say(ctx, 'Ese código ya lo usa otro producto. Cámbialo en “Editar información”.'); return }
+  const limit = await productLimit(ctx.db, ctx.store.id)
+  if (limit.max !== null && limit.count >= limit.max) { await say(ctx, `Tu plan${limit.plan ? ` ${escapeHtml(limit.plan)}` : ''} permite ${limit.max} productos activos y ya tienes ${limit.count}. Archiva alguno o pide un cambio de plan; no publiqué este producto.`); return }
   for (const image of draft.images) {
     const stored = image.tempKey.startsWith(`telegram-drafts/${operation.operation_id}/`) ? await ctx.env.ASSETS.get(image.tempKey) : null
     if (!stored || stored.customMetadata?.operationId !== operation.operation_id) {

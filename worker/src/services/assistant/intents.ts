@@ -51,13 +51,13 @@ function referencesRecent(text: string): boolean {
   return /\b(este|esta|estos|estas|ese|esa|esos|esas)\s+(producto|productos|zapatos|tenis|art[ií]culos?|referencias?|prendas?)\b|\b(ese|este)\b\s*$/i.test(text)
 }
 
-function daysFromText(text: string): number {
+function daysFromText(text: string, fallback = 30): number {
   if (/esta semana|la semana|7 d[ií]as/.test(text)) return 7
   if (/hoy/.test(text)) return 1
   if (/este mes|del mes|el mes/.test(text)) return Math.max(1, new Date().getUTCDate())
   if (/a[nñ]o/.test(text)) return 365
   const explicit = text.match(/[uú]ltimos?\s+(\d{1,3})\s+d[ií]as/)
-  return explicit ? Math.min(365, Number(explicit[1])) : 30
+  return explicit ? Math.min(365, Number(explicit[1])) : fallback
 }
 
 export function detectIntent(raw: string, recentSkus: string[] = []): Intent | null {
@@ -89,6 +89,18 @@ export function detectIntent(raw: string, recentSkus: string[] = []): Intent | n
 
   if (/(oculta|ocultar|esconde|esconder|desactiva|quita|quitar)\w*\b.*\b(agotad|sin stock|sin existencias|sin unidades)/.test(lower)) {
     return { kind: 'action', action: 'hide_out_of_stock', params: {}, summary: 'Ocultar productos agotados.' }
+  }
+
+  // Commercial indicators (read-only, computed from confirmed orders only).
+  if (/rentabilidad|ganancias?|utilidad(es)?|m[aá]rgen(es)?/.test(lower)) return { kind: 'action', action: 'get_profitability', params: {} }
+  if (/rotaci[oó]n.*talla|tallas?\s+(?:que\s+)?m[aá]s\s+(?:se\s+)?vend|qu[eé]\s+tallas?\s+(?:se\s+)?vend/.test(lower)) return { kind: 'action', action: 'get_size_rotation', params: { days: daysFromText(lower, 60) } }
+  if (/sin\s+movimiento|no\s+se\s+(?:han\s+)?vend|no\s+(?:he|han|hemos)\s+vendido|productos?\s+(?:quietos|estancados|lentos|parados)/.test(lower)) return { kind: 'action', action: 'get_slow_movers', params: { days: daysFromText(lower, 60) } }
+  if (/clientes?\s+(?:recurrentes|frecuentes|fieles|que\s+repiten|que\s+vuelven)|(?:vuelven|repiten)\s+a\s+comprar/.test(lower)) return { kind: 'action', action: 'get_repeat_customers', params: { days: daysFromText(lower, 180) } }
+  const period = lower.match(/ventas\s+(?:por|de\s+cada|cada)\s+(d[ií]a|semana|mes)|ventas\s+(diarias|semanales|mensuales)/)
+  if (period) {
+    const word = period[1] || period[2] || ''
+    const granularity = /d[ií]a|diarias/.test(word) ? 'dia' : /mes|mensuales/.test(word) ? 'mes' : 'semana'
+    return { kind: 'action', action: 'get_sales_by_period', params: { days: daysFromText(lower, granularity === 'mes' ? 180 : 30), granularity } }
   }
 
   const low = lower.match(/(?:menos de|menor a|por debajo de|bajo|poco)\s+(\d+|[a-záéíóúñ]+)?\s*(?:unidades|stock|existencias|inventario)/)

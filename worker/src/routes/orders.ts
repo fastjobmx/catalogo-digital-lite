@@ -1,10 +1,11 @@
 import { Hono } from 'hono'
 import { canTransition } from '../services/orders'
+import { checkCoupon, claimCouponUse, normalizePhone, recordMarketingConsent } from '../services/marketing'
 import { notifyNewOrder } from '../services/assistant/orders'
 import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
 import type { Env } from '../index'
-import { adminAuth, requireRole } from '../middleware/auth'
+import { adminAuth, requireCapability } from '../middleware/auth'
 import { publicStore } from '../middleware/tenant'
 
 const app = new Hono<Env>()
@@ -35,6 +36,9 @@ const createOrderSchema = z.object({
   notes: z.string().trim().max(500).optional(),
   currency: z.string().max(8).optional(),
   items: z.array(orderItemSchema).min(1).max(100),
+  couponCode: z.string().trim().max(30).optional(),
+  /** Explicit opt-in to receive promotions by WhatsApp; never pre-checked. */
+  marketingConsent: z.boolean().optional(),
 })
 
 const ALLOWED_STATUSES = ['pendiente', 'confirmado', 'preparando', 'enviado', 'entregado', 'cancelado'] as const
@@ -90,8 +94,8 @@ function mapOrder(o: Record<string, any>) {
     customerCity: o.customer_city ?? null, deliveryAddress: o.delivery_address ?? null,
     deliveryMethod: o.delivery_method ?? null, paymentMethod: o.payment_method ?? null,
     customerNotes: o.notes ?? null,
-    items: parseItems(o.items_json), subtotal: Number(o.subtotal || 0), discountTotal: 0, shippingCost,
-    total: shippingCost == null ? null : Number(o.subtotal || 0) + shippingCost,
+    items: parseItems(o.items_json), subtotal: Number(o.subtotal || 0), discountTotal: Number(o.discount_total || 0), couponCode: o.coupon_code ?? null, shippingCost,
+    total: shippingCost == null ? null : Number(o.subtotal || 0) - Number(o.discount_total || 0) + shippingCost,
     currency: String(o.currency || 'COP'), status: String(o.status || 'pendiente'),
     paymentStatus: String(o.payment_status || 'pendiente'), internalNotes: o.internal_notes ?? '',
     revision: Number(o.revision || 1), createdAt: String(o.created_at || ''), updatedAt: String(o.updated_at || ''),
@@ -110,10 +114,10 @@ app.post('/', publicStore, zValidator('json', createOrderSchema), async (c) => {
   const idempotencyKey = (c.req.header('Idempotency-Key') || '').trim()
   if (!/^[\w.-]{16,100}$/.test(idempotencyKey)) return c.json({ error: 'A valid Idempotency-Key is required' }, 400)
   const fingerprint = await digest(JSON.stringify(body))
-  const previous = await db.prepare('SELECT id, store_id, display_id, request_fingerprint, subtotal, currency, status, payment_status, items_json FROM orders WHERE idempotency_key = ?').bind(idempotencyKey).first<Record<string, any>>()
+  const previous = await db.prepare('SELECT id, store_id, display_id, request_fingerprint, subtotal, discount_total, currency, status, payment_status, items_json FROM orders WHERE idempotency_key = ?').bind(idempotencyKey).first<Record<string, any>>()
   if (previous) {
     if (Number(previous.store_id) !== storeId || previous.request_fingerprint !== fingerprint) return c.json({ error: 'This checkout key was already used for a different order' }, 409)
-    return c.json({ id: Number(previous.id), displayId: String(previous.display_id), subtotal: Number(previous.subtotal), discountTotal: 0, total: null, currency: String(previous.currency), status: String(previous.status), paymentStatus: String(previous.payment_status), items: parseItems(previous.items_json), replayed: true })
+    return c.json({ id: Number(previous.id), displayId: String(previous.display_id), subtotal: Number(previous.subtotal), discountTotal: Number(previous.discount_total || 0), total: null, currency: String(previous.currency), status: String(previous.status), paymentStatus: String(previous.payment_status), items: parseItems(previous.items_json), replayed: true })
   }
 
   const rateKey = await orderRateKey(c.req.header('CF-Connecting-IP') || 'unknown')
@@ -155,26 +159,50 @@ app.post('/', publicStore, zValidator('json', createOrderSchema), async (c) => {
   if (!Number.isSafeInteger(subtotal)) return c.json({ error: 'Order subtotal exceeds supported limits' }, 400)
   const storeConfig = await db.prepare('SELECT currency FROM store_config WHERE id = ?').bind(storeId).first<{ currency: string }>()
   const currency = storeConfig?.currency || c.env.STORE_CURRENCY || 'COP'
+  let discount = 0
+  let couponCode: string | null = null
+  let couponId: number | null = null
+  if (body.couponCode) {
+    const check = await checkCoupon(db, storeId, body.couponCode, subtotal)
+    if (!check.ok) return c.json({ error: check.reason, code: 'COUPON_INVALID' }, 409)
+    if (!await claimCouponUse(db, check.coupon.id)) return c.json({ error: 'Ese cupón ya alcanzó su límite de usos.', code: 'COUPON_INVALID' }, 409)
+    discount = check.discount
+    couponCode = check.coupon.code
+    couponId = check.coupon.id
+  }
   const displayId = generateDisplayId()
   let result
   try {
     result = await db.prepare(`INSERT INTO orders (store_id, display_id, customer_name, customer_phone, customer_email, customer_city,
       delivery_address, delivery_method, payment_method, items_json, subtotal, total, currency, status, payment_status,
-      shipping_cost, whatsapp_sent, notes, idempotency_key, request_fingerprint, inventory_managed)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendiente', 'pendiente', NULL, 0, ?, ?, ?, 1)`)
+      shipping_cost, whatsapp_sent, notes, idempotency_key, request_fingerprint, inventory_managed, coupon_code, discount_total, marketing_consent)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendiente', 'pendiente', NULL, 0, ?, ?, ?, 1, ?, ?, ?)`)
       .bind(storeId, displayId, body.customerName || null, body.customerPhone || null, body.customerEmail || null, body.customerCity || null,
         body.deliveryAddress || null, body.deliveryMethod || null, body.paymentMethod || null, JSON.stringify(snapshots), subtotal,
-        subtotal, currency, body.notes || null, idempotencyKey, fingerprint).run()
+        subtotal - discount, currency, body.notes || null, idempotencyKey, fingerprint, couponCode, discount, body.marketingConsent ? 1 : 0).run()
   } catch {
+    if (couponId) await db.prepare('UPDATE coupons SET uses = uses - 1 WHERE id = ? AND uses > 0').bind(couponId).run()
     const raced = await db.prepare('SELECT id, store_id, display_id, request_fingerprint, subtotal, currency, status, payment_status, items_json FROM orders WHERE idempotency_key = ?').bind(idempotencyKey).first<Record<string, any>>()
     if (!raced) throw new Error('Could not register order')
     if (Number(raced.store_id) !== storeId || raced.request_fingerprint !== fingerprint) return c.json({ error: 'This checkout key was already used for a different order' }, 409)
     return c.json({ id: Number(raced.id), displayId: String(raced.display_id), subtotal: Number(raced.subtotal), discountTotal: 0, total: null, currency: String(raced.currency), status: String(raced.status), paymentStatus: String(raced.payment_status), items: parseItems(raced.items_json), replayed: true })
   }
   const orderId = Number(result.meta.last_row_id)
+  const consentPhone = body.marketingConsent ? normalizePhone(body.customerPhone, c.env.STORE_COUNTRY || 'CO') : null
+  if (consentPhone) await recordMarketingConsent(db, storeId, consentPhone, body.customerName || null).catch(() => undefined)
   // Tell the store team in Telegram without delaying the buyer's checkout.
   try { c.executionCtx.waitUntil(notifyNewOrder(c.env, db, { storeId, orderId }).catch(() => undefined)) } catch { /* no execution context in some tests */ }
-  return c.json({ id: orderId, displayId, subtotal, discountTotal: 0, total: null, currency, status: 'pendiente', paymentStatus: 'pendiente', items: snapshots, replayed: false }, 201)
+  return c.json({ id: orderId, displayId, subtotal, discountTotal: discount, couponCode, total: null, currency, status: 'pendiente', paymentStatus: 'pendiente', items: snapshots, replayed: false }, 201)
+})
+
+// Public coupon preview for the cart. The order endpoint validates it again.
+app.post('/coupon', publicStore, async (c) => {
+  const body = await c.req.json().catch(() => null) as { code?: unknown; subtotal?: unknown } | null
+  const subtotal = Number(body?.subtotal)
+  if (!body || !Number.isSafeInteger(subtotal) || subtotal < 0) return c.json({ error: 'Invalid request' }, 400)
+  const check = await checkCoupon(c.env.DB, c.get('store')!.id, body.code, subtotal)
+  if (!check.ok) return c.json({ valid: false, message: check.reason })
+  return c.json({ valid: true, code: check.coupon.code, discount: check.discount, kind: check.coupon.kind, value: check.coupon.value })
 })
 
 // Protected list and details keep buyer information out of public endpoints.
@@ -204,7 +232,7 @@ app.get('/:id', adminAuth, async (c) => {
   return c.json({ ...mapOrder(row), events: results || [] })
 })
 
-app.patch('/:id', adminAuth, requireRole('operator'), async (c) => {
+app.patch('/:id', adminAuth, requireCapability('orders.manage'), async (c) => {
   const id = Number(c.req.param('id'))
   const body = await c.req.json().catch(() => null) as Record<string, unknown> | null
   if (!Number.isSafeInteger(id) || id < 1 || !body) return c.json({ error: 'Invalid request' }, 400)

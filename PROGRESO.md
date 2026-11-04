@@ -420,3 +420,7 @@ El asistente rechazaba `S:10, M:10, L:15, XL:20.` (solo leía tallas numéricas)
 ### Plataforma de comercio — auditoría y Fase 2 — 2026-11-04
 
 Auditoría y matriz en `docs/PLATAFORMA_COMERCIO_AUDITORIA.md`. Fase 1 (multitienda) verificada en producción. Fase 2 implementada: pedidos desde Telegram (lista, detalle, transiciones confirmadas, pago verificado, despacho con guía, aviso de pedidos nuevos), transportadora y guía en el panel, migración `0009` con libro de movimientos de inventario y bloqueo de stock negativo, entradas y salidas con motivo por Telegram y alertas de stock bajo. Worker 229/229, frontend 67/67. Staging: `0009` aplicada (respaldo `.tmp/staging-0009/`), Worker `c2ca4381`, prueba de escritura 18/18. Producción sin cambios; el push debe ir después del Worker de producción.
+
+### Fases 3–6 — 2026-11-04
+
+Indicadores comerciales, roles vendedor y encargado de inventario con permisos explícitos y `/equipo`, cupones y consentimiento en el carrito, campañas con aprobación y envío manual, bajas, seguimiento de pedidos sin confirmar, límite de productos por plan, facturas de plataforma, estados de dominio y alertas de IA en el bot maestro. Migración `0010` (reconstruye `store_memberships` con las mismas filas). Worker 245/245, frontend 67/67. Staging `e136904a` con `0010`; prueba de escritura 24/25 (la única marca es la entrega de Telegram a un usuario ficticio). Producción sin cambios; orden de publicación en `docs/PLATAFORMA_COMERCIO_AUDITORIA.md` §4.

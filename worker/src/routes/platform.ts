@@ -8,6 +8,7 @@ import {
   renameStoreSlug, requestCustomDomain, setStoreAiBudget, setStorePlan, setStoreStatus, storesHealth,
 } from '../services/platform'
 import type { StoreStatus } from '../tenancy/stores'
+import { aiUsageAlerts, currentBillingPeriod, generateInvoices, listInvoices, setDomainStatus, setInvoiceStatus } from '../services/billing'
 
 const app = new Hono<Env>()
 app.use('*', platformAuth)
@@ -101,6 +102,27 @@ app.delete('/stores/:slug', async (c) => {
   const body = await c.req.json().catch(() => null) as { confirm?: string } | null
   try { return c.json(await purgeStore(c.env.DB, c.env.ASSETS, c.req.param('slug'), String(body?.confirm || ''), actor(c))) } catch (error) { return fail(c, error) }
 })
+
+// Billing: invoices generated from active services and plan prices; payment is recorded manually.
+app.get('/invoices', async (c) => c.json({ items: await listInvoices(c.env.DB, { status: c.req.query('status'), slug: c.req.query('store') }) }))
+app.post('/invoices/generate', async (c) => {
+  const body = await c.req.json().catch(() => ({})) as { period?: string }
+  try { return c.json(await generateInvoices(c.env.DB, body.period || currentBillingPeriod(), actor(c))) } catch (error) { return fail(c, error) }
+})
+app.post('/invoices/:id/status', async (c) => {
+  const body = await c.req.json().catch(() => null) as { status?: string } | null
+  if (body?.status !== 'pagada' && body?.status !== 'anulada') return c.json({ error: 'Invalid status' }, 400)
+  try { return c.json(await setInvoiceStatus(c.env.DB, Number(c.req.param('id')), body.status, actor(c))) } catch (error) { return fail(c, error) }
+})
+
+// Custom domains: pendiente → verificado → activo → retirado (DNS and Netlify are manual steps).
+app.post('/domains/:domain/status', async (c) => {
+  const body = await c.req.json().catch(() => null) as { status?: string } | null
+  if (!body?.status || !['verificado', 'activo', 'retirado'].includes(body.status)) return c.json({ error: 'Invalid status' }, 400)
+  try { return c.json(await setDomainStatus(c.env.DB, c.req.param('domain'), body.status as 'verificado' | 'activo' | 'retirado', actor(c))) } catch (error) { return fail(c, error) }
+})
+
+app.get('/ai-alerts', async (c) => c.json({ items: await aiUsageAlerts(c.env.DB) }))
 
 app.get('/jobs/:id', async (c) => {
   const job = await c.env.DB.prepare('SELECT id, slug, store_id AS storeId, status, current_step AS currentStep, steps_json AS steps, error_code AS errorCode, attempts, created_at AS createdAt, completed_at AS completedAt FROM provisioning_jobs WHERE id = ?').bind(c.req.param('id')).first<Record<string, unknown>>()

@@ -4,7 +4,7 @@ import { X, Plus, Minus, Trash2, MessageCircle, ShoppingBag, ArrowRight } from '
 import { useCart } from '../../contexts/CartContext'
 import { useStore } from '../../contexts/StoreContext'
 import { useCatalog } from '../../contexts/CatalogContext'
-import { createOrder, getProducts } from '../../services/api'
+import { ApiRequestError, createOrder, getProducts, validateCoupon } from '../../services/api'
 import { formatMoney } from '../../lib/format'
 import { buildWhatsAppOrderMessage, getCheckoutIdempotencyKey, whatsappLink } from '../../lib/whatsapp'
 import type { CartItem } from '../../contexts/CartContext'
@@ -25,6 +25,25 @@ export default function CartDrawer() {
   const [checkoutBusy, setCheckoutBusy] = useState(false)
   const [checkoutMessage, setCheckoutMessage] = useState('')
   const [confirmClear, setConfirmClear] = useState(false)
+  const [couponInput, setCouponInput] = useState('')
+  const [coupon, setCoupon] = useState<{ code: string; discount: number } | null>(null)
+  const [couponMessage, setCouponMessage] = useState('')
+  // Promotions only with an explicit, unchecked-by-default opt-in.
+  const [marketingConsent, setMarketingConsent] = useState(false)
+
+  // Any cart change invalidates the previewed discount; the server validates it again.
+  useEffect(() => { setCoupon(null) }, [subtotal])
+
+  const applyCoupon = async () => {
+    const code = couponInput.trim().toUpperCase()
+    if (!code) return
+    setCouponMessage('')
+    try {
+      const preview = await validateCoupon(code, subtotal)
+      if (preview.valid && preview.code) { setCoupon({ code: preview.code, discount: Number(preview.discount || 0) }); setCouponMessage('Cupón aplicado.') }
+      else { setCoupon(null); setCouponMessage(preview.message || 'Ese cupón no es válido.') }
+    } catch { setCoupon(null); setCouponMessage('No pudimos validar el cupón. Inténtalo de nuevo.') }
+  }
 
   useEffect(() => {
     const handleOpen = () => setIsOpen(true)
@@ -130,6 +149,8 @@ export default function CartDrawer() {
           paymentMethod: paymentMethod || undefined,
           currency: store.currency,
           notes: customerNotes.trim(),
+          couponCode: coupon?.code,
+          marketingConsent: marketingConsent || undefined,
           items: currentItems.map((item) => ({
             productId: String(item.productId),
             variantId: item.variantId ? String(item.variantId) : undefined,
@@ -155,15 +176,16 @@ export default function CartDrawer() {
         customerCity: customerCity || undefined,
         deliveryAddress: deliveryInfo || undefined,
         paymentMethod: paymentMethod || undefined,
-        customerNotes: customerNotes || undefined,
+        customerNotes: [registered.discountTotal > 0 && coupon ? `Cupón ${coupon.code}: -${formatMoney(registered.discountTotal, registered.currency)}` : '', customerNotes].filter(Boolean).join('. ') || undefined,
       })
       const url = whatsappLink(phone, message)
       if (!url) throw new Error('No se pudo construir el enlace de WhatsApp.')
       whatsappWindow.opener = null
       whatsappWindow.location.href = url
       setCheckoutMessage(`Pedido ${registered.displayId} registrado. WhatsApp está abierto; el mensaje solo se envía cuando pulses Enviar.`)
-    } catch {
+    } catch (error) {
       whatsappWindow.close()
+      if (error instanceof ApiRequestError && error.code === 'COUPON_INVALID') { setCoupon(null); setCheckoutMessage(error.message); return }
       setCheckoutMessage('No pudimos verificar el inventario. Inténtalo de nuevo antes de enviar el pedido.')
     } finally {
       setCheckoutBusy(false)
@@ -313,6 +335,15 @@ export default function CartDrawer() {
                 {['Transferencia', 'Tarjeta', 'Efectivo contraentrega', 'Otro'].map((method) => <option key={method} value={method}>{method}</option>)}
               </select>
               <textarea maxLength={500} placeholder="Observaciones de entrega (opcional)" value={customerNotes} onChange={(e) => setCustomerNotes(e.target.value)} className="input-field text-sm" rows={2} />
+              <div className="flex gap-2">
+                <input type="text" placeholder="Cupón de descuento (opcional)" value={couponInput} onChange={(e) => setCouponInput(e.target.value.toUpperCase())} maxLength={20} className="input-field text-sm" aria-label="Cupón de descuento" />
+                <button type="button" onClick={() => void applyCoupon()} className="shrink-0 rounded-btn border border-line px-3 text-sm font-semibold hover:bg-canvas">Aplicar</button>
+              </div>
+              {couponMessage && <p className="text-[11px] text-muted" role="status">{couponMessage}</p>}
+              <label className="flex items-start gap-2 text-[12px] text-muted">
+                <input type="checkbox" checked={marketingConsent} onChange={(e) => setMarketingConsent(e.target.checked)} className="mt-0.5" />
+                <span>Quiero recibir promociones de {store.name} por WhatsApp. Puedo darme de baja cuando quiera.</span>
+              </label>
             </div>}
 
             <div className="space-y-1">
@@ -320,6 +351,10 @@ export default function CartDrawer() {
                 <span className="text-muted">Subtotal de productos</span>
                 <span className="font-semibold text-ink tabular-nums">{formatMoney(subtotal, store.currency)}</span>
               </div>
+              {coupon && coupon.discount > 0 && <div className="flex items-center justify-between text-sm">
+                <span className="text-muted">Cupón {coupon.code}</span>
+                <span className="font-semibold text-ink tabular-nums">-{formatMoney(coupon.discount, store.currency)}</span>
+              </div>}
               <div className="flex items-center justify-between">
                 <span className="text-sm font-semibold text-ink">Envío por cotizar</span>
                 <span className="text-xl font-bold text-ink tabular-nums">Por cotizar</span>

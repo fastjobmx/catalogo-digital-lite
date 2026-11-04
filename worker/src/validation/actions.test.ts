@@ -3,7 +3,7 @@ import { actionSchemas, ACTION_NAMES, parseActionPayload, READ_ONLY_ACTIONS } fr
 
 describe('actionSchemas / parseActionPayload', () => {
   it('expone el catálogo cerrado de acciones tipadas del agente (lectura y cambios confirmables)', () => {
-    expect(ACTION_NAMES.length).toBe(34)
+    expect(ACTION_NAMES.length).toBe(39)
     expect(ACTION_NAMES).toContain('hide_out_of_stock')
     expect(ACTION_NAMES).toContain('get_low_stock')
     expect(READ_ONLY_ACTIONS.has('get_top_products')).toBe(true)

@@ -1,5 +1,5 @@
 import type { Env } from '../../index'
-import { roleAllows } from '../../tenancy/access'
+import { can } from '../../tenancy/access'
 import { adminStoreUrl } from '../../tenancy/stores'
 import {
   CONFIRMED_SALE_STATUSES, ORDER_STATUS_ICONS, ORDER_STATUS_LABELS, ORDER_TRANSITIONS, PAYMENT_STATUS_LABELS,
@@ -79,7 +79,7 @@ export async function showOrder(ctx: AssistantContext, reference: string | numbe
     `<i>${sale} Los datos de contacto del cliente están en el panel.</i>`,
   ].join('\n')
   const rows: Row[] = []
-  if (roleAllows(ctx.role, 'operator')) {
+  if (can(ctx.role, 'orders.manage')) {
     for (const next of ORDER_TRANSITIONS[order.status]) rows.push([{ text: ACTION_LABELS[next], callback_data: cb(ctx, 'ask', order.id, next, order.revision) }])
     if (order.status !== 'cancelado' && order.payment_status !== 'verificado') rows.push([{ text: '💳 Marcar pago verificado', callback_data: cb(ctx, 'askpay', order.id, order.revision) }])
   }
@@ -101,7 +101,7 @@ async function askTransition(ctx: AssistantContext, orderId: number, to: OrderSt
 }
 
 async function applyTransition(ctx: AssistantContext, orderId: number, change: { status?: OrderStatus; payment?: 'verificado' }, revision: number, delivery: { carrier?: string; trackingNumber?: string } = {}): Promise<void> {
-  if (!roleAllows(ctx.role, 'operator')) { await say(ctx, 'Tu rol no permite gestionar pedidos.'); return }
+  if (!can(ctx.role, 'orders.manage')) { await say(ctx, 'Tu rol no permite gestionar pedidos.'); return }
   await updateSessionState(ctx, { awaiting: undefined, targetOrder: undefined, pendingDelivery: undefined })
   const result = await transitionOrder(ctx.db, {
     storeId: ctx.store.id, orderId, expectedRevision: revision, actor: `telegram:${ctx.telegramUserId}`, source: 'telegram',
@@ -141,7 +141,7 @@ export async function handleOrderCallback(ctx: AssistantContext, data: string): 
   }
   if (verb === 'list') { await showOrders(ctx, isOrderStatus(a) ? a : undefined); return true }
   if (verb === 'view') { await showOrder(ctx, Number(a)); return true }
-  if (!roleAllows(ctx.role, 'operator')) { await say(ctx, 'Tu rol no permite gestionar pedidos.'); return true }
+  if (!can(ctx.role, 'orders.manage')) { await say(ctx, 'Tu rol no permite gestionar pedidos.'); return true }
   if (verb === 'ask' && b && isOrderStatus(b) && c) { await askTransition(ctx, Number(a), b, Number(c)); return true }
   if (verb === 'ok' && b && isOrderStatus(b) && c) {
     const session = await readSession(ctx.db, ctx.telegramUserId)
@@ -196,7 +196,7 @@ export async function handleOrderIntent(ctx: AssistantContext, intent: { referen
   const order = await findOrder(ctx.db, ctx.store.id, intent.reference)
   if (!order) { await showOrder(ctx, intent.reference); return }
   if (!intent.to) { await showOrder(ctx, order.id); return }
-  if (!roleAllows(ctx.role, 'operator')) { await say(ctx, 'Tu rol no permite gestionar pedidos.'); return }
+  if (!can(ctx.role, 'orders.manage')) { await say(ctx, 'Tu rol no permite gestionar pedidos.'); return }
   if (intent.to === 'pagado') { await handleOrderCallback(ctx, cb(ctx, 'askpay', order.id, order.revision)); return }
   if (order.status === intent.to) { await say(ctx, `El pedido ${escapeHtml(short(order))} ya está como “${ORDER_STATUS_LABELS[order.status]}”.`); return }
   await askTransition(ctx, order.id, intent.to, order.revision)

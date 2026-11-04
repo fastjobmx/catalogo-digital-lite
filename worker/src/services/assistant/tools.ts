@@ -126,7 +126,7 @@ export async function topProductsTool(db: D1Database, storeId: number, currency:
 
 export async function salesSummaryTool(db: D1Database, storeId: number, currency: string, days = 30): Promise<ToolResult> {
   const result = await db.prepare(
-    `SELECT status, COUNT(*) AS orders, COALESCE(SUM(subtotal), 0) AS amount FROM orders
+    `SELECT status, COUNT(*) AS orders, COALESCE(SUM(subtotal - discount_total), 0) AS amount FROM orders
      WHERE store_id = ? AND created_at >= datetime('now', ?) GROUP BY status`,
   ).bind(storeId, `-${days} days`).all<{ status: string; orders: number; amount: number }>()
   const rows = result.results || []

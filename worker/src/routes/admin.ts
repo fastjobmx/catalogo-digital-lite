@@ -1,13 +1,13 @@
 import { Hono } from 'hono'
 import type { Env } from '../index'
-import { adminAuth, requireRole } from '../middleware/auth'
+import { adminAuth, requireCapability, requireRole } from '../middleware/auth'
 import { createAdminToken, validateCredentials, getJwtSecret, isAuthConfigurationReady, isSuperadminEmail, verifyPasswordHash } from '../services/auth'
 import { createCatalogCategory, createCatalogProduct, deactivateCatalogCategory, setProductArchived, updateCatalogCategory, updateCatalogProduct, updateStoreConfiguration, updateStoreTemplate, updateVariantStocksById, type AuditContext } from '../services/business'
 import { normalizeStoreBody } from '../lib/storeMap'
 import { findForeignAssetUrl } from '../lib/assets'
 import { TEMPLATE_KEYS } from '../services/templates'
 import { clearAdminLoginFailures, isAdminLoginBlocked, recordAdminLoginFailure } from '../services/loginRateLimit'
-import { listUserMemberships, ROLE_LABELS, type StoreRole } from '../tenancy/access'
+import { INVITABLE_ROLES, listUserMemberships, ROLE_LABELS, type StoreRole } from '../tenancy/access'
 import { PRIMARY_STORE_ID, adminStoreUrl } from '../tenancy/stores'
 import { createAccessToken, ensureUser, findUserByEmail, normalizeEmail, upsertMembership } from '../services/platformUsers'
 import { getStoreAiUsage } from '../ai/usage'
@@ -237,8 +237,8 @@ app.get('/team', adminAuth, requireRole('admin'), async (c) => {
 app.post('/team', adminAuth, requireRole('owner'), async (c) => {
  const body = await c.req.json().catch(() => null) as { email?: unknown; role?: unknown; displayName?: unknown } | null
  const email = normalizeEmail(body?.email)
- const role = body?.role === 'admin' || body?.role === 'operator' ? body.role as StoreRole : null
- if (!email || !role) return c.json({ error: 'A valid email and role (admin or operator) are required' }, 400)
+ const role = typeof body?.role === 'string' && (INVITABLE_ROLES as string[]).includes(body.role) ? body.role as StoreRole : null
+ if (!email || !role) return c.json({ error: 'A valid email and role (admin, operator, seller or inventory) are required' }, 400)
  if (isSuperadminEmail(email, c.env)) return c.json({ error: 'This email is reserved' }, 400)
  const actor = c.get('adminEmail') || 'unknown'
  const storeId = c.get('storeId')!
@@ -307,6 +307,7 @@ app.post('/products', adminAuth, requireRole('admin'), async (c) => {
  return c.json(product, 201)
  } catch (error) {
  if (error instanceof Error && error.message === 'SKU_ALREADY_EXISTS') return c.json({ error: 'SKU already exists' }, 409)
+ if (error instanceof Error && error.message === 'PLAN_PRODUCT_LIMIT') return c.json({ error: 'Your plan product limit was reached. Archive products or change plan.', code: 'PLAN_PRODUCT_LIMIT' }, 409)
  if (error instanceof Error && error.message === 'CATEGORY_NOT_FOUND') return c.json({ error: 'Category not found' }, 400)
  throw error
  }
@@ -394,7 +395,7 @@ app.delete('/categories/:id', adminAuth, requireRole('admin'), async (c) => {
  return c.json({ success: true, deactivated: id })
 })
 
-app.put('/products/:id/variants', adminAuth, requireRole('operator'), async (c) => {
+app.put('/products/:id/variants', adminAuth, requireCapability('inventory.manage'), async (c) => {
   const id = parseInt(c.req.param('id'))
   const body = await c.req.json().catch(() => null)
   if (!body?.variants || isNaN(id)) return c.json({ error: 'Invalid request' }, 400)

@@ -14,6 +14,7 @@ import { parseAdminIds } from './maintenance'
 import { provisionStore, suggestSlug, type ProvisionResult } from '../provisioning'
 import { TEMPLATE_KEYS, TEMPLATE_LABELS, type TemplateKey } from '../templates'
 import { downloadTelegramImage } from '../telegramProductImages'
+import { aiUsageAlerts, currentBillingPeriod, generateInvoices, listInvoices, setDomainStatus, setInvoiceStatus } from '../billing'
 import {
   assignOwner, getStoreDetail, listStores, platformSummary, PlatformError, recentEvents, regenerateOwnerAccess,
   requestCustomDomain, setStoreAiBudget, setStoreLogo, setStorePlan, setStoreStatus, storesHealth,
@@ -74,6 +75,8 @@ const HELP = [
   '/acceso &lt;dirección&gt; — nuevos códigos de acceso del propietario',
   '/dominio &lt;dirección&gt; &lt;dominio&gt; — registrar dominio propio',
   '/propietarios — propietarios de cada tienda · /configuracion — planes y ajustes',
+  '/facturas [pendiente|pagada|anulada|dirección] · /facturar [AAAA-MM] · /pagada &lt;n&gt; · /anular &lt;n&gt;',
+  '/dominio_estado &lt;dominio&gt; &lt;verificado|activo|retirado&gt; · /consumo — tiendas cerca de su límite de IA',
   '/resumen · /salud · /errores · /cancelar',
   '/pregunta &lt;texto&gt; — consulta a la IA sobre la plataforma',
   '',
@@ -145,6 +148,28 @@ async function handleCommand(ctx: MasterContext, text: string): Promise<void> {
     case '/resumen':
     case '/estadisticas': await showSummary(ctx); return
     case '/salud': await showHealth(ctx); return
+    case '/facturas': await showInvoices(ctx, args[0]); return
+    case '/facturar': {
+      const period = args[0] || currentBillingPeriod()
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) { await say(ctx, 'Indica el periodo así: /facturar 2026-11'); return }
+      await propose(ctx, 'generate_invoices', { period }, `🧾 Generar las facturas del periodo <b>${escapeHtml(period)}</b> para servicios activos y planes con precio. No se cobra nada automáticamente.`)
+      return
+    }
+    case '/pagada':
+    case '/anular': {
+      const id = Number(args[0])
+      if (!Number.isSafeInteger(id) || id < 1) { await say(ctx, `Indica el número de factura. Ejemplo: ${command} 12`); return }
+      const status = command === '/pagada' ? 'pagada' : 'anulada'
+      await propose(ctx, 'invoice_status', { id, status }, `🧾 Marcar la factura #${id} como <b>${status}</b>. Es definitivo.`)
+      return
+    }
+    case '/dominio_estado': {
+      const status = args[1]
+      if (!args[0] || !status || !['verificado', 'activo', 'retirado'].includes(status)) { await say(ctx, 'Uso: /dominio_estado &lt;dominio&gt; &lt;verificado|activo|retirado&gt;'); return }
+      await propose(ctx, 'domain_status', { domain: args[0], status }, `🌐 Cambiar <b>${escapeHtml(args[0])}</b> a <b>${status}</b>. “Activo” hace que el dominio sirva la tienda: confirma antes que el DNS y Netlify estén listos.`)
+      return
+    }
+    case '/consumo': await showAiAlerts(ctx); return
     case '/errores': await showErrors(ctx); return
     case '/cancelar': {
       await ctx.db.batch([
@@ -273,6 +298,21 @@ async function showConfig(ctx: MasterContext): Promise<void> {
   ].join('\n'), menuKeyboard())
 }
 
+async function showInvoices(ctx: MasterContext, filter?: string): Promise<void> {
+  const invoices = await listInvoices(ctx.db, filter && ['pendiente', 'pagada', 'anulada'].includes(filter) ? { status: filter } : filter ? { slug: filter } : { status: 'pendiente' })
+  if (!invoices.length) { await say(ctx, '🧾 No hay facturas con ese filtro. Genera las del mes con /facturar.'); return }
+  const lines = invoices.slice(0, 20).map((invoice) => `#${invoice.id} · ${escapeHtml(invoice.store_name)} · ${escapeHtml(invoice.concept)} · ${escapeHtml(invoice.period)} · ${invoice.amount.toLocaleString('es-CO')} ${escapeHtml(invoice.currency)} · ${invoice.status}${invoice.due_date ? ` · vence ${escapeHtml(invoice.due_date)}` : ''}`)
+  await say(ctx, `🧾 <b>Facturas</b>\n\n${lines.join('\n')}\n\nMarca pagos con /pagada &lt;número&gt; o anula con /anular &lt;número&gt;.`)
+}
+
+async function showAiAlerts(ctx: MasterContext): Promise<void> {
+  const alerts = await aiUsageAlerts(ctx.db)
+  const lines = alerts.map((alert) => `• ${escapeHtml(alert.name)} (${escapeHtml(alert.slug)}): ${alert.percent} % de ${formatUsd(alert.budgetMicros)}`)
+  await say(ctx, alerts.length
+    ? `🤖 <b>Consumo de IA sobre el umbral de aviso</b>\n\n${lines.join('\n')}\n\nAjusta con /limite_ia &lt;dirección&gt; &lt;USD&gt;.`
+    : '🤖 Ninguna tienda supera su umbral de aviso de IA este mes.')
+}
+
 async function showHealth(ctx: MasterContext): Promise<void> {
   const items = await storesHealth(ctx.db)
   const lines = items.map((item) => {
@@ -293,7 +333,7 @@ async function showErrors(ctx: MasterContext): Promise<void> {
 // Confirmed operations
 // ---------------------------------------------------------------------------
 
-type PlatformAction = 'activate_store' | 'suspend_store' | 'set_plan' | 'set_ai_budget' | 'assign_owner' | 'regenerate_access' | 'set_domain'
+type PlatformAction = 'activate_store' | 'suspend_store' | 'set_plan' | 'set_ai_budget' | 'assign_owner' | 'regenerate_access' | 'set_domain' | 'generate_invoices' | 'invoice_status' | 'domain_status'
 
 async function propose(ctx: MasterContext, action: PlatformAction, params: Record<string, unknown>, summary: string): Promise<void> {
   await ctx.db.prepare(`UPDATE platform_operations SET status = 'expired', completed_at = datetime('now') WHERE chat_id = ? AND status = 'pending' AND expires_at <= unixepoch()`).bind(String(ctx.chatId)).run()
@@ -409,6 +449,21 @@ async function confirmOperation(ctx: MasterContext, operationId: string): Promis
       case 'set_domain': {
         const result = await requestCustomDomain(ctx.db, params.slug, params.domain, ctx.actor)
         message = `🌐 Dominio <b>${escapeHtml(result.domain)}</b> registrado como pendiente para ${escapeHtml(result.store.name)}. Sigue la guía de dominio propio para activarlo.`
+        break
+      }
+      case 'generate_invoices': {
+        const result = await generateInvoices(ctx.db, String(params.period), ctx.actor)
+        message = `🧾 Facturas del periodo ${escapeHtml(result.period)}: ${result.created} nueva(s). Las que ya existían no se duplicaron.`
+        break
+      }
+      case 'invoice_status': {
+        const invoice = await setInvoiceStatus(ctx.db, Number(params.id), params.status, ctx.actor)
+        message = `🧾 Factura #${invoice.id} de <b>${escapeHtml(invoice.store_name)}</b>: ${invoice.status}.`
+        break
+      }
+      case 'domain_status': {
+        const result = await setDomainStatus(ctx.db, String(params.domain), params.status, ctx.actor)
+        message = `🌐 Dominio <b>${escapeHtml(result.domain)}</b>: ${result.status}.`
         break
       }
     }

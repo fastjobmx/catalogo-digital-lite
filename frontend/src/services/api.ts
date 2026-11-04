@@ -406,6 +406,8 @@ export interface CreateOrderPayload {
   notes?: string
   currency?: string
   items: OrderItemPayload[]
+  couponCode?: string
+  marketingConsent?: boolean
 }
 
 export interface CreateOrderResponse {
@@ -419,6 +421,13 @@ export interface CreateOrderResponse {
   paymentStatus: string
   items: OrderItemPayload[]
   replayed?: boolean
+}
+
+export interface CouponPreview { valid: boolean; code?: string; discount?: number; message?: string }
+
+/** Cart preview only; the order endpoint validates the coupon again with catalog prices. */
+export async function validateCoupon(code: string, subtotal: number): Promise<CouponPreview> {
+  return fetchApi<CouponPreview>('/api/orders/coupon', { method: 'POST', body: JSON.stringify({ code, subtotal }) })
 }
 
 export async function createOrder(payload: CreateOrderPayload, idempotencyKey: string): Promise<CreateOrderResponse> {

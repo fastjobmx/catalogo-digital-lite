@@ -97,6 +97,11 @@ export const actionSchemas = {
   get_top_products: z.object({ days: z.number().int().min(1).max(365).optional() }),
   get_sales_summary: z.object({ days: z.number().int().min(1).max(365).optional() }),
   catalog_advice: z.object({}),
+  get_sales_by_period: z.object({ days: z.number().int().min(1).max(365).optional(), granularity: z.enum(['dia', 'semana', 'mes']).optional() }),
+  get_slow_movers: z.object({ days: z.number().int().min(1).max(365).optional() }),
+  get_size_rotation: z.object({ days: z.number().int().min(1).max(365).optional() }),
+  get_repeat_customers: z.object({ days: z.number().int().min(1).max(365).optional() }),
+  get_profitability: z.object({}),
   ask_ai: z.object({ question: z.string().trim().min(2).max(1000) }),
   write_description: z.object({ sku: z.string().trim().min(1).max(64), tone: z.string().trim().max(60).optional() }),
 }
@@ -106,6 +111,7 @@ export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set([
   'get_inventory', 'get_products', 'get_store_configuration', 'get_low_stock', 'get_out_of_stock',
   'get_products_without_description', 'get_products_without_photos', 'get_pending_orders',
   'get_top_products', 'get_sales_summary', 'catalog_advice', 'ask_ai', 'write_description',
+  'get_sales_by_period', 'get_slow_movers', 'get_size_rotation', 'get_repeat_customers', 'get_profitability',
 ])
 
 export type ActionName = keyof typeof actionSchemas

@@ -1,7 +1,7 @@
 import { parseActionPayload, type ActionName } from '../../validation/actions'
 import { applyConfirmedCatalogMutation, applyConfirmedProductEdit, applyConfirmedStoreMutation } from '../business'
 import { slugify } from '../../tenancy/stores'
-import { roleAllows, type StoreRole } from '../../tenancy/access'
+import { can, roleAllows, type StoreRole } from '../../tenancy/access'
 import { say, sayPhoto, type AssistantContext } from './context'
 import { operationKeyboard, backToMenu } from './menus'
 import { escapeHtml, formatMoney } from './tools'
@@ -30,6 +30,12 @@ const INTERNAL_ACTIONS = new Set(['update_store_banner', 'update_store_logo', 'i
 export function requiredRole(action: string): StoreRole {
   if (action === 'update_stock') return 'operator'
   return 'admin'
+}
+
+/** Hierarchy plus capability: stock changes need inventory rights (a seller cannot change stock). */
+export function actionAllowed(role: AssistantContext['role'], action: string): boolean {
+  if (action === 'update_stock') return can(role, 'inventory.manage')
+  return roleAllows(role, requiredRole(action))
 }
 
 export function isConfirmableAction(action: string): boolean {
@@ -271,7 +277,7 @@ export function formatOperationPreview(operation: Pick<PendingOperation, 'action
 
 /** Validates, snapshots and stores a pending change, then shows its preview. */
 export async function proposeChange(ctx: AssistantContext, action: ActionName, params: Record<string, unknown>, summary?: string, preview?: { photoFileId?: string; operationId?: string }): Promise<void> {
-  if (!roleAllows(ctx.role, requiredRole(action))) {
+  if (!actionAllowed(ctx.role, action)) {
     await say(ctx, 'Tu rol en esta tienda no permite hacer este cambio. Pídeselo al propietario.')
     return
   }
@@ -474,7 +480,7 @@ async function promoteStoreImage(ctx: AssistantContext, params: Record<string, a
 }
 
 export async function confirmOperation(ctx: AssistantContext, pending: PendingOperation): Promise<void> {
-  if (!roleAllows(ctx.role, requiredRole(pending.action))) {
+  if (!actionAllowed(ctx.role, pending.action)) {
     await say(ctx, 'Tu rol en esta tienda no permite confirmar este cambio.')
     return
   }

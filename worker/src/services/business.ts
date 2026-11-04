@@ -54,6 +54,15 @@ async function assertCategoryInStore(db: D1Database, categoryId: unknown, storeI
   if (!row) throw new Error('CATEGORY_NOT_FOUND')
 }
 
+/** Active (non-archived) products against the store plan's max_products. */
+export async function productLimit(db: D1Database, storeId: number): Promise<{ count: number; max: number | null; plan: string | null }> {
+  const row = await db.prepare(
+    `SELECT (SELECT COUNT(*) FROM products WHERE store_id = s.id AND is_archived = 0) AS count, p.max_products AS max, p.name AS plan
+     FROM stores s LEFT JOIN plans p ON p.code = s.plan_code WHERE s.id = ?`,
+  ).bind(storeId).first<{ count: number; max: number | null; plan: string | null }>()
+  return { count: Number(row?.count || 0), max: row?.max ?? null, plan: row?.plan ?? null }
+}
+
 export async function createCatalogProduct(
   db: D1Database,
   product: CatalogProductInput,
@@ -61,6 +70,8 @@ export async function createCatalogProduct(
 ): Promise<{ id: number; sku: string }> {
   const existing = await db.prepare('SELECT id FROM products WHERE store_id = ? AND sku = ?').bind(context.storeId, product.sku).first()
   if (existing) throw new Error('SKU_ALREADY_EXISTS')
+  const limit = await productLimit(db, context.storeId)
+  if (limit.max !== null && limit.count >= limit.max) throw new Error('PLAN_PRODUCT_LIMIT')
   await assertCategoryInStore(db, product.categoryId, context.storeId)
   const statements = buildCatalogProductStatements(db, product, context, { sku: product.sku })
   let results: D1Result[]

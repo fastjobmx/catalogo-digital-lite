@@ -3,7 +3,7 @@ import type { Context } from 'hono'
 import type { Env } from '../index'
 import { verifyAdminToken, getJwtSecret, isAuthConfigurationReady, principalFromToken } from '../services/auth'
 import { resolveStore, storeSelectorFromRequest } from '../tenancy/stores'
-import { resolveStoreRole, roleAllows, type Principal, type StoreRole } from '../tenancy/access'
+import { can, resolveStoreRole, roleAllows, type Capability, type Principal, type StoreRole } from '../tenancy/access'
 
 type AuthFailure = { status: 401 | 503; error: string }
 
@@ -56,6 +56,13 @@ export const adminAuth = createMiddleware<Env>(async (c, next) => {
 export function requireRole(minimum: StoreRole) {
   return createMiddleware<Env>(async (c, next) => {
     if (!roleAllows(c.get('role'), minimum)) return c.json({ error: 'Your role does not allow this action', code: 'ROLE_FORBIDDEN' }, 403)
+    await next()
+  })
+}
+
+export function requireCapability(capability: Capability) {
+  return createMiddleware<Env>(async (c, next) => {
+    if (!can(c.get('role'), capability)) return c.json({ error: 'Your role does not allow this action', code: 'ROLE_FORBIDDEN' }, 403)
     await next()
   })
 }

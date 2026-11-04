@@ -1,19 +1,42 @@
 import { PRIMARY_STORE_ID, type StoreRecord } from './stores'
 
-export type StoreRole = 'owner' | 'admin' | 'operator'
+export type StoreRole = 'owner' | 'admin' | 'operator' | 'seller' | 'inventory'
 
 /** Who is acting. The platform superadmin is defined only by Worker secrets. */
 export type Principal =
   | { kind: 'superadmin'; email: string }
   | { kind: 'user'; userId: number; email: string }
 
-export const ROLE_RANK: Record<StoreRole, number> = { operator: 1, admin: 2, owner: 3 }
+// seller and inventory sit at the operator level for the hierarchy (they never reach
+// catalog or store settings) and are narrowed further by capabilities below.
+export const ROLE_RANK: Record<StoreRole, number> = { seller: 1, inventory: 1, operator: 1, admin: 2, owner: 3 }
+
+export type Capability = 'orders.manage' | 'inventory.manage' | 'catalog.manage' | 'store.configure' | 'team.manage' | 'reports.read' | 'marketing.manage'
+
+/** Least privilege per role. The superadmin acts as owner. */
+export const ROLE_CAPABILITIES: Record<StoreRole, Capability[]> = {
+  owner: ['orders.manage', 'inventory.manage', 'catalog.manage', 'store.configure', 'team.manage', 'reports.read', 'marketing.manage'],
+  admin: ['orders.manage', 'inventory.manage', 'catalog.manage', 'store.configure', 'team.manage', 'reports.read', 'marketing.manage'],
+  operator: ['orders.manage', 'inventory.manage', 'reports.read'],
+  seller: ['orders.manage', 'reports.read'],
+  inventory: ['inventory.manage', 'reports.read'],
+}
+
+export function can(role: EffectiveRole | null | undefined, capability: Capability): boolean {
+  if (!role) return false
+  if (role === 'superadmin') return true
+  return ROLE_CAPABILITIES[role]?.includes(capability) ?? false
+}
+
+export const INVITABLE_ROLES: StoreRole[] = ['admin', 'operator', 'seller', 'inventory']
 
 export const ROLE_LABELS: Record<StoreRole | 'superadmin', string> = {
   superadmin: 'Superadministrador de plataforma',
   owner: 'Propietario',
   admin: 'Administrador',
-  operator: 'Operador',
+  operator: 'Operador (pedidos e inventario)',
+  seller: 'Vendedor',
+  inventory: 'Encargado de inventario',
 }
 
 /** The effective role of a principal in a store; superadmin acts as owner. */
