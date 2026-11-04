@@ -424,3 +424,5 @@ Auditoría y matriz en `docs/PLATAFORMA_COMERCIO_AUDITORIA.md`. Fase 1 (multitie
 ### Fases 3–6 — 2026-11-04
 
 Indicadores comerciales, roles vendedor y encargado de inventario con permisos explícitos y `/equipo`, cupones y consentimiento en el carrito, campañas con aprobación y envío manual, bajas, seguimiento de pedidos sin confirmar, límite de productos por plan, facturas de plataforma, estados de dominio y alertas de IA en el bot maestro. Migración `0010` (reconstruye `store_memberships` con las mismas filas). Worker 245/245, frontend 67/67. Staging `e136904a` con `0010`; prueba de escritura 24/25 (la única marca es la entrega de Telegram a un usuario ficticio). Producción sin cambios; orden de publicación en `docs/PLATAFORMA_COMERCIO_AUDITORIA.md` §4.
+
+Producción fases 2–6 (autorizado, 2026-11-04): respaldo `.tmp/production-0010/`, `0009` y `0010` aplicadas sin cambios de datos (membresías intactas), Worker `226aef4e` → `93d77cc7-ac57-4a43-a320-fdc303345250`, push `a4804ba`, Netlify `index-9PRDiP3E.js`. Smoke test y navegador correctos.

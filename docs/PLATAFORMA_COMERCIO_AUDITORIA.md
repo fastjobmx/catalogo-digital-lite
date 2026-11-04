@@ -155,7 +155,20 @@ Consultas tipificadas de solo lectura. Gemini solo elige la acción y el servido
 
 ## 4. Publicación de las fases 2 a 6
 
-Producción está en el Worker `226aef4e` y la migración `0008`. Orden obligatorio:
+**Publicado (autorizado, 2026-11-04):**
+- Respaldo `.tmp/production-0010/production-pre-0010.sql` (232.948 bytes, SHA-256 `8447b668fb2143169ceacd6a691638749fb10d2224963e65fc63594debbdd75d`); Time Travel previo `000000b2-00000000-00005119-d0cd92a64fab03fb7c8bd8a0394ec4f0`.
+- Verificación sobre la copia fresca: 18 tablas con hash idéntico tras migrar y revertir, y membresías idénticas.
+- `0009` y `0010` aplicadas en `catalogo-lite-production-db`: 3 tiendas, 30 productos, 118 variantes (stock total 1878) y 7 pedidos sin cambios; las 2 membresías intactas; índice recreado; 0 violaciones de claves foráneas.
+- Worker `catalogo-lite-api`: `226aef4e` → `93d77cc7-ac57-4a43-a320-fdc303345250`; 10 secretos intactos.
+- Push `a69c40f..a4804ba` a `main`; Netlify publicó `index-9PRDiP3E.js`.
+- Smoke test:
+  - Health, las tres tiendas y los productos responden 200.
+  - Panel y facturas sin sesión: 401.
+  - Webhooks sin secreto: 403.
+  - La vista previa de cupones responde.
+- Navegador: SneakerHub (24 productos, composición anterior) y Muy Parcero (11) sin errores de consola ni desbordamiento a 375 px; el carrito abre.
+
+Orden seguido:
 
 1. Respaldo fresco de `catalogo-lite-production-db` y bookmark de Time Travel.
 2. Migraciones `0009` (solo agrega) y `0010` (agrega tablas y reconstruye `store_memberships` con las mismas filas).
