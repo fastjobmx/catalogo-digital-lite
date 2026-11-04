@@ -14,6 +14,7 @@ import { parseAdminIds } from './maintenance'
 import { provisionStore, suggestSlug, type ProvisionResult } from '../provisioning'
 import { TEMPLATE_KEYS, TEMPLATE_LABELS, type TemplateKey } from '../templates'
 import { downloadTelegramImage } from '../telegramProductImages'
+import { adminPasswordReset, maskEmail } from '../passwordReset'
 import { aiUsageAlerts, currentBillingPeriod, generateInvoices, listInvoices, setDomainStatus, setInvoiceStatus } from '../billing'
 import {
   assignOwner, getStoreDetail, listStores, platformSummary, PlatformError, recentEvents, regenerateOwnerAccess,
@@ -77,6 +78,7 @@ const HELP = [
   '/propietarios — propietarios de cada tienda · /configuracion — planes y ajustes',
   '/facturas [pendiente|pagada|anulada|dirección] · /facturar [AAAA-MM] · /pagada &lt;n&gt; · /anular &lt;n&gt;',
   '/dominio_estado &lt;dominio&gt; &lt;verificado|activo|retirado&gt; · /consumo — tiendas cerca de su límite de IA',
+  '/restablecer &lt;correo&gt; — enlace para crear contraseña nueva de un propietario',
   '/resumen · /salud · /errores · /cancelar',
   '/pregunta &lt;texto&gt; — consulta a la IA sobre la plataforma',
   '',
@@ -170,6 +172,11 @@ async function handleCommand(ctx: MasterContext, text: string): Promise<void> {
       return
     }
     case '/consumo': await showAiAlerts(ctx); return
+    case '/restablecer': {
+      if (!args[0] || !args[0].includes('@')) { await say(ctx, 'Uso: /restablecer correo@ejemplo.com'); return }
+      await propose(ctx, 'password_reset', { email: args[0] }, `🔐 Enviar un enlace para crear contraseña nueva a la cuenta <b>${escapeHtml(args[0])}</b>. Llega a su Telegram vinculado; si no tiene, te lo muestro para que se lo envíes en privado. Vence en 60 minutos.`)
+      return
+    }
     case '/errores': await showErrors(ctx); return
     case '/cancelar': {
       await ctx.db.batch([
@@ -333,7 +340,7 @@ async function showErrors(ctx: MasterContext): Promise<void> {
 // Confirmed operations
 // ---------------------------------------------------------------------------
 
-type PlatformAction = 'activate_store' | 'suspend_store' | 'set_plan' | 'set_ai_budget' | 'assign_owner' | 'regenerate_access' | 'set_domain' | 'generate_invoices' | 'invoice_status' | 'domain_status'
+type PlatformAction = 'activate_store' | 'suspend_store' | 'set_plan' | 'set_ai_budget' | 'assign_owner' | 'regenerate_access' | 'set_domain' | 'generate_invoices' | 'invoice_status' | 'domain_status' | 'password_reset'
 
 async function propose(ctx: MasterContext, action: PlatformAction, params: Record<string, unknown>, summary: string): Promise<void> {
   await ctx.db.prepare(`UPDATE platform_operations SET status = 'expired', completed_at = datetime('now') WHERE chat_id = ? AND status = 'pending' AND expires_at <= unixepoch()`).bind(String(ctx.chatId)).run()
@@ -459,6 +466,14 @@ async function confirmOperation(ctx: MasterContext, operationId: string): Promis
       case 'invoice_status': {
         const invoice = await setInvoiceStatus(ctx.db, Number(params.id), params.status, ctx.actor)
         message = `🧾 Factura #${invoice.id} de <b>${escapeHtml(invoice.store_name)}</b>: ${invoice.status}.`
+        break
+      }
+      case 'password_reset': {
+        const result = await adminPasswordReset(ctx.db, ctx.env, params.email, ctx.actor)
+        if (!result) { message = 'No encontré una cuenta activa del panel con ese correo. No se generó nada.'; break }
+        message = result.delivery === 'telegram'
+          ? `🔐 Enlace enviado al Telegram vinculado de ${escapeHtml(maskEmail(result.email))}. Vence en 60 minutos.`
+          : `🔐 ${escapeHtml(maskEmail(result.email))} no tiene Telegram vinculado. Envíale este enlace en privado (vence en 60 minutos, sirve una vez):\n${escapeHtml(result.link || '')}`
         break
       }
       case 'domain_status': {

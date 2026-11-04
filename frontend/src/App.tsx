@@ -27,6 +27,7 @@ import { lazy, Suspense } from 'react'
 
 // Platform-only screens load on demand so the storefront bundle stays small.
 const ActivationPage = lazy(() => import('./admin/ActivationPage'))
+const ResetPasswordPage = lazy(() => import('./admin/ResetPasswordPage'))
 const PlatformPage = lazy(() => import('./admin/PlatformPage'))
 
 function ProtectedAdminRoute({ children }: { children: React.ReactNode }) {
@@ -77,6 +78,7 @@ export default function App() {
                   {/* Admin login and one-time account activation (public) */}
                   <Route path="/admin/login" element={<LoginPage />} />
                   <Route path="/admin/activar" element={<Suspense fallback={null}><ActivationPage /></Suspense>} />
+                  <Route path="/admin/restablecer" element={<Suspense fallback={null}><ResetPasswordPage /></Suspense>} />
                   <Route path="/admin/store-preview" element={<ProtectedAdminRoute><AdminStorePreview /></ProtectedAdminRoute>} />
                   {/* Platform panel (superadmin; the API enforces the role) */}
                   <Route path="/plataforma" element={<Suspense fallback={null}><PlatformPage /></Suspense>} />

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate, Link, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useStore } from '../contexts/StoreContext'
-import { isBackendAvailable } from '../services/api'
+import { isBackendAvailable, requestPasswordReset } from '../services/api'
 import { isOfflineDemoAuthEnabled } from '../lib/authMode'
 import { Store, ShieldCheck, Loader2, ArrowLeft } from 'lucide-react'
 
@@ -20,6 +20,12 @@ export default function LoginPage() {
   const [connectionMessage, setConnectionMessage] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isCheckingConnection, setIsCheckingConnection] = useState(false)
+  const [resetMessage, setResetMessage] = useState('')
+  const forgotPassword = async () => {
+    if (!email.trim()) { setResetMessage('Escribe primero tu correo registrado.'); return }
+    try { await requestPasswordReset(email.trim()) } catch { /* same answer either way */ }
+    setResetMessage('Si el correo está registrado, te enviamos un enlace al Telegram vinculado a tu cuenta (vence en 60 minutos). Si no tienes Telegram vinculado, pide el enlace al administrador de la plataforma.')
+  }
   const offlineDemoAuth = isOfflineDemoAuthEnabled(import.meta.env.DEV, import.meta.env.VITE_ALLOW_DEMO_AUTH)
 
   if (isAuthenticated) return <Navigate to={returnTo} replace />
@@ -123,6 +129,8 @@ export default function LoginPage() {
             <button type="button" onClick={retryConnection} disabled={isCheckingConnection} className="w-full text-sm font-semibold text-muted underline underline-offset-4 disabled:opacity-60">
               {isCheckingConnection ? 'Comprobando servidor…' : 'Reintentar conexión'}
             </button>
+            {!offlineDemoAuth && <button type="button" onClick={() => void forgotPassword()} className="w-full text-sm font-semibold text-brand underline underline-offset-4">¿Olvidaste tu contraseña?</button>}
+            {resetMessage && <p className="text-sm text-muted" role="status">{resetMessage}</p>}
           </form>
 
           {!offlineDemoAuth && <p className="mt-6 border-t border-line pt-5 text-center text-[11px] leading-relaxed text-muted">Se requiere una sesión válida del servidor para acceder al panel.</p>}

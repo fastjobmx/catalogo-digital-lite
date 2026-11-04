@@ -532,6 +532,18 @@ export async function activateAccount(token: string, password: string): Promise<
   return fetchApi('/api/auth/activate', { method: 'POST', body: JSON.stringify({ token, password }) })
 }
 
+export async function requestPasswordReset(email: string): Promise<{ ok: boolean }> {
+  return fetchApi('/api/auth/password-reset/request', { method: 'POST', body: JSON.stringify({ email }) })
+}
+
+export async function getPasswordResetInfo(token: string): Promise<{ email: string; store: { slug: string; name: string } }> {
+  return fetchApi(`/api/auth/password-reset?token=${encodeURIComponent(token)}`)
+}
+
+export async function resetPassword(token: string, password: string): Promise<AdminLoginResponse & { store: { slug: string; name: string } | null }> {
+  return fetchApi('/api/auth/password-reset', { method: 'POST', body: JSON.stringify({ token, password }) })
+}
+
 export interface PlatformStore {
   id: number; slug: string; name: string; status: string; planCode: string; template: string; businessType: string
   products: number; ordersLast30: number; aiPercent: number; ownerEmail: string | null; createdAt: string; activationRequestStatus: string | null
