@@ -436,3 +436,5 @@ Backend con URLs de Cloudflare (autorizado, 2026-11-04): `93d77cc7` → `7890daf
 ### Restablecer contraseña — 2026-11-04
 
 “¿Olvidaste tu contraseña?” en el panel: enlace de un solo uso (60 min, solo hash) al Telegram vinculado; `/admin/restablecer`; `/restablecer <correo>` en el bot maestro. Respuesta genérica, límites de intentos y auditoría. Worker 250/250, frontend 67/67; staging `9abfb6e7` con prueba 7/7. Producción pendiente de autorización. Correo electrónico pendiente de proveedor. Ver `docs/RESTABLECER_CONTRASENA.md`.
+
+Producción (autorizado, 2026-11-04): backend `7890daf2` → `c0ba4940-32fc-40c8-9e2e-6c2e435c3432`, frontend `23744f4e` → `3f0bdfa0-ceae-4b58-b3c6-c27dc2c4d3d2`, sin migraciones. Verificado: botón “¿Olvidaste tu contraseña?”, página de restablecimiento, respuesta genérica, enlace falso 404, contraseña débil 400, tiendas 200, panel 401 y webhooks 403.

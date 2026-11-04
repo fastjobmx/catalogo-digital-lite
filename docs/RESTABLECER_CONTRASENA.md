@@ -39,3 +39,7 @@ La plataforma todavía no envía correos. Para agregarlos:
 - Staging `9abfb6e7`:
   - Endpoints: respuesta genérica, 404 con enlace falso y 400 con contraseña débil.
   - Prueba de escritura 7/7 sobre una tienda ficticia eliminada al final.
+
+## Publicación
+
+Producción (2026-11-04): backend `c0ba4940`, frontend `3f0bdfa0`. Reversión: backend `npx wrangler rollback 7890daf2-a831-4582-b330-ef16004649da --config wrangler.production.toml`; frontend `cd frontend; node ../worker/node_modules/wrangler/bin/wrangler.js rollback 23744f4e-8a78-4214-9ce5-119680dd90d8`.
