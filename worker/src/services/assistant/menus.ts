@@ -3,15 +3,23 @@ import type { Membership } from '../../tenancy/access'
 import { escapeHtml } from './tools'
 
 /** Friendly main menu: the first thing an owner sees. */
-export function mainMenuKeyboard(multiStore = false): InlineKeyboard {
-  const rows: InlineKeyboard['inline_keyboard'] = [
+export function mainMenuKeyboard(_multiStore = false): InlineKeyboard {
+  return { inline_keyboard: [
     [{ text: '➕ Agregar producto', callback_data: 'm:new_product' }, { text: '📦 Ver inventario', callback_data: 'm:inventory' }],
     [{ text: '🛒 Consultar pedidos', callback_data: 'm:orders' }, { text: '⚙️ Configurar mi tienda', callback_data: 'm:appearance' }],
     [{ text: '✨ Preguntar a la IA', callback_data: 'm:ask_ai' }, { text: '📊 Reportes', callback_data: 'm:reports' }],
     [{ text: '🏷️ Categorías', callback_data: 'm:categories' }, { text: '❔ Ayuda', callback_data: 'm:help' }],
-  ]
-  if (multiStore) rows.push([{ text: '🔁 Cambiar de tienda', callback_data: 'm:switch_store' }])
-  return { inline_keyboard: rows }
+    [{ text: '🔄 Cambiar de tienda', callback_data: 'm:switch_store' }],
+  ] }
+}
+
+/** Shown right after choosing a store. */
+export function switchedStoreKeyboard(): InlineKeyboard {
+  return { inline_keyboard: [
+    [{ text: '➕ Agregar producto', callback_data: 'm:new_product' }, { text: '📦 Inventario', callback_data: 'm:inventory' }],
+    [{ text: '🛒 Pedidos', callback_data: 'm:orders' }, { text: '🎨 Mi tienda', callback_data: 'm:appearance' }],
+    [{ text: '🔄 Cambiar tienda', callback_data: 'm:switch_store' }, { text: '✨ Asistente IA', callback_data: 'm:ask_ai' }],
+  ] }
 }
 
 export function backToMenu(): InlineKeyboard {
@@ -53,9 +61,38 @@ export function operationKeyboard(operationId: string): InlineKeyboard {
   ]] }
 }
 
-export function storePickerKeyboard(memberships: Membership[]): InlineKeyboard {
-  return { inline_keyboard: memberships.slice(0, 20).map((membership) => [{ text: `🏪 ${membership.name}${membership.status === 'draft' ? ' (borrador)' : ''}`, callback_data: `s:select:${membership.storeId}` }]) }
+/** Stores come only from the caller's real memberships; the active one is marked. */
+export function storePickerKeyboard(memberships: Membership[], activeStoreId?: number | null): InlineKeyboard {
+  return { inline_keyboard: [
+    ...memberships.slice(0, 20).map((membership) => [{
+      text: `${membership.storeId === activeStoreId ? '✅' : '🛍️'} ${membership.name}${membership.status === 'draft' ? ' (borrador)' : ''}`,
+      callback_data: `s:select:${membership.storeId}`,
+    }]),
+    [{ text: '⚙️ Administrar accesos', callback_data: 'm:access' }],
+  ] }
 }
+
+export function storePickerText(firstName: string, memberships: Membership[], activeStoreName?: string | null): string {
+  const hello = `¡Hola${firstName ? `, ${escapeHtml(firstName)}` : ''}! 👋`
+  if (memberships.length <= 1) {
+    return `${hello}\n\nPor ahora administras solo <b>${escapeHtml(memberships[0]?.name || activeStoreName || 'tu tienda')}</b>.\nSi te crearon otra tienda, toca “⚙️ Administrar accesos” para vincularla.`
+  }
+  return `${hello}\n\nEstas son las tiendas que puedes administrar.${activeStoreName ? `\n🏪 Tienda actual: <b>${escapeHtml(activeStoreName)}</b>` : ''}\n\n¿Con cuál quieres trabajar?`
+}
+
+export const ACCESS_HELP_TEXT = [
+  '⚙️ <b>Accesos a tus tiendas</b>',
+  '',
+  'Aquí aparecen solo las tiendas en las que tu cuenta de Telegram tiene acceso autorizado.',
+  '',
+  '<b>¿Te crearon otra tienda y no aparece?</b>',
+  '1. Abre el enlace de acceso al asistente que recibiste al crearla, o',
+  '2. Escríbeme <code>/link TU-CODIGO</code> con el código de un solo uso de esa tienda.',
+  '',
+  'El código lo genera el propietario en el panel (Configuración → Telegram) o el equipo de soporte. Nunca vinculamos una tienda solo por tu nombre de usuario o tu correo.',
+  '',
+  'Para dar acceso a otra persona, agrégala desde el panel de la tienda.',
+].join('\n')
 
 export function greeting(firstName: string, storeName: string, isFirstTime = false): string {
   const name = firstName ? `, ${escapeHtml(firstName)}` : ''
@@ -81,5 +118,5 @@ export const HELP_TEXT = [
   '📄 Un archivo CSV para actualizar precios y stock',
   '',
   'Antes de cambiar algo importante te muestro una vista previa y te pido confirmación.',
-  'Comandos: /menu · /productos · /pedidos · /configurar · /continuar · /cancelar · /tienda · /ayuda',
+  'Comandos: /menu · /tiendas · /cambiar_tienda · /productos · /pedidos · /configurar · /continuar · /cancelar · /ayuda',
 ].join('\n')

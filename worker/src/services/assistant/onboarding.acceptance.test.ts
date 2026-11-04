@@ -103,9 +103,9 @@ describe('3.1 acceptance: logo, colors and templates', () => {
 
     await send(textUpdate(40104, '¿Cómo cambio la plantilla de mi tienda?'))
     expect(buttons(telegram).filter((button) => button.url?.includes('store-preview?template='))).toHaveLength(13)
-    await send(callbackUpdate(40104, 'tpl:pick:editorial'))
+    await send(callbackUpdate(40104, `tpl:${storeId}:pick:editorial`))
     expect(h.db.query<{ template: string }>('SELECT template FROM stores WHERE id = ?', storeId)[0]!.template).not.toBe('editorial')
-    await send(callbackUpdate(40104, 'tpl:apply:editorial'))
+    await send(callbackUpdate(40104, `tpl:${storeId}:apply:editorial`))
 
     const response = await h.request('/api/store', { store: 'plantilla-guardada' })
     const body = await response.json() as { themeConfig: { template: string; style: { palette: { primary: string }; darkMode: boolean; typography: { fontDisplay: string } }; hero: { title: string } } }
@@ -123,7 +123,7 @@ describe('3.1 acceptance: logo, colors and templates', () => {
     const other = await seedStore(h.db, { slug: 'tienda-ajena', name: 'Tienda Ajena', status: 'active' })
     const otherBefore = h.db.query('SELECT theme_config, primary_color FROM store_config WHERE id = ?', other)
     stubTelegram()
-    await send(callbackUpdate(40105, 'tpl:apply:urban'))
+    await send(callbackUpdate(40105, `tpl:${storeId}:apply:urban`))
     await send(callbackUpdate(40105, `ob:${other}:template:urban`))
 
     expect(h.db.query<{ template: string }>('SELECT template FROM stores WHERE id = ?', storeId)[0]!.template).toBe('urban')
@@ -136,7 +136,7 @@ describe('3.1 acceptance: logo, colors and templates', () => {
     const storeId = await seedStore(h.db, { slug: 'tienda-operador', name: 'Tienda Operador', status: 'active' })
     await createStoreUser(h.db, { email: 'op@example.test', storeId, role: 'operator', telegramUserId: '40106' })
     const telegram = stubTelegram()
-    await processTelegramUpdate(callbackUpdate(40106, 'tpl:apply:urban') as never, h.env, h.db)
+    await processTelegramUpdate(callbackUpdate(40106, `tpl:${storeId}:apply:urban`) as never, h.env, h.db)
     await processTelegramUpdate(textUpdate(40106, 'Quiero cambiar los colores de mi tienda') as never, h.env, h.db)
 
     expect(telegram.messages().join('\n')).toContain('Tu rol no permite')

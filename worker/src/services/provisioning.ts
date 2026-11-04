@@ -183,11 +183,22 @@ export async function provisionStore(
     await mark('plan', 'ok', `${plan.name} · IA ${plan.ai_monthly_budget_micros > 0 ? 'activa' : 'no incluida'}`)
 
     // 7. Owner and role.
-    const ownerId = await ensureUser(db, { email: ownerEmail, displayName: input.ownerName, createdBy: options.actor })
-    if (input.ownerTelegramId) {
-      const other = await db.prepare('SELECT id FROM platform_users WHERE telegram_user_id = ? AND id <> ?').bind(input.ownerTelegramId, ownerId).first()
-      if (other) throw new ProvisioningError('TELEGRAM_IN_USE', 'Ese Telegram ya está vinculado a otro usuario.')
-      await db.prepare(`UPDATE platform_users SET telegram_user_id = ?, status = 'active', updated_at = datetime('now') WHERE id = ?`).bind(input.ownerTelegramId, ownerId).run()
+    // A person who already administers stores keeps one account: the explicit
+    // numeric Telegram ID selects it and the new store is an extra membership.
+    const byTelegram = input.ownerTelegramId
+      ? await db.prepare('SELECT id, email, status FROM platform_users WHERE telegram_user_id = ?').bind(input.ownerTelegramId).first<{ id: number; email: string | null; status: string }>()
+      : null
+    if (byTelegram?.status === 'disabled') throw new ProvisioningError('TELEGRAM_IN_USE', 'Ese Telegram pertenece a una cuenta desactivada.')
+    let ownerId: number
+    if (byTelegram) {
+      const byEmail = ownerEmail ? await db.prepare('SELECT id FROM platform_users WHERE email = ? COLLATE NOCASE').bind(ownerEmail).first<{ id: number }>() : null
+      if (byEmail && byEmail.id !== byTelegram.id) throw new ProvisioningError('TELEGRAM_IN_USE', 'Ese Telegram y ese correo pertenecen a cuentas distintas. Usa solo uno de los dos.')
+      ownerId = byTelegram.id
+    } else {
+      ownerId = await ensureUser(db, { email: ownerEmail, displayName: input.ownerName, createdBy: options.actor })
+      if (input.ownerTelegramId) {
+        await db.prepare(`UPDATE platform_users SET telegram_user_id = ?, status = 'active', updated_at = datetime('now') WHERE id = ?`).bind(input.ownerTelegramId, ownerId).run()
+      }
     }
     await upsertMembership(db, { storeId: storeId!, userId: ownerId, role: 'owner', createdBy: options.actor })
     await mark('owner', 'ok', ownerEmail || `Telegram ${input.ownerTelegramId}`)

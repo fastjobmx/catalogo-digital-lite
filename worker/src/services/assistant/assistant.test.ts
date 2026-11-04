@@ -166,7 +166,7 @@ describe('multiple stores and isolation', () => {
     const userId = h.db.query<{ id: number }>("SELECT id FROM platform_users WHERE email = 'duena@moda.test'")[0]!.id
     h.db.query("INSERT INTO store_memberships (store_id, user_id, role) VALUES (?, ?, 'owner')", otra, userId)
     await send(textUpdate(OWNER, 'Muéstrame el inventario'))
-    expect(telegram.messages()[0]).toContain('varias tiendas')
+    expect(telegram.messages()[0]).toContain('tiendas que puedes administrar')
     await send(callbackUpdate(OWNER, `s:select:${otra}`))
     await send(textUpdate(OWNER, '/inventario'))
     expect(telegram.messages().at(-1)).toContain('Producto de otra tienda')

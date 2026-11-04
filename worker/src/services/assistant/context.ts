@@ -25,6 +25,8 @@ export interface AssistantContext {
   store: AssistantStore
   role: StoreRole
   memberships: Membership[]
+  /** Pending changes of the previous store cancelled by this store switch. */
+  cancelledOnSwitch?: number
 }
 
 export type SessionState = {
@@ -77,11 +79,16 @@ export async function loadAssistantStore(db: D1Database, storeId: number, fallba
 
 /** Sends a message with the environment banner and, for multi-store users, the store name. */
 export async function say(ctx: AssistantContext, text: string, replyMarkup?: Record<string, unknown>): Promise<TelegramSendMessageResponse> {
-  return sendTelegramMessage(ctx.botToken, ctx.chatId, `${banner(ctx)}${text}`, 'HTML', usableMarkup(replyMarkup))
+  return sendTelegramMessage(ctx.botToken, ctx.chatId, `${banner(ctx, isMainMenu(replyMarkup))}${text}`, 'HTML', usableMarkup(replyMarkup))
 }
 
 export async function sayPhoto(ctx: AssistantContext, photo: string, caption: string, replyMarkup?: Record<string, unknown>): Promise<void> {
   await sendTelegramPhoto(ctx.botToken, ctx.chatId, photo, `${banner(ctx)}${caption}`, usableMarkup(replyMarkup))
+}
+
+/** The main menu always names the active store, even for single-store owners. */
+function isMainMenu(replyMarkup?: Record<string, unknown>): boolean {
+  return JSON.stringify(replyMarkup?.inline_keyboard || []).includes('"m:switch_store"')
 }
 
 /** Telegram rejects the whole message when a URL button is not absolute (for
@@ -95,11 +102,11 @@ export function usableMarkup(replyMarkup?: Record<string, unknown>): Record<stri
   return { ...replyMarkup, inline_keyboard: kept }
 }
 
-function banner(ctx: AssistantContext): string {
+function banner(ctx: AssistantContext, withStore = false): string {
   const label = ctx.env.TELEGRAM_ENV_LABEL?.trim()
   const parts: string[] = []
   if (label) parts.push(`🧪 <b>${escapeHtml(label)}</b>`)
-  if (ctx.memberships.length > 1) parts.push(`🏪 <i>${escapeHtml(ctx.store.name)}</i>`)
+  if (ctx.memberships.length > 1 || withStore) parts.push(`🏪 Tienda actual: <b>${escapeHtml(ctx.store.name)}</b>`)
   return parts.length ? `${parts.join('\n')}\n\n` : ''
 }
 

@@ -736,6 +736,12 @@ async function reportProvisioning(ctx: MasterContext, result: ProvisionResult, d
   }
   await ctx.db.prepare('DELETE FROM platform_conversations WHERE chat_id = ?').bind(String(ctx.chatId)).run()
   const username = await assistantUsername(ctx.env)
+  // The owner keeps their active store; the assistant only tells them a new one is available.
+  if (data.ownerTelegramId && !result.replayed && ctx.env.TELEGRAM_BOT_TOKEN) {
+    await sendTelegramMessage(ctx.env.TELEGRAM_BOT_TOKEN, Number(data.ownerTelegramId),
+      `🏪 Tienes una nueva tienda disponible: <b>${escapeHtml(result.name)}</b>.\nTu tienda actual no cambió. Escribe /tiendas para elegir con cuál trabajar.`, 'HTML',
+      { inline_keyboard: [[{ text: '🔄 Ver mis tiendas', callback_data: 'm:switch_store' }]] }).catch(() => undefined)
+  }
   const access = result.replayed
     ? '\n\n<b>Acceso del propietario</b>\nLos accesos se entregaron cuando se creó. Si se perdieron, toca “🔑 Nuevos accesos”.'
     : `\n\n<b>Acceso del propietario</b>${await ownerAccessText(ctx, { activationUrl: result.activationUrl ?? null, telegramLinkCode: result.telegramLinkCode ?? null, telegramDeepLink: result.telegramDeepLink ?? null })}` +

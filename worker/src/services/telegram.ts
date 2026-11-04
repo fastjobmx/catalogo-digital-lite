@@ -8,8 +8,8 @@ import { interpretCommand } from '../ai/interpreter'
 import { executeReadAction } from '../ai/executor'
 import { READ_ONLY_ACTIONS, type ActionName } from '../validation/actions'
 import { PRIMARY_STORE_ID } from '../tenancy/stores'
-import { roleAllows, type Membership } from '../tenancy/access'
-import { consumeAccessToken, linkTelegramToUser, normalizeLinkCode } from './platformUsers'
+import { roleAllows, type Membership, type StoreRole } from '../tenancy/access'
+import { consumeAccessToken, linkTelegramToUser, normalizeLinkCode, upsertMembership } from './platformUsers'
 import {
   answerCallback, downloadTelegramVoice, sendChatAction, sendTelegramMessage,
   type TelegramMessage, type TelegramUpdate,
@@ -18,7 +18,7 @@ import {
   loadAssistantStore, membershipsForTelegramUser, readSession, rememberTurn, say, updateSessionState, writeSession,
   type AssistantContext,
 } from './assistant/context'
-import { backToMenu, greeting, HELP_TEXT, inventoryKeyboard, mainMenuKeyboard, orderMenuKeyboard, storePickerKeyboard } from './assistant/menus'
+import { ACCESS_HELP_TEXT, backToMenu, greeting, HELP_TEXT, inventoryKeyboard, mainMenuKeyboard, orderMenuKeyboard, storePickerKeyboard, storePickerText, switchedStoreKeyboard } from './assistant/menus'
 import { cancelOperation, confirmOperation, formatOperationPreview, getPendingOperation, isConfirmableAction, proposeChange } from './assistant/operations'
 import { acceptProductDraftText, beginProductDraft, cancelProductDraft, getPendingProductDraft, handleProductDraftCallback, receiveProductPhoto } from './assistant/productDraft'
 import { askWhatToDoWithPhoto, beginAttachPhotos, getPendingAttach, handleAttachCallback, pendingPhotoFromSession, photoFileId, proposeStoreImage, receiveAttachPhoto } from './assistant/media'
@@ -51,10 +51,16 @@ async function buildContext(update: TelegramUpdate, env: Env['Bindings'], db: D1
   if (!available.length) return null
   const session = await readSession(db, telegramUserId)
   const selection = update.callback_query?.data?.match(/^s:select:(\d+)$/)
-  let storeId = selection ? Number(selection[1]) : session.activeStoreId
+  const forbiddenSelection = Boolean(selection && !available.some((membership) => membership.storeId === Number(selection[1])))
+  let storeId = selection && !forbiddenSelection ? Number(selection[1]) : session.activeStoreId
   if (!storeId || !available.some((membership) => membership.storeId === storeId)) storeId = available.length === 1 ? available[0]!.storeId : null
-  if (!storeId) {
-    await sendTelegramMessage(botToken, message.chat.id, `¡Hola${from.first_name ? `, ${escapeHtml(from.first_name)}` : ''}! 👋 Administras varias tiendas. ¿Con cuál quieres trabajar?`, 'HTML', storePickerKeyboard(available))
+  if (!storeId || forbiddenSelection) {
+    if (forbiddenSelection && update.callback_query) {
+      await answerCallback(botToken, update.callback_query.id).catch(() => undefined)
+      await sendTelegramMessage(botToken, message.chat.id, 'No tienes acceso a esa tienda. Elige una de las tiendas que administras:', 'HTML', storePickerKeyboard(available))
+      return null
+    }
+    await sendTelegramMessage(botToken, message.chat.id, storePickerText(from.first_name || '', available), 'HTML', storePickerKeyboard(available))
     if (update.callback_query) await answerCallback(botToken, update.callback_query.id).catch(() => undefined)
     return null
   }
@@ -65,10 +71,23 @@ async function buildContext(update: TelegramUpdate, env: Env['Bindings'], db: D1
     await sendTelegramMessage(botToken, message.chat.id, `La tienda <b>${escapeHtml(store.name)}</b> está suspendida en este momento. Si crees que es un error, contacta a soporte.`, 'HTML')
     return null
   }
-  if (session.activeStoreId !== storeId) await writeSession(db, telegramUserId, storeId, selection ? {} : session.state)
+  let cancelledOnSwitch = 0
+  if (session.activeStoreId !== storeId) {
+    // A new store context never inherits drafts, pending confirmations or awaited photos.
+    const cancelled = await db.prepare(
+      `UPDATE telegram_operations SET status = 'cancelled', completed_at = datetime('now')
+       WHERE chat_id = ? AND status = 'pending' AND store_id <> ?`,
+    ).bind(String(message.chat.id), storeId).run()
+    cancelledOnSwitch = Number(cancelled.meta.changes || 0)
+    await writeSession(db, telegramUserId, storeId, {})
+    if (session.activeStoreId) {
+      await db.prepare(`INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source, store_id) VALUES ('telegram_store_switched', 'store', ?, ?, ?, 'telegram', ?)`)
+        .bind(String(storeId), JSON.stringify({ from: session.activeStoreId, cancelledPending: cancelledOnSwitch }), `telegram:${telegramUserId}`, storeId).run()
+    }
+  }
   return {
     db, env, botToken, chatId: message.chat.id, telegramUserId, firstName: from.first_name || '', updateId: update.update_id,
-    store, role: membership.role, memberships: available,
+    store, role: membership.role, memberships: available, cancelledOnSwitch,
   }
 }
 
@@ -117,11 +136,18 @@ export async function processTelegramUpdate(
   }
 }
 
+/** Lists only the stores this Telegram account is a member of (fresh from the database). */
+async function showStorePicker(ctx: AssistantContext): Promise<void> {
+  await say(ctx, storePickerText(ctx.firstName, ctx.memberships, ctx.store.name), storePickerKeyboard(ctx.memberships, ctx.store.id))
+}
+
 async function handleCallback(ctx: AssistantContext, data: string): Promise<void> {
   const key = data.trim()
   const select = key.match(/^s:select:(\d+)$/)
   if (select) {
-    if (!await showOnboardingForStart(ctx)) await say(ctx, greeting(ctx.firstName, ctx.store.name), mainMenuKeyboard(ctx.memberships.length > 1))
+    const notice = ctx.cancelledOnSwitch ? `\n\nCancelé ${ctx.cancelledOnSwitch} cambio(s) pendiente(s) de la tienda anterior; no se aplicó nada.` : ''
+    if (await showOnboardingForStart(ctx)) { if (notice) await say(ctx, notice.trim()); return }
+    await say(ctx, `¡Perfecto! Ahora estás administrando <b>${escapeHtml(ctx.store.name)}</b>.${notice}\n\n¿Qué quieres hacer?`, switchedStoreKeyboard())
     return
   }
   const product = key.match(/^pd:(preview|edit|publish|cancel|done|field|photo|main|cat|newcat|sku):([0-9a-f-]{36})(?::([a-z_]+|\d+))?$/i)
@@ -154,15 +180,20 @@ async function handleCallback(ctx: AssistantContext, data: string): Promise<void
     if (pending.action === 'update_store_banner') await advanceAfterConfirmedBanner(ctx)
     return
   }
-  const paletteIdea = key.match(/^pal:([0-9A-F]{6}):(faithful|balanced|vibrant)$/i)
+  const paletteIdea = key.match(/^pal:(\d+):([0-9A-F]{6}):(faithful|balanced|vibrant)$/i)
   if (paletteIdea) {
-    const option = paletteFromCallback(paletteIdea[1]!, paletteIdea[2]!)
+    if (Number(paletteIdea[1]) !== ctx.store.id) { await say(ctx, otherStoreButton(ctx)); return }
+    const option = paletteFromCallback(paletteIdea[2]!, paletteIdea[3]!)
     if (!option) { await say(ctx, 'Esa combinación ya no está disponible. Pídeme de nuevo los colores.'); return }
     await proposeChange(ctx, 'update_store_colors', { primaryColor: option.palette.primary, palette: option.palette }, `Paleta “${option.label}”`)
     return
   }
-  const templateChoice = key.match(/^tpl:(pick|apply):([a-z]+)$/)
-  if (templateChoice) { await handleTemplateCallback(ctx, templateChoice[1] as 'pick' | 'apply', templateChoice[2]!); return }
+  const templateChoice = key.match(/^tpl:(\d+):(pick|apply):([a-z]+)$/)
+  if (templateChoice) {
+    if (Number(templateChoice[1]) !== ctx.store.id) { await say(ctx, otherStoreButton(ctx)); return }
+    await handleTemplateCallback(ctx, templateChoice[2] as 'pick' | 'apply', templateChoice[3]!)
+    return
+  }
   const photo = key.match(/^ph:(product|banner|logo|none)$/)
   if (photo) {
     const fileId = await pendingPhotoFromSession(ctx)
@@ -177,7 +208,7 @@ async function handleCallback(ctx: AssistantContext, data: string): Promise<void
   const onboarding = key.match(/^ob:(\d+):([a-z0-9_:-]+)$/i)
   if (onboarding) {
     if (Number(onboarding[1]) !== ctx.store.id) {
-      await say(ctx, 'Este botón pertenece a otra tienda. Selecciona de nuevo la tienda desde /tienda.')
+      await say(ctx, otherStoreButton(ctx))
       return
     }
     const outcome = await handleOnboardingCallback(ctx, onboarding[2]!)
@@ -198,7 +229,8 @@ async function readAndReply(ctx: AssistantContext, action: ActionName, params: R
 async function handleMenu(ctx: AssistantContext, key: string): Promise<void> {
   switch (key) {
     case 'm:menu': await say(ctx, '¿Qué hacemos ahora?', mainMenuKeyboard(ctx.memberships.length > 1)); return
-    case 'm:switch_store': await say(ctx, '¿Con qué tienda quieres trabajar?', storePickerKeyboard(ctx.memberships)); return
+    case 'm:switch_store': await showStorePicker(ctx); return
+    case 'm:access': await say(ctx, ACCESS_HELP_TEXT, { inline_keyboard: [[{ text: '🔄 Ver mis tiendas', callback_data: 'm:switch_store' }], [{ text: '↩ Menú principal', callback_data: 'm:menu' }]] }); return
     case 'm:new_product': await beginProductDraft(ctx); return
     case 'm:help': await say(ctx, HELP_TEXT, backToMenu()); return
     case 'm:inventory': await readAndReply(ctx, 'get_inventory', {}, inventoryKeyboard()); return
@@ -337,8 +369,8 @@ async function handleCommand(ctx: AssistantContext, text: string): Promise<boole
     case '/help': if (!await onboardingHelp(ctx)) await say(ctx, HELP_TEXT, backToMenu()); return true
     case '/tienda':
     case '/tiendas':
-      if (ctx.memberships.length > 1) await say(ctx, '¿Con qué tienda quieres trabajar?', storePickerKeyboard(ctx.memberships))
-      else await say(ctx, `Administras <b>${escapeHtml(ctx.store.name)}</b>.`)
+    case '/cambiar_tienda':
+      await showStorePicker(ctx)
       return true
     case '/estado':
     case '/stats':
@@ -411,7 +443,7 @@ async function handleText(ctx: AssistantContext, text: string): Promise<void> {
       case 'help': if (!await onboardingHelp(ctx)) await say(ctx, HELP_TEXT, backToMenu()); return
       case 'palette_ideas': await showPaletteIdeas(ctx, text); return
       case 'template_ideas': await showTemplatePicker(ctx); return
-      case 'switch_store': await handleCommand(ctx, '/tienda'); return
+      case 'switch_store': await showStorePicker(ctx); return
       case 'start_product':
         if (intent.count) await say(ctx, `¡Perfecto! Vamos con tus ${intent.count} productos, uno a la vez. Al guardar cada uno te pregunto si seguimos con el siguiente.`)
         await beginProductDraft(ctx, undefined, intent.hint)
@@ -538,7 +570,23 @@ export async function linkTelegramAccount(
     const existing = await db.prepare('SELECT id FROM platform_users WHERE telegram_user_id = ?').bind(telegramUserId).first<{ id: number }>()
     const token = await consumeAccessToken(db, normalized, 'telegram_link')
     if (!token) return { success: false, message: 'Ese código no es válido o ya venció. Pide uno nuevo desde el panel de tu tienda.' }
-    if (existing && existing.id !== token.userId) return { success: false, message: 'Esta cuenta de Telegram ya está vinculada a otro usuario. Contacta a soporte si necesitas cambiarla.' }
+    if (existing && existing.id !== token.userId) {
+      // The one-time code proves access to that store: the Telegram account that
+      // already administers other stores receives the same role as an extra membership.
+      const granted = await db.prepare(
+        `SELECT m.role FROM store_memberships m JOIN stores s ON s.id = m.store_id
+         WHERE m.store_id = ? AND m.user_id = ? AND m.status = 'active' AND s.status <> 'cancelled'`,
+      ).bind(token.storeId, token.userId).first<{ role: StoreRole }>()
+      if (!granted) return { success: false, message: 'Ese código ya no da acceso a una tienda activa. Pide uno nuevo.' }
+      // Never change an existing membership (that could lower an owner to admin).
+      const already = await db.prepare('SELECT 1 FROM store_memberships WHERE store_id = ? AND user_id = ?').bind(token.storeId, existing.id).first()
+      if (already) return { success: false, message: 'Tu cuenta de Telegram ya tiene acceso a esa tienda; no cambié nada. Ese código era para otra persona: pide al propietario que genere uno nuevo para ella.' }
+      await upsertMembership(db, { storeId: token.storeId, userId: existing.id, role: granted.role, createdBy: `telegram:${telegramUserId}` })
+      const added = await db.prepare('SELECT name FROM stores WHERE id = ?').bind(token.storeId).first<{ name: string }>()
+      await db.prepare(`INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source, store_id) VALUES ('telegram_store_added', 'user', ?, ?, ?, 'telegram', ?)`)
+        .bind(String(existing.id), JSON.stringify({ role: granted.role, viaUser: token.userId }), `telegram:${telegramUserId}`, token.storeId).run()
+      return { success: true, storeId: token.storeId, message: `✅ ¡Listo! Agregué <b>${escapeHtml(added?.name || 'la tienda')}</b> a tu cuenta. Tus otras tiendas siguen igual.\nEscribe /tiendas para elegir con cuál trabajar.` }
+    }
     const linked = await linkTelegramToUser(db, token.userId, telegramUserId)
     if (linked !== 'linked') return { success: false, message: 'Esta cuenta de Telegram ya está vinculada a otro usuario.' }
     const store = await db.prepare('SELECT name FROM stores WHERE id = ?').bind(token.storeId).first<{ name: string }>()
@@ -548,7 +596,7 @@ export async function linkTelegramAccount(
       db.prepare(`INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source, store_id) VALUES ('telegram_linked', 'user', ?, '{}', ?, 'telegram', ?)`)
         .bind(String(token.userId), `telegram:${telegramUserId}`, token.storeId),
     ])
-    return { success: true, storeId: token.storeId, message: `✅ ¡Listo! Tu Telegram quedó vinculado a <b>${escapeHtml(store?.name || 'tu tienda')}</b>.\nEscribe <b>hola</b> para empezar.` }
+    return { success: true, storeId: token.storeId, message: `✅ ¡Listo! Tu Telegram quedó vinculado a <b>${escapeHtml(store?.name || 'tu tienda')}</b> y ahora estás administrando esa tienda.\nEscribe <b>hola</b> para empezar. Si administras otras tiendas, cambia entre ellas con /tiendas.` }
   }
   const linked = await db.prepare(
     `UPDATE store_config SET telegram_owner_id = ?, telegram_link_code = NULL, telegram_link_expires_at = NULL, updated_at = datetime('now')
@@ -557,4 +605,9 @@ export async function linkTelegramAccount(
   ).bind(telegramUserId, PRIMARY_STORE_ID, code).first()
   if (!linked) return { success: false, message: 'Código de enlace inválido o expirado.' }
   return { success: true, storeId: PRIMARY_STORE_ID, message: '✅ Cuenta de Telegram vinculada correctamente. Escribe hola para empezar.' }
+}
+
+/** A button from another store's conversation never acts on the active store. */
+function otherStoreButton(ctx: AssistantContext): string {
+  return `Ese botón pertenece a otra tienda y no lo apliqué. Ahora estás administrando <b>${escapeHtml(ctx.store.name)}</b>; si quieres trabajar en la otra, usa /tiendas.`
 }

@@ -525,7 +525,7 @@ export async function showPaletteIdeas(ctx: AssistantContext, text = ''): Promis
   const intro = named ? `Así podría verse <b>${escapeHtml(ctx.store.name)}</b> en tonos ${escapeHtml(named.label)}.` : 'Estas son tres combinaciones para tu tienda.'
   await say(ctx, `🎨 ${intro}\n\nToca 👁 para ver la tienda con esos colores (no se guarda nada). Si te gusta, toca ✓ y te pediré confirmación antes de cambiarla.\n\nTambién puedes escribirme otro color, por ejemplo “tonos verdes”.`, { inline_keyboard: [
     ...options.map((option) => [
-      { text: `✓ ${option.label}`, callback_data: `pal:${hex}:${option.id}` },
+      { text: `✓ ${option.label}`, callback_data: `pal:${ctx.store.id}:${hex}:${option.id}` },
       { text: '👁 Ver', url: storePreviewUrl(ctx, { palette: option.palette }) },
     ]),
     [{ text: '🛠️ Ajustar cada tono en el panel', url: `${adminStoreUrl(ctx.env.PUBLIC_STORE_BASE_URL, ctx.store)}/appearance` }],
@@ -545,7 +545,7 @@ export async function showTemplatePicker(ctx: AssistantContext): Promise<void> {
   const progress = await getOnboarding(ctx)
   if (progress?.status === 'in_progress' && progress.step === 'template' && progress.expires_at > Math.floor(Date.now() / 1000)) { await renderOnboarding(ctx, progress); return }
   await say(ctx, '🧩 <b>Plantillas</b>\n\nCada una cambia la portada, la tipografía, las tarjetas de producto y la navegación. Tus productos y colores se conservan.\n\nToca 👁 para ver tu tienda con esa plantilla y ✓ para elegirla.', { inline_keyboard: [
-    ...TEMPLATE_KEYS.map((key) => [{ text: `✓ ${TEMPLATE_LABELS[key]}`, callback_data: `tpl:pick:${key}` }, { text: '👁 Ver', url: storePreviewUrl(ctx, { template: key }) }]),
+    ...TEMPLATE_KEYS.map((key) => [{ text: `✓ ${TEMPLATE_LABELS[key]}`, callback_data: `tpl:${ctx.store.id}:pick:${key}` }, { text: '👁 Ver', url: storePreviewUrl(ctx, { template: key }) }]),
     [{ text: '↩ Menú principal', callback_data: 'm:menu' }],
   ] })
 }
@@ -557,7 +557,7 @@ export async function handleTemplateCallback(ctx: AssistantContext, intent: 'pic
   const template = key as TemplateKey
   if (intent === 'pick') {
     await say(ctx, `¿Aplico la plantilla <b>${escapeHtml(TEMPLATE_LABELS[template])}</b>? Tus productos, textos y colores se conservan.`, { inline_keyboard: [
-      [{ text: '✅ Aplicar plantilla', callback_data: `tpl:apply:${template}` }, { text: '👁 Ver antes', url: storePreviewUrl(ctx, { template }) }],
+      [{ text: '✅ Aplicar plantilla', callback_data: `tpl:${ctx.store.id}:apply:${template}` }, { text: '👁 Ver antes', url: storePreviewUrl(ctx, { template }) }],
       [{ text: '❌ Cancelar', callback_data: 'm:templates' }],
     ] })
     return
