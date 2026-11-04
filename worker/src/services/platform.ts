@@ -8,7 +8,7 @@ import { storeAssetPrefix } from '../lib/assets'
 
 export type StoreListItem = {
   id: number; slug: string; name: string; status: StoreStatus; planCode: string; template: string; businessType: string
-  products: number; ordersLast30: number; aiPercent: number; ownerEmail: string | null; createdAt: string
+  products: number; ordersLast30: number; aiPercent: number; ownerEmail: string | null; createdAt: string; activationRequestStatus: string | null
 }
 
 export class PlatformError extends Error {
@@ -27,7 +27,8 @@ export async function listStores(db: D1Database, filter: { status?: string; quer
             (SELECT COUNT(*) FROM products p WHERE p.store_id = s.id AND p.is_archived = 0) AS products,
             (SELECT COUNT(*) FROM orders o WHERE o.store_id = s.id AND o.created_at >= datetime('now', '-30 days')) AS ordersLast30,
             CASE WHEN s.ai_monthly_budget_micros > 0 THEN CAST(ROUND(100.0 * COALESCE(u.estimated_cost_micros, 0) / s.ai_monthly_budget_micros) AS INTEGER) ELSE 0 END AS aiPercent,
-            (SELECT pu.email FROM store_memberships m JOIN platform_users pu ON pu.id = m.user_id WHERE m.store_id = s.id AND m.role = 'owner' AND m.status = 'active' LIMIT 1) AS ownerEmail
+            (SELECT pu.email FROM store_memberships m JOIN platform_users pu ON pu.id = m.user_id WHERE m.store_id = s.id AND m.role = 'owner' AND m.status = 'active' LIMIT 1) AS ownerEmail,
+            (SELECT r.status FROM store_activation_requests r WHERE r.store_id = s.id ORDER BY r.id DESC LIMIT 1) AS activationRequestStatus
      FROM stores s LEFT JOIN ai_usage_monthly u ON u.store_id = s.id AND u.period = ?
      WHERE (? IS NULL OR s.status = ?) AND (? IS NULL OR s.name LIKE ? OR s.slug LIKE ?)
      ORDER BY s.id`,
@@ -91,6 +92,7 @@ export async function setStoreStatus(db: D1Database, slugOrId: string, status: S
       .bind(status, status === 'suspended' ? (reason || '').slice(0, 300) || null : null, status, status, store.id),
     db.prepare(`INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source, store_id) VALUES ('store_status_changed', 'store', ?, ?, ?, 'platform', ?)`)
       .bind(String(store.id), JSON.stringify({ from: store.status, to: status, reason: reason || null }), actor, store.id),
+    ...(status === 'active' ? [db.prepare("UPDATE store_activation_requests SET status = 'approved', resolved_at = unixepoch(), resolved_by = ? WHERE store_id = ? AND status = 'pending'").bind(actor, store.id)] : []),
   ])
   return { store: { ...store, status }, changed: true }
 }

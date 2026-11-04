@@ -8,7 +8,9 @@ export type Intent =
   | { kind: 'menu' }
   | { kind: 'help' }
   | { kind: 'switch_store' }
-  | { kind: 'start_product'; hint: string }
+  | { kind: 'start_product'; hint: string; count?: number }
+  | { kind: 'palette_ideas' }
+  | { kind: 'template_ideas' }
   | { kind: 'change_store_image'; target: 'banner' | 'logo' }
   | { kind: 'attach_photos'; sku: string }
   | { kind: 'action'; action: string; params: Record<string, unknown>; summary?: string }
@@ -72,8 +74,18 @@ export function detectIntent(raw: string, recentSkus: string[] = []): Intent | n
   const attach = text.match(/(?:agrega|añade|sube|carga|pon)\w*\s+(?:estas\s+|las\s+|unas\s+)?(?:fotos?|fotograf[ií]as|im[aá]genes)\s+(?:al|a|en el|para el)\s+(?:producto\s+)?(?:con\s+)?(?:sku|c[oó]digo|referencia)?\s*:?\s*([A-Z0-9][A-Z0-9._-]{1,63})/i)
   if (attach) return { kind: 'attach_photos', sku: attach[1]!.toUpperCase() }
 
-  if (/(cambia|cambiar|pon|poner|actualiza|reemplaza|nuevo|nueva)\w*\b.*\b(banner|imagen principal|foto de portada|imagen de portada)\b/.test(lower) && !/t[ií]tulo/.test(lower)) return { kind: 'change_store_image', target: 'banner' }
+  if (/(cambia|cambiar|pon|poner|actualiza|reemplaza|nuevo|nueva)\w*\b.*\b(banner|imagen principal|foto principal|portada|foto de portada|imagen de portada)\b/.test(lower) && !/t[ií]tulo|del producto|de un producto|de (los|mis) productos/.test(lower)) return { kind: 'change_store_image', target: 'banner' }
   if (/(cambia|cambiar|pon|poner|actualiza|reemplaza|nuevo)\w*\b.*\blog(o|otipo)\b/.test(lower)) return { kind: 'change_store_image', target: 'logo' }
+
+  // Colors and templates: offer options with a real preview instead of guessing one value.
+  if (!/#[0-9a-f]{6}\b/i.test(text)) {
+    const colorWord = /\b(colou?r(es)?|paleta|tonos?)\b/
+    if ((/(c[oó]mo|puedo|quiero|quisiera|d[oó]nde|ay[uú]dame)\b.*\b(cambi|modific|eleg|escog|pon|ajust|personaliz|mejor)\w*/.test(lower) && colorWord.test(lower))
+      || (/(mu[eé]strame|ens[eé][nñ]ame|c[oó]mo (se )?(ver[ií]a|quedar[ií]a|luce|lucir[ií]a)|pru[eé]ba|probar|\bver\b)/.test(lower) && /\b(tonos?|paleta|colores)\b/.test(lower))
+      || /^(colores|paletas?|cambiar (los )?colores)\??$/.test(lower)) return { kind: 'palette_ideas' }
+    if (/(c[oó]mo|puedo|quiero|quisiera|d[oó]nde|mu[eé]strame)\b.*\b(cambi|eleg|escog|ver|prob)\w*\b.*\b(plantillas?|dise[nñ]o de (la|mi) tienda|estilo de (la|mi) tienda)\b/.test(lower)
+      || /^(plantillas?|ver plantillas|cambiar (la )?plantilla)\??$/.test(lower)) return { kind: 'template_ideas' }
+  }
 
   if (/(oculta|ocultar|esconde|esconder|desactiva|quita|quitar)\w*\b.*\b(agotad|sin stock|sin existencias|sin unidades)/.test(lower)) {
     return { kind: 'action', action: 'hide_out_of_stock', params: {}, summary: 'Ocultar productos agotados.' }
@@ -126,7 +138,10 @@ export function detectIntent(raw: string, recentSkus: string[] = []): Intent | n
 
   if (/^(?:quiero |voy a |necesito |me gustar[ií]a )?(?:agregar|añadir|subir|crear|publicar|registrar|cargar)\w*\s+(?:un |una |unos |unas |el |la |los |las |nuevo |nueva )?(?:producto|productos|art[ií]culo|.{3,60})$/i.test(text)
     && !/precio|stock|categor|tienda|cuenta|usuario|fotos? (al|a|del)|descripci|banner|logo|horario|whatsapp/.test(lower)) {
-    return { kind: 'start_product', hint: text.replace(/^(?:quiero |voy a |necesito |me gustar[ií]a )?(?:agregar|añadir|subir|crear|publicar|registrar|cargar)\w*\s+/i, '').replace(/^(?:un|una|unos|unas|el|la|los|las)\s+(?:nuevo\s+|nueva\s+)?/i, '').replace(/^(?:producto|productos)\s*/i, '').slice(0, 120) }
+    const hint = text.replace(/^(?:quiero |voy a |necesito |me gustar[ií]a )?(?:agregar|añadir|subir|crear|publicar|registrar|cargar)\w*\s+/i, '').replace(/^(?:un|una|unos|unas|el|la|los|las)\s+(?:nuevo\s+|nueva\s+)?/i, '').replace(/^(?:producto|productos)\s*/i, '').slice(0, 120)
+    const many = hint.match(/^(\d{1,2}|[a-zñ]+)\s+(?:productos|art[ií]culos|referencias)\b/i)
+    const count = many ? parseSpanishNumber(many[1]) : null
+    return count && count > 1 ? { kind: 'start_product', hint: '', count } : { kind: 'start_product', hint }
   }
   return null
 }

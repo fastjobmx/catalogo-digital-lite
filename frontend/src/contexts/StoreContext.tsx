@@ -336,6 +336,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
  root.dataset.button = store.theme.style.buttonStyle
  root.dataset.card = store.theme.style.cardStyle
  root.dataset.preset = store.theme.style.radius
+ root.dataset.template = store.theme.template || 'personalizado'
  root.classList.toggle('dark', store.theme.style.darkMode)
 
  // Color de la barra del navegador y favicon

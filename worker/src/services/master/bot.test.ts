@@ -87,7 +87,7 @@ describe('/crear_tienda guided flow', () => {
     expect(telegram.messages().at(-1)).toContain('WhatsApp comercial')
     await say('+57 300 123 4567')
     expect(telegram.messages().at(-1)).toContain('plantilla visual')
-    expect((telegram.lastMarkup()?.inline_keyboard || []).flat().map((item) => item.text)).toEqual(expect.arrayContaining(['⚪ Minimalista', '🔷 Moderno', '✨ Premium', '🎨 Personalizado']))
+    expect((telegram.lastMarkup()?.inline_keyboard || []).flat().map((item) => item.text)).toEqual(expect.arrayContaining(['Minimalista', 'Moderno', 'Premium', 'Personalizado', 'Urban', 'Editorial']))
     await tap('mt:wz:style:premium')
     expect(telegram.messages().at(-1)).toContain('colores principales')
     await say('azul oscuro y dorado')

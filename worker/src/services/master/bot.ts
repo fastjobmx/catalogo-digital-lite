@@ -481,9 +481,12 @@ async function promptStep(ctx: MasterContext, step: WizardStep, data: WizardData
       await say(ctx, '¿Cuál es el WhatsApp comercial para recibir pedidos? Escríbelo con el código de país, por ejemplo <code>+573001234567</code>.', { inline_keyboard: [[{ text: 'Lo configura el propietario', callback_data: 'mt:wz:skipwa' }], [{ text: '✖ Cancelar', callback_data: 'mt:wz:cancel' }]] })
       return
     case 'style':
-      await say(ctx, '¿Qué plantilla visual prefieres?', { inline_keyboard: [
-        [{ text: '⚪ Minimalista', callback_data: 'mt:wz:style:minimalista' }, { text: '🔷 Moderno', callback_data: 'mt:wz:style:moderno' }],
-        [{ text: '✨ Premium', callback_data: 'mt:wz:style:premium' }, { text: '🎨 Personalizado', callback_data: 'mt:wz:style:personalizado' }],
+      await say(ctx, 'Elige la plantilla visual que mejor encaja con el negocio. Puedes cambiarla después desde el panel.', { inline_keyboard: [
+        ...TEMPLATE_KEYS.reduce<Array<Array<{ text: string; callback_data: string }>>>((rows, key, index) => {
+          if (index % 2 === 0) rows.push([])
+          rows.at(-1)!.push({ text: TEMPLATE_LABELS[key], callback_data: `mt:wz:style:${key}` })
+          return rows
+        }, []),
         [{ text: '✖ Cancelar', callback_data: 'mt:wz:cancel' }],
       ] })
       return

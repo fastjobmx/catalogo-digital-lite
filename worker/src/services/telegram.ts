@@ -18,14 +18,20 @@ import {
   loadAssistantStore, membershipsForTelegramUser, readSession, rememberTurn, say, updateSessionState, writeSession,
   type AssistantContext,
 } from './assistant/context'
-import { appearanceKeyboard, backToMenu, greeting, HELP_TEXT, inventoryKeyboard, mainMenuKeyboard, orderMenuKeyboard, storePickerKeyboard } from './assistant/menus'
+import { backToMenu, greeting, HELP_TEXT, inventoryKeyboard, mainMenuKeyboard, orderMenuKeyboard, storePickerKeyboard } from './assistant/menus'
 import { cancelOperation, confirmOperation, formatOperationPreview, getPendingOperation, isConfirmableAction, proposeChange } from './assistant/operations'
 import { acceptProductDraftText, beginProductDraft, cancelProductDraft, getPendingProductDraft, handleProductDraftCallback, receiveProductPhoto } from './assistant/productDraft'
 import { askWhatToDoWithPhoto, beginAttachPhotos, getPendingAttach, handleAttachCallback, pendingPhotoFromSession, photoFileId, proposeStoreImage, receiveAttachPhoto } from './assistant/media'
 import { handleDocument, isSupportedDocument } from './assistant/documents'
 import { answerWithStoreFacts, draftProductDescription, interpretRequest } from './assistant/ai'
 import { detectIntent } from './assistant/intents'
-import { catalogFacts, deterministicAdvice, escapeHtml, storeSummaryTool } from './assistant/tools'
+import { catalogFacts, deterministicAdvice, escapeHtml } from './assistant/tools'
+import {
+  advanceAfterConfirmedBanner, advanceAfterConfirmedLogo, continueOnboarding,
+  handleOnboardingCallback, handleOnboardingText, renderOnboarding, showOnboardingForStart,
+  showSettingsCenter, getOnboarding, showPaletteIdeas, paletteFromCallback, showTemplatePicker,
+  handleTemplateCallback, onboardingHelp,
+} from './assistant/onboarding'
 
 export { sendTelegramMessage, downloadTelegramVoice }
 export type { TelegramMessage, TelegramUpdate, TelegramCallbackQuery, TelegramSendMessageResponse } from './assistant/telegramApi'
@@ -115,7 +121,7 @@ async function handleCallback(ctx: AssistantContext, data: string): Promise<void
   const key = data.trim()
   const select = key.match(/^s:select:(\d+)$/)
   if (select) {
-    await say(ctx, greeting(ctx.firstName, ctx.store.name), mainMenuKeyboard(ctx.memberships.length > 1))
+    if (!await showOnboardingForStart(ctx)) await say(ctx, greeting(ctx.firstName, ctx.store.name), mainMenuKeyboard(ctx.memberships.length > 1))
     return
   }
   const product = key.match(/^pd:(preview|edit|publish|cancel|done|field|photo|main|cat|newcat|sku):([0-9a-f-]{36})(?::([a-z_]+|\d+))?$/i)
@@ -126,8 +132,13 @@ async function handleCallback(ctx: AssistantContext, data: string): Promise<void
   if (operation) {
     const [, intent, operationId] = operation
     if (intent === 'cancel') {
+      const pendingBeforeCancel = await getPendingOperation(ctx, operationId)
       const cancelled = await cancelOperation(ctx, operationId)
       await say(ctx, cancelled ? 'Listo, lo cancelé. Tu tienda no cambió.' : 'Esa propuesta ya venció o se procesó.', backToMenu())
+      if (pendingBeforeCancel?.action === 'update_store_logo' || pendingBeforeCancel?.action === 'update_store_banner') {
+        const progress = await getOnboarding(ctx)
+        if (progress?.status === 'in_progress') await renderOnboarding(ctx, progress)
+      }
       return
     }
     const pending = await getPendingOperation(ctx, operationId)
@@ -139,8 +150,19 @@ async function handleCallback(ctx: AssistantContext, data: string): Promise<void
       return
     }
     await confirmOperation(ctx, pending)
+    if (pending.action === 'update_store_logo') await advanceAfterConfirmedLogo(ctx)
+    if (pending.action === 'update_store_banner') await advanceAfterConfirmedBanner(ctx)
     return
   }
+  const paletteIdea = key.match(/^pal:([0-9A-F]{6}):(faithful|balanced|vibrant)$/i)
+  if (paletteIdea) {
+    const option = paletteFromCallback(paletteIdea[1]!, paletteIdea[2]!)
+    if (!option) { await say(ctx, 'Esa combinación ya no está disponible. Pídeme de nuevo los colores.'); return }
+    await proposeChange(ctx, 'update_store_colors', { primaryColor: option.palette.primary, palette: option.palette }, `Paleta “${option.label}”`)
+    return
+  }
+  const templateChoice = key.match(/^tpl:(pick|apply):([a-z]+)$/)
+  if (templateChoice) { await handleTemplateCallback(ctx, templateChoice[1] as 'pick' | 'apply', templateChoice[2]!); return }
   const photo = key.match(/^ph:(product|banner|logo|none)$/)
   if (photo) {
     const fileId = await pendingPhotoFromSession(ctx)
@@ -150,6 +172,17 @@ async function handleCallback(ctx: AssistantContext, data: string): Promise<void
     await beginProductDraft(ctx)
     const active = await getPendingProductDraft(ctx)
     if (active) await receiveProductPhoto(ctx, active, { message_id: 0, chat: { id: ctx.chatId, type: 'private' }, date: 0, photo: [{ file_id: fileId }] })
+    return
+  }
+  const onboarding = key.match(/^ob:(\d+):([a-z0-9_:-]+)$/i)
+  if (onboarding) {
+    if (Number(onboarding[1]) !== ctx.store.id) {
+      await say(ctx, 'Este botón pertenece a otra tienda. Selecciona de nuevo la tienda desde /tienda.')
+      return
+    }
+    const outcome = await handleOnboardingCallback(ctx, onboarding[2]!)
+    if (outcome === 'add_product') await beginProductDraft(ctx)
+    else if (outcome === 'view_products') await readAndReply(ctx, 'get_products')
     return
   }
   await handleMenu(ctx, key)
@@ -194,10 +227,11 @@ async function handleMenu(ctx: AssistantContext, key: string): Promise<void> {
     case 'm:appearance':
     case 'm:store':
     case 'm:settings': {
-      const summary = await storeSummaryTool(ctx.db, ctx.store.id)
-      await say(ctx, `${summary.text}\n\n¿Qué quieres cambiar?`, appearanceKeyboard())
+      await showSettingsCenter(ctx)
       return
     }
+    case 'm:colors': await showPaletteIdeas(ctx); return
+    case 'm:templates': await showTemplatePicker(ctx); return
     case 'm:banner':
     case 'm:logo':
       await updateSessionState(ctx, { awaiting: key === 'm:banner' ? 'banner_photo' : 'logo_photo' })
@@ -233,6 +267,12 @@ async function handlePhoto(ctx: AssistantContext, message: TelegramMessage): Pro
   const session = await readSession(ctx.db, ctx.telegramUserId)
   if (session.state.awaiting === 'banner_photo' || session.state.awaiting === 'logo_photo') {
     await proposeStoreImage(ctx, session.state.awaiting === 'banner_photo' ? 'banner' : 'logo', fileId)
+    return
+  }
+  const onboarding = await getOnboarding(ctx)
+  const onboardingImage = onboarding?.status === 'in_progress' && onboarding.state.awaitingImage
+  if (onboardingImage === 'logo' || onboardingImage === 'banner') {
+    await proposeStoreImage(ctx, onboardingImage, fileId)
     return
   }
   const caption = (message.caption || '').trim()
@@ -284,14 +324,17 @@ async function handleCommand(ctx: AssistantContext, text: string): Promise<boole
   const command = (text.split(/\s+/)[0] || '').split('@')[0]!.toLowerCase()
   switch (command) {
     case '/start': {
+      if (await showOnboardingForStart(ctx)) return true
       const memoryRow = await ctx.db.prepare('SELECT COUNT(*) AS n FROM assistant_messages WHERE store_id = ? AND telegram_user_id = ?').bind(ctx.store.id, ctx.telegramUserId).first<{ n: number }>()
       await say(ctx, greeting(ctx.firstName, ctx.store.name, !Number(memoryRow?.n)), mainMenuKeyboard(ctx.memberships.length > 1))
       await rememberTurn(ctx, 'assistant', 'Saludo inicial')
       return true
     }
+    case '/continuar': await continueOnboarding(ctx); return true
+    case '/configurar': await showSettingsCenter(ctx); return true
     case '/menu': await say(ctx, '¿Qué hacemos ahora?', mainMenuKeyboard(ctx.memberships.length > 1)); return true
     case '/ayuda':
-    case '/help': await say(ctx, HELP_TEXT, backToMenu()); return true
+    case '/help': if (!await onboardingHelp(ctx)) await say(ctx, HELP_TEXT, backToMenu()); return true
     case '/tienda':
     case '/tiendas':
       if (ctx.memberships.length > 1) await say(ctx, '¿Con qué tienda quieres trabajar?', storePickerKeyboard(ctx.memberships))
@@ -329,10 +372,11 @@ async function handleCommand(ctx: AssistantContext, text: string): Promise<boole
 async function handleText(ctx: AssistantContext, text: string): Promise<void> {
   if (text.startsWith('/')) { await handleCommand(ctx, text); return }
   await rememberTurn(ctx, 'user', text)
+  if (await handleOnboardingText(ctx, text)) return
   const draft = await getPendingProductDraft(ctx)
   if (draft) {
     if (CANCEL_WORDS.test(text)) { await cancelProductDraft(ctx, draft.operation.operation_id); await say(ctx, 'Cancelé el borrador del producto. No se publicó nada.', backToMenu()); return }
-    if (CONFIRM_WORDS.test(text) && !draft.draft.awaiting) { await say(ctx, 'Para publicarlo, toca “Publicar producto” en la vista previa.'); return }
+    if (CONFIRM_WORDS.test(text) && !draft.draft.awaiting) { await say(ctx, 'Para publicarlo, toca “Guardar producto” en la vista previa.'); return }
     await acceptProductDraftText(ctx, draft, text)
     return
   }
@@ -364,9 +408,14 @@ async function handleText(ctx: AssistantContext, text: string): Promise<void> {
       case 'greeting': await say(ctx, greeting(ctx.firstName, ctx.store.name), mainMenuKeyboard(ctx.memberships.length > 1)); return
       case 'thanks': await say(ctx, '¡Con gusto! Aquí estoy cuando me necesites. 🙌'); return
       case 'menu': await say(ctx, '¿Qué hacemos ahora?', mainMenuKeyboard(ctx.memberships.length > 1)); return
-      case 'help': await say(ctx, HELP_TEXT, backToMenu()); return
+      case 'help': if (!await onboardingHelp(ctx)) await say(ctx, HELP_TEXT, backToMenu()); return
+      case 'palette_ideas': await showPaletteIdeas(ctx, text); return
+      case 'template_ideas': await showTemplatePicker(ctx); return
       case 'switch_store': await handleCommand(ctx, '/tienda'); return
-      case 'start_product': await beginProductDraft(ctx, undefined, intent.hint); return
+      case 'start_product':
+        if (intent.count) await say(ctx, `¡Perfecto! Vamos con tus ${intent.count} productos, uno a la vez. Al guardar cada uno te pregunto si seguimos con el siguiente.`)
+        await beginProductDraft(ctx, undefined, intent.hint)
+        return
       case 'change_store_image':
         await updateSessionState(ctx, { awaiting: intent.target === 'banner' ? 'banner_photo' : 'logo_photo' })
         await say(ctx, intent.target === 'banner' ? '🖼️ ¡Claro! Envíame la foto para el nuevo banner y te muestro cómo quedaría antes de cambiarlo.' : '🔖 ¡Claro! Envíame la imagen del nuevo logo y te la muestro antes de cambiarlo.')

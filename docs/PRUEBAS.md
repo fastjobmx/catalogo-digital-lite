@@ -2,6 +2,14 @@
 
 Catálogo Digital Lite incluye pruebas automatizadas (Vitest) y una lista de **13 pruebas de aceptación** para verificar el sistema completo.
 
+## Onboarding inteligente 3.1 — resultado local (2026-11-04)
+
+- Worker: **191/191** en 23 archivos; `npx tsc --noEmit` correcto.
+- Frontend: **63/63** en 18 archivos; `npm run build` correcto.
+- Los casos nuevos cubren bienvenida, compatibilidad de tiendas existentes, retomar y volver de paso, concurrencia, aislamiento entre tiendas, solicitud sin activación, paletas, logos monocromos y contraste.
+- No se publicó a producción. La consulta remota de solo lectura a staging falló con Cloudflare API 7403 (la cuenta autenticada no está autorizada para la D1 indicada); no se aplicaron migraciones ni se desplegó el Worker de staging.
+- Para reanudar staging, autenticar Wrangler en la cuenta propietaria de `sneakerhub-telegram-test-db`, confirmar `npx wrangler d1 migrations list sneakerhub-telegram-test-db --env staging --remote`, aplicar únicamente `0008_store_onboarding.sql` si aparece pendiente y desplegar con `npx wrangler deploy --env staging`.
+
 ## Fase 8 — resultado actual (2026-11-01)
 
 - Frontend: **52/52** pruebas en 16 archivos.
@@ -458,3 +466,9 @@ node scripts/verify-d1-migration.mjs .tmp/telegram-231-production/production-bef
 - Las pruebas del Worker usan `worker/test/sqliteD1.js`: SQLite real con **todas** las migraciones (restricciones, disparadores, JSON y claves foráneas) y el Worker completo (`src/testing/harness.ts`). Telegram y Gemini se simulan con `fetch` falso; ninguna prueba llama servicios externos.
 - `verify-d1-migration.mjs` carga una **copia** de un volcado D1, aplica las migraciones pendientes y compara conteos y hashes por tabla; con `--rollback` verifica también la reversión. Solo imprime agregados.
 - Verificación adicional realizada: Wrangler D1 local (Miniflare) sobre la copia del respaldo, smoke test HTTP del Worker 3.0 en `workerd` (19/19), compatibilidad del Worker anterior con el esquema migrado (9/9) y revisión visual en navegador de `/t/<tienda>`, vista previa privada, activación y `/plataforma`.
+
+## Onboarding 3.1
+
+- `worker/src/services/assistant/onboarding.test.ts` y `onboarding.acceptance.test.ts`: bienvenida, compatibilidad, reanudación, logo válido/inválido, “tonos azules”, plantillas, permisos, aislamiento, ayuda por paso, URL relativas.
+- `frontend/src/lib/previewOverride.test.ts`: vista previa sin guardar y composiciones distintas por plantilla.
+- Mapa completo de los 17 criterios: `docs/ONBOARDING_CLIENTES.md` §6.

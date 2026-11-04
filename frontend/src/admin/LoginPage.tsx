@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate, Link, Navigate } from 'react-router-dom'
+import { useNavigate, Link, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useStore } from '../contexts/StoreContext'
 import { isBackendAvailable } from '../services/api'
@@ -10,6 +10,10 @@ export default function LoginPage() {
   const { login, isAuthenticated } = useAuth()
   const { store } = useStore()
   const navigate = useNavigate()
+  const location = useLocation()
+  // Return only to an admin route of this app (never to an external URL).
+  const requested = (location.state as { from?: unknown } | null)?.from
+  const returnTo = typeof requested === 'string' && /^\/admin(?:[/?]|$)/.test(requested) && !requested.startsWith('/admin/login') ? requested : '/admin'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -18,7 +22,7 @@ export default function LoginPage() {
   const [isCheckingConnection, setIsCheckingConnection] = useState(false)
   const offlineDemoAuth = isOfflineDemoAuthEnabled(import.meta.env.DEV, import.meta.env.VITE_ALLOW_DEMO_AUTH)
 
-  if (isAuthenticated) return <Navigate to="/admin" replace />
+  if (isAuthenticated) return <Navigate to={returnTo} replace />
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -30,7 +34,7 @@ export default function LoginPage() {
       setError(result.error)
       setIsSubmitting(false)
     } else {
-      navigate('/admin', { replace: true })
+      navigate(returnTo, { replace: true })
     }
   }
 

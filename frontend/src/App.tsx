@@ -1,10 +1,11 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { StoreProvider } from './contexts/StoreContext'
 import { CartProvider } from './contexts/CartContext'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { CatalogProvider } from './contexts/CatalogContext'
 import AdminOnboarding from './admin/pages/Onboarding'
 import AdminSimulator from './admin/pages/Simulator'
+import AdminStorePreview from './admin/pages/StorePreview'
 import AdminOrders from './admin/pages/Orders'
 import StoreLayout from './components/layout/StoreLayout'
 import HomePage from './pages/HomePage'
@@ -30,6 +31,7 @@ const PlatformPage = lazy(() => import('./admin/PlatformPage'))
 
 function ProtectedAdminRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth()
+  const location = useLocation()
 
   if (isLoading) {
     return (
@@ -43,7 +45,7 @@ function ProtectedAdminRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/admin/login" replace />
+    return <Navigate to="/admin/login" replace state={{ from: `${location.pathname}${location.search}` }} />
   }
 
   return <>{children}</>
@@ -75,6 +77,7 @@ export default function App() {
                   {/* Admin login and one-time account activation (public) */}
                   <Route path="/admin/login" element={<LoginPage />} />
                   <Route path="/admin/activar" element={<Suspense fallback={null}><ActivationPage /></Suspense>} />
+                  <Route path="/admin/store-preview" element={<ProtectedAdminRoute><AdminStorePreview /></ProtectedAdminRoute>} />
                   {/* Platform panel (superadmin; the API enforces the role) */}
                   <Route path="/plataforma" element={<Suspense fallback={null}><PlatformPage /></Suspense>} />
 

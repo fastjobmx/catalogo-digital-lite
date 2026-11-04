@@ -2,9 +2,10 @@ import { Hono } from 'hono'
 import type { Env } from '../index'
 import { adminAuth, requireRole } from '../middleware/auth'
 import { createAdminToken, validateCredentials, getJwtSecret, isAuthConfigurationReady, isSuperadminEmail, verifyPasswordHash } from '../services/auth'
-import { createCatalogCategory, createCatalogProduct, deactivateCatalogCategory, setProductArchived, updateCatalogCategory, updateCatalogProduct, updateStoreConfiguration, updateVariantStocksById, type AuditContext } from '../services/business'
+import { createCatalogCategory, createCatalogProduct, deactivateCatalogCategory, setProductArchived, updateCatalogCategory, updateCatalogProduct, updateStoreConfiguration, updateStoreTemplate, updateVariantStocksById, type AuditContext } from '../services/business'
 import { normalizeStoreBody } from '../lib/storeMap'
 import { findForeignAssetUrl } from '../lib/assets'
+import { TEMPLATE_KEYS } from '../services/templates'
 import { clearAdminLoginFailures, isAdminLoginBlocked, recordAdminLoginFailure } from '../services/loginRateLimit'
 import { listUserMemberships, ROLE_LABELS, type StoreRole } from '../tenancy/access'
 import { PRIMARY_STORE_ID, adminStoreUrl } from '../tenancy/stores'
@@ -130,7 +131,18 @@ app.put('/store', adminAuth, requireRole('admin'), async (c) => {
  const normalized = normalizeStoreBody(body as Record<string, unknown>)
  const foreign = findForeignAssetUrl(normalized, c.get('storeId')!)
  if (foreign) return c.json({ error: 'An image belongs to another store', code: 'ASSET_NOT_OWNED' }, 400)
- const updated = await updateStoreConfiguration(c.env.DB, normalized, auditContext(c))
+ const { template, ...configuration } = normalized
+ if (template !== undefined && (typeof template !== 'string' || !(TEMPLATE_KEYS as readonly string[]).includes(template))) return c.json({ error: 'Invalid store template' }, 400)
+ const updatedConfig = await updateStoreConfiguration(c.env.DB, configuration, auditContext(c))
+ let updatedTemplate = 0
+ if (typeof template === 'string') {
+  try { updatedTemplate = await updateStoreTemplate(c.env.DB, template, auditContext(c)) }
+  catch (error) {
+   if (error instanceof Error && error.message === 'INVALID_STORE_TEMPLATE') return c.json({ error: 'Invalid store template' }, 400)
+   throw error
+  }
+ }
+ const updated = updatedConfig + updatedTemplate
  if (updated === 0) {
  return c.json({ error: 'No valid fields to update' }, 400)
  }

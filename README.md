@@ -2,7 +2,9 @@
 
 Tienda digital profesional, ligera e independiente para comercios. Construida con React + Vite + Tailwind CSS (frontend) y Cloudflare Workers + D1 + R2 (backend). Sin Medusa, sin Mercur, sin PostgreSQL, sin servidor Node permanente.
 
-> **Plataforma 3.0 (2026-11-03):** multitienda compartida (`/t/<tienda>`), asistente de Telegram con Gemini para cada tienda, bot maestro con `/crear_tienda` y aprovisionamiento automático. Verificada localmente (Worker 156/156, frontend 58/58); despliegue pendiente de autorización. Ver [docs/PLATAFORMA_3_0.md](docs/PLATAFORMA_3_0.md) y [docs/DESPLIEGUE_Y_RECUPERACION_3_0.md](docs/DESPLIEGUE_Y_RECUPERACION_3_0.md).
+> **Onboarding 3.1 (2026-11-04):** bienvenida guiada para tiendas nuevas, progreso persistente, paletas desde logotipo, 13 plantillas, editor con vista previa privada y solicitudes de activación. Verificación local: Worker 191/191, frontend 63/63, typecheck y build correctos. La validación remota de staging espera acceso Cloudflare a su D1. Ver [docs/ONBOARDING_CLIENTES.md](docs/ONBOARDING_CLIENTES.md).
+>
+> **Plataforma 3.0 (2026-11-03):** multitienda compartida (`/t/<tienda>`), asistente de Telegram con Gemini para cada tienda, bot maestro con `/crear_tienda` y aprovisionamiento automático. Ver [docs/PLATAFORMA_3_0.md](docs/PLATAFORMA_3_0.md) y [docs/DESPLIEGUE_Y_RECUPERACION_3_0.md](docs/DESPLIEGUE_Y_RECUPERACION_3_0.md).
 >
 > **Estado anterior:** storefront, backend D1/R2, panel `/admin` con autenticación JWT, inventario por variante, agente de acciones tipadas, scripts e infraestructura de pruebas **funcionando y verificados** (38/38 pruebas en verde). Telegram y Gemini están implementados pero **pendientes de credenciales** para probarse en vivo. Detalle en [PROGRESO.md](PROGRESO.md) y [docs/PENDIENTES.md](docs/PENDIENTES.md).
 
@@ -125,7 +127,7 @@ cd worker   ; npm test    # 23 pruebas (acciones, intérprete, JWT)
 cd ..\frontend ; npm test # 15 pruebas (formato, WhatsApp, simulador)
 ```
 
-Resultado: **38/38 en verde**. Ver [docs/PRUEBAS.md](docs/PRUEBAS.md).
+Resultado más reciente: **Worker 191/191 y frontend 63/63 en verde**. Ver [docs/PRUEBAS.md](docs/PRUEBAS.md).
 
 ## Documentación
 
@@ -140,6 +142,7 @@ Resultado: **38/38 en verde**. Ver [docs/PRUEBAS.md](docs/PRUEBAS.md).
 - [Pruebas](docs/PRUEBAS.md)
 - [Pendientes](docs/PENDIENTES.md)
 - [Plataforma 3.0 multitienda](docs/PLATAFORMA_3_0.md)
+- [Onboarding inteligente, paletas y plantillas 3.1](docs/ONBOARDING_CLIENTES.md)
 - [Despliegue y recuperación 3.0](docs/DESPLIEGUE_Y_RECUPERACION_3_0.md)
 - [Guía de los bots](docs/GUIA_BOTS_3_0.md)
 - [Progreso del proyecto](PROGRESO.md)

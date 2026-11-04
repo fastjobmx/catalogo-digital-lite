@@ -5,6 +5,7 @@ import { roleAllows, type StoreRole } from '../../tenancy/access'
 import { say, sayPhoto, type AssistantContext } from './context'
 import { operationKeyboard, backToMenu } from './menus'
 import { escapeHtml, formatMoney } from './tools'
+import { contrastRatio, isLegiblePalette } from './logoPalette'
 
 export interface PendingOperation {
   operation_id: string
@@ -61,7 +62,7 @@ export async function readActionState(ctx: AssistantContext, action: string, par
     case 'restore_product':
       return db.prepare(PRODUCT_SNAPSHOT_SQL).bind(storeId, sku).first()
     case 'update_store_name': return db.prepare('SELECT name FROM store_config WHERE id = ?').bind(storeId).first()
-    case 'update_store_colors': return db.prepare('SELECT primary_color, theme_config FROM store_config WHERE id = ?').bind(storeId).first()
+    case 'update_store_colors': return db.prepare('SELECT primary_color, secondary_color, accent_color, button_color, theme_config FROM store_config WHERE id = ?').bind(storeId).first()
     case 'update_hero_title': return db.prepare('SELECT theme_config FROM store_config WHERE id = ?').bind(storeId).first()
     case 'update_whatsapp': return db.prepare('SELECT whatsapp_phone, whatsapp_orders FROM store_config WHERE id = ?').bind(storeId).first()
     case 'update_business_hours': return db.prepare('SELECT hours FROM store_config WHERE id = ?').bind(storeId).first()
@@ -133,6 +134,15 @@ export function proposedActionState(before: Record<string, unknown>, action: str
     case 'update_store_name': return { name: params.name }
     case 'update_store_colors': {
       const color = normalizeHex(String(params.primaryColor))
+      const palette = params.palette && typeof params.palette === 'object' ? params.palette as Record<string, string> : null
+      if (palette) {
+        const theme = updateThemeConfig(before.theme_config, (next) => {
+          const style = objectAt(next, 'style')
+          style.palette = { ...palette }
+          style.darkMode = contrastRatio(palette.background!, '#000000') < contrastRatio(palette.background!, '#FFFFFF')
+        })
+        return theme ? { primary_color: palette.primary, secondary_color: palette.secondary, accent_color: palette.accent, button_color: palette.button, theme_config: theme } : null
+      }
       const theme = updateThemeConfig(before.theme_config, (next) => { objectAt(objectAt(next, 'style'), 'palette').primary = color })
       return theme ? { primary_color: color, theme_config: theme } : null
     }
@@ -214,7 +224,9 @@ export function formatOperationPreview(operation: Pick<PendingOperation, 'action
   const arrow = (from: unknown, to: unknown) => `${escapeHtml(from || '—')} → <b>${escapeHtml(to || '—')}</b>`
   switch (operation.action) {
     case 'update_store_name': return `Nombre de la tienda: ${arrow(before.name, after.name)}`
-    case 'update_store_colors': return `Color principal: ${arrow(before.primary_color, after.primary_color)}`
+    case 'update_store_colors': return params.palette
+      ? `Paleta completa de la tienda\nColor principal: ${arrow(before.primary_color, after.primary_color)}\nAcento: <b>${escapeHtml(params.palette.accent)}</b> · Fondo: <b>${escapeHtml(params.palette.background)}</b>\nTextos y botones con contraste legible.`
+      : `Color principal: ${arrow(before.primary_color, after.primary_color)}`
     case 'update_hero_title': return `Título de portada: ${arrow(readHeroTitle(before.theme_config), readHeroTitle(after.theme_config))}`
     case 'update_whatsapp': return `WhatsApp de pedidos: ${arrow(before.whatsapp_phone, after.whatsapp_phone)}`
     case 'update_business_hours': return `Horario: ${arrow(before.hours, after.hours)}`
@@ -313,6 +325,7 @@ function validateProposal(action: string, before: Record<string, any>, params: R
   if (action === 'restore_product' && before.is_archived === 0 && before.is_active === 1) return 'Ese producto ya está visible.'
   if (action === 'hide_out_of_stock' && !(before.skus as string[]).length) return '✅ No tienes productos visibles agotados. No hay nada que ocultar.'
   if (action === 'create_category' && before.exists) return 'Esa categoría ya existe.'
+  if (action === 'update_store_colors' && params.palette && !isLegiblePalette(params.palette)) return 'Esa combinación no deja los textos o los botones legibles. Elige otra opción o ajústala en el panel.'
   if (action === 'import_catalog_updates' && ((before.prices as Array<{ price: number | null }>).some((item) => item.price === null) || (before.stocks as Array<{ variantId: number | null }>).some((item) => item.variantId === null))) return 'Algunas filas del archivo no coinciden con tu catálogo. Revísalo y envíalo de nuevo.'
   if (action === 'import_catalog_updates' && !(before.prices as unknown[]).length && !(before.stocks as unknown[]).length) return 'El archivo no tiene cambios para aplicar.'
   if (action === 'move_products_to_category') {
@@ -345,7 +358,10 @@ export async function cancelOperation(ctx: AssistantContext, operationId?: strin
 
 function storeFields(action: string, after: Record<string, unknown>): Record<string, unknown> {
   if (action === 'update_store_name') return { name: after.name }
-  if (action === 'update_store_colors') return { primary_color: after.primary_color, theme_config: after.theme_config }
+  if (action === 'update_store_colors') {
+    const extra = Object.fromEntries(['secondary_color', 'accent_color', 'button_color'].filter((key) => typeof after[key] === 'string').map((key) => [key, after[key]]))
+    return { primary_color: after.primary_color, ...extra, theme_config: after.theme_config }
+  }
   if (action === 'update_hero_title') return { theme_config: after.theme_config }
   if (action === 'update_whatsapp') return { whatsapp_phone: after.whatsapp_phone, whatsapp_orders: after.whatsapp_orders }
   if (action === 'update_store_banner') return { cover_image_url: after.cover_image_url, theme_config: after.theme_config }
@@ -526,7 +542,7 @@ function successMessage(action: string, params: Record<string, any>, after: Reco
     case 'update_stock': return `Stock de ${escapeHtml(params.sku)}${params.size ? ` talla ${escapeHtml(params.size)}` : ''} actualizado a ${params.stock} unidades.`
     case 'update_product': return `Actualicé el producto ${escapeHtml(params.sku)}.`
     case 'update_store_name': return `Tu tienda ahora se llama “${escapeHtml(after.name)}”.`
-    case 'update_store_colors': return `El color principal ahora es ${escapeHtml(after.primary_color)}.`
+    case 'update_store_colors': return params.palette ? 'Tu nueva paleta ya está aplicada en toda la tienda.' : `El color principal ahora es ${escapeHtml(after.primary_color)}.`
     case 'update_hero_title': return 'El título de portada quedó actualizado.'
     case 'update_whatsapp': return `Los pedidos llegarán a ${escapeHtml(after.whatsapp_phone)}.`
     case 'update_business_hours': return 'Tu horario quedó actualizado.'

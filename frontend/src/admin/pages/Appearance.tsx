@@ -13,11 +13,12 @@ import HomePage from '../../pages/HomePage'
 import { updateStoreConfig, uploadImage } from '../../services/api'
 import { storeStorageKey } from '../../lib/installation'
 import {
-  DEFAULT_THEME, THEME_PRESETS, FONT_OPTIONS, SECTION_LABELS, RADIUS_VALUES,
+  DEFAULT_THEME, THEME_PRESETS, BRAND_PALETTES, FONT_OPTIONS, SECTION_LABELS, RADIUS_VALUES, DENSITY_VALUES, TYPE_SCALE_VALUES, HEADING_WEIGHTS,
   type ThemeConfig, type SectionKey, type RadiusScale, type DensityScale,
   type ButtonStyle, type CardStyle, type HeroAlign, type HeroHeight, type TypeScale,
   type HeadingWeight, type PaletteConfig,
 } from '../../types/theme'
+import { contrastRatio, palettesFromLogoFile, type LogoPaletteOption } from '../../lib/logoPalette'
 
 const OVERRIDES_KEY = storeStorageKey('catalogo-lite-store-overrides')
 
@@ -164,6 +165,7 @@ export default function Appearance() {
   const [uploading, setUploading] = useState<string | null>(null)
   const [notice, setNotice] = useState('')
   const [previewDevice, setPreviewDevice] = useState<'desktop' | 'mobile'>('mobile')
+  const [logoPaletteOptions, setLogoPaletteOptions] = useState<LogoPaletteOption[]>([])
 
   const setTheme = (updater: React.SetStateAction<ThemeConfig>) => {
     setThemeState((previous) => typeof updater === 'function' ? updater(previous) : updater)
@@ -228,12 +230,18 @@ export default function Appearance() {
   const applyPreset = (presetId: string) => {
     const preset = THEME_PRESETS.find((p) => p.id === presetId)
     if (!preset) return
-    // La plantilla solo modifica presentación: nunca toca catálogo ni precios.
+    const brandPrimary = /^#[0-9a-f]{6}$/i.test(theme.style.palette.primary)
+      && contrastRatio(theme.style.palette.primary, preset.palette.background) >= 4.5
+      ? theme.style.palette.primary : preset.palette.primary
+    const brandAccent = /^#[0-9a-f]{6}$/i.test(theme.style.palette.accent)
+      && contrastRatio(theme.style.palette.accent, preset.palette.background) >= 3
+      ? theme.style.palette.accent : preset.palette.accent
     setTheme((prev) => ({
       ...prev,
+      template: preset.template,
       style: {
         ...prev.style,
-        palette: { ...preset.palette },
+        palette: { ...preset.palette, primary: brandPrimary, button: brandPrimary, accent: brandAccent, buttonText: contrastRatio(brandPrimary, '#FFFFFF') >= 4.5 ? '#FFFFFF' : '#171717' },
         typography: { ...preset.typography },
         radius: preset.radius,
         buttonStyle: preset.buttonStyle,
@@ -241,6 +249,27 @@ export default function Appearance() {
         darkMode: preset.darkMode,
       },
     }))
+  }
+
+  const applyPalette = (nextPalette: PaletteConfig) => setTheme((prev) => ({
+    ...prev,
+    style: { ...prev.style, palette: { ...nextPalette } },
+  }))
+
+  const uploadLogoFile = async (file: File) => {
+    let options: LogoPaletteOption[]
+    try {
+      options = await palettesFromLogoFile(file)
+    } catch (err) {
+      setLogoPaletteOptions([])
+      setNotice(err instanceof Error ? err.message : 'No se pudo analizar el logotipo.')
+      return
+    }
+    await uploadAsset('logo', 'store', file, (url) => {
+      patchBrand({ logo: url })
+      setLogoPaletteOptions(options)
+      setNotice('Logotipo listo. Revisa las tres paletas y elige una para ver la tienda con esos colores.')
+    })
   }
 
   const moveSection = (index: number, direction: -1 | 1) => {
@@ -281,6 +310,11 @@ export default function Appearance() {
   }
 
   const handleSave = async () => {
+    if (paletteIssues.length) {
+      setSaveError(`Corrige la paleta antes de guardar: ${paletteIssues.join(' ')}`)
+      setSaved(false)
+      return
+    }
     setSaving(true)
     setSaved(false)
     setSaveError('')
@@ -303,6 +337,7 @@ export default function Appearance() {
           logoUrl: brand.logo || null,
           faviconUrl: brand.favicon || null,
           themeConfig: theme,
+          template: theme.template || 'personalizado',
         }, token)
         await refreshFromApi()
       } else if (!isDemoSession) {
@@ -354,6 +389,15 @@ export default function Appearance() {
 
   const { palette, typography } = theme.style
   const radius = RADIUS_VALUES[theme.style.radius] ?? RADIUS_VALUES.round
+  const density = DENSITY_VALUES[theme.style.density] ?? DENSITY_VALUES.normal
+  const invalidPaletteFields = PALETTE_FIELDS.filter((field) => !/^#[0-9a-f]{6}$/i.test(palette[field.key]))
+  const paletteIssues = invalidPaletteFields.map((field) => `${field.label}: usa un color hexadecimal de seis dígitos.`)
+  if (!invalidPaletteFields.length) {
+    if (contrastRatio(palette.text, palette.background) < 4.5) paletteIssues.push('El texto principal necesita más contraste con el fondo.')
+    if (contrastRatio(palette.textMuted, palette.surface) < 4.5) paletteIssues.push('El texto secundario necesita más contraste con las superficies.')
+    if (contrastRatio(palette.primary, palette.background) < 4.5) paletteIssues.push('El color primario necesita más contraste para leerse como enlace.')
+    if (contrastRatio(palette.button, palette.buttonText) < 4.5) paletteIssues.push('El texto del botón necesita más contraste con el botón.')
+  }
 
   const defaultFeaturedSkus = useMemo(() => {
     const flagged = products.filter((product) => product.isFeatured).map((product) => product.sku)
@@ -373,8 +417,13 @@ export default function Appearance() {
     '--radius-card': radius.card,
     '--radius-btn': radius.btn,
     '--radius-field': radius.field,
+    '--section-space': density.section,
+    '--card-pad': density.card,
+    '--grid-gap': density.grid,
     '--font-sans': `'${typography.fontPrimary}', system-ui, sans-serif`,
     '--font-display': `'${typography.fontDisplay}', '${typography.fontPrimary}', system-ui, sans-serif`,
+    '--font-size-base': TYPE_SCALE_VALUES[typography.scale],
+    '--heading-weight': HEADING_WEIGHTS[typography.headingWeight],
     fontFamily: `'${typography.fontPrimary}', system-ui, sans-serif`,
     background: '#EDEBE6',
   } as React.CSSProperties
@@ -409,7 +458,7 @@ export default function Appearance() {
               <X size={16} /> Recuperar versión guardada
             </button>
           )}
-          <button onClick={handleSave} disabled={saving} className="btn-brand min-w-[170px] disabled:opacity-60">
+          <button onClick={handleSave} disabled={saving || paletteIssues.length > 0} className="btn-brand min-w-[170px] disabled:opacity-60">
             {saving ? (
               <><span className="animate-spin w-4 h-4 border-2 border-current border-t-transparent rounded-full" /> Guardando…</>
             ) : saved ? (
@@ -469,8 +518,8 @@ export default function Appearance() {
                 <Field label="Logotipo (ruta o URL)">
                   <input className="input-field" value={brand.logo} onChange={(e) => patchBrand({ logo: e.target.value })} placeholder="/api/assets/..." />
                 </Field>
-                <Field label="Subir logotipo" hint="PNG, WebP o SVG autorizado. La carga requiere R2 conectado.">
-                  <input type="file" accept="image/*" className="input-field text-sm" disabled={uploading === 'logo'} onChange={(e) => { const file = e.target.files?.[0]; if (file) void uploadAsset('logo', 'store', file, (url) => patchBrand({ logo: url })) }} />
+                <Field label="Subir logotipo" hint="PNG, JPG o WebP · máximo 8 MB. Generaré paletas desde la imagen antes de subirla.">
+                  <input type="file" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" className="input-field text-sm" disabled={uploading === 'logo'} onChange={(e) => { const file = e.target.files?.[0]; if (file) void uploadLogoFile(file); e.currentTarget.value = '' }} />
                 </Field>
                 {brand.logo && <img src={brand.logo} alt="Vista previa del logotipo" className="h-12 max-w-48 object-contain" />}
               </div>
@@ -488,11 +537,10 @@ export default function Appearance() {
           </Section>
 
           {/* Plantillas */}
-          <Section icon={Sparkles} title="Plantillas" subtitle="Aplican una paleta y tipografía completas. No modifican productos ni precios.">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <Section icon={Sparkles} title="Plantillas" subtitle="Prueba una familia visual. La vista previa de la tienda se actualiza antes de guardar; los productos se conservan.">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
               {THEME_PRESETS.map((preset) => {
-                const active = preset.palette.primary.toLowerCase() === palette.primary.toLowerCase()
-                  && preset.palette.background.toLowerCase() === palette.background.toLowerCase()
+                const active = theme.template === preset.template
                 return (
                   <button
                     key={preset.id}
@@ -502,16 +550,15 @@ export default function Appearance() {
                       active ? 'border-ink' : 'border-line hover:border-ink'
                     }`}
                   >
-                    <span className="flex gap-1 mb-2">
-                      <span className="w-6 h-6 rounded-full border border-line" style={{ background: preset.palette.background }} />
-                      <span className="w-6 h-6 rounded-full border border-line" style={{ background: preset.palette.primary }} />
-                      <span className="w-6 h-6 rounded-full border border-line" style={{ background: preset.palette.accent }} />
+                    <span className="template-thumb mb-3" data-template={preset.template} style={{ '--thumb-bg': preset.palette.background, '--thumb-text': preset.palette.text, '--thumb-primary': palette.primary, '--thumb-accent': palette.accent } as React.CSSProperties} aria-hidden="true">
+                      <span /><span /><span />
                     </span>
                     <span className="block text-sm font-semibold text-ink">{preset.name}</span>
                     <span className="block text-[11px] text-muted mt-0.5 leading-snug">{preset.description}</span>
                     <span className="block text-[11px] text-muted mt-1.5">
                       {preset.typography.fontPrimary} · {preset.typography.fontDisplay}
                     </span>
+                    <span className="block text-[11px] font-semibold text-brand mt-2">{active ? 'Vista previa activa' : 'Probar en vista previa'}</span>
                   </button>
                 )
               })}
@@ -519,7 +566,48 @@ export default function Appearance() {
           </Section>
 
           {/* Paleta */}
-          <Section id="colores" icon={Palette} title="Colores" subtitle="Estos diez valores controlan toda la tienda: fondo, textos, bordes y botones.">
+          <Section id="colores" icon={Palette} title="Colores" subtitle="Elige una paleta, usa los colores del logotipo o ajusta cada valor. La vista previa cambia al instante.">
+            {paletteIssues.length > 0 && (
+              <div className="rounded-card border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950" role="alert">
+                <p className="font-semibold">Ajusta estos colores antes de guardar:</p>
+                <ul className="mt-1 list-disc pl-5">{paletteIssues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
+              </div>
+            )}
+            {logoPaletteOptions.length > 0 && (
+              <div>
+                <h3 className="text-sm font-semibold text-ink mb-2">Paletas generadas desde el logotipo</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {logoPaletteOptions.map((option) => (
+                    <button key={option.id} type="button" onClick={() => applyPalette(option.palette)} className="rounded-card border border-line bg-surface p-3 text-left hover:border-ink">
+                      <span className="flex gap-1.5 mb-2" aria-hidden="true">
+                        {[option.palette.primary, option.palette.secondary, option.palette.accent, option.palette.background].map((color, index) => <span key={index} className="h-6 flex-1 rounded border border-line" style={{ background: color }} />)}
+                      </span>
+                      <span className="block text-sm font-semibold text-ink">{option.label}</span>
+                      <span className="block text-xs text-muted mt-1">Previsualizar esta combinación</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div>
+              <h3 className="text-sm font-semibold text-ink mb-2">Paletas listas para usar</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
+                {BRAND_PALETTES.map((preset) => (
+                  <button key={preset.id} type="button" onClick={() => applyPalette(preset.palette)} className="flex items-center gap-3 rounded-card border border-line bg-surface p-3 text-left hover:border-ink">
+                    <span className="flex gap-1 shrink-0" aria-hidden="true">
+                      {[preset.palette.primary, preset.palette.secondary, preset.palette.accent].map((color, index) => <span key={index} className="h-6 w-6 rounded-full border border-line" style={{ background: color }} />)}
+                    </span>
+                    <span className="text-sm font-semibold text-ink">{preset.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <button type="button" className="btn-ghost" onClick={() => {
+              const recommended = THEME_PRESETS.find((item) => item.template === theme.template)?.palette || DEFAULT_THEME.style.palette
+              applyPalette(recommended)
+            }}>
+              <RotateCcw size={15} /> Restablecer colores recomendados para esta plantilla
+            </button>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {PALETTE_FIELDS.map((field) => (
                 <ColorField
@@ -1049,7 +1137,7 @@ export default function Appearance() {
               </span>
             </div>
 
-            <div className={`max-h-[75vh] overflow-y-auto ${previewDevice === 'mobile' ? 'mx-auto w-full max-w-[390px] border-x border-line' : 'w-full'}`} style={previewVars} onClick={(event) => { if ((event.target as HTMLElement).closest('a')) event.preventDefault() }}>
+            <div className={`appearance-preview max-h-[75vh] overflow-y-auto ${previewDevice === 'mobile' ? 'mx-auto w-full max-w-[390px] border-x border-line' : 'w-full'} ${theme.style.darkMode ? 'dark' : ''}`} data-button={theme.style.buttonStyle} data-card={theme.style.cardStyle} data-preset={theme.style.radius} style={previewVars} onClick={(event) => { if ((event.target as HTMLElement).closest('a')) event.preventDefault() }}>
               <StoreContext.Provider value={{ store: previewStore, setStore: () => undefined, isLoading: false, isDemoMode: false, backendAvailable, storeLoadError: null, refreshFromApi }}>
                 <CatalogContext.Provider value={catalogState}>
                   <HomePage />

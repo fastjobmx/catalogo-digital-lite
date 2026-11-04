@@ -77,11 +77,22 @@ export async function loadAssistantStore(db: D1Database, storeId: number, fallba
 
 /** Sends a message with the environment banner and, for multi-store users, the store name. */
 export async function say(ctx: AssistantContext, text: string, replyMarkup?: Record<string, unknown>): Promise<TelegramSendMessageResponse> {
-  return sendTelegramMessage(ctx.botToken, ctx.chatId, `${banner(ctx)}${text}`, 'HTML', replyMarkup)
+  return sendTelegramMessage(ctx.botToken, ctx.chatId, `${banner(ctx)}${text}`, 'HTML', usableMarkup(replyMarkup))
 }
 
 export async function sayPhoto(ctx: AssistantContext, photo: string, caption: string, replyMarkup?: Record<string, unknown>): Promise<void> {
-  await sendTelegramPhoto(ctx.botToken, ctx.chatId, photo, `${banner(ctx)}${caption}`, replyMarkup)
+  await sendTelegramPhoto(ctx.botToken, ctx.chatId, photo, `${banner(ctx)}${caption}`, usableMarkup(replyMarkup))
+}
+
+/** Telegram rejects the whole message when a URL button is not absolute (for
+ * example when PUBLIC_STORE_BASE_URL is not configured); drop only those buttons. */
+export function usableMarkup(replyMarkup?: Record<string, unknown>): Record<string, unknown> | undefined {
+  const rows = replyMarkup?.inline_keyboard
+  if (!Array.isArray(rows)) return replyMarkup
+  const kept = rows
+    .map((row) => (Array.isArray(row) ? row : []).filter((button: { url?: unknown }) => button?.url === undefined || /^https?:\/\/[^\s/]+/i.test(String(button.url))))
+    .filter((row) => row.length > 0)
+  return { ...replyMarkup, inline_keyboard: kept }
 }
 
 function banner(ctx: AssistantContext): string {
@@ -94,7 +105,10 @@ function banner(ctx: AssistantContext): string {
 
 /** Short conversation memory per store and user (last turns, 24 h). */
 export async function rememberTurn(ctx: AssistantContext, role: 'user' | 'assistant', content: string): Promise<void> {
-  const text = content.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().slice(0, 500)
+  const text = content.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
+    .replace(/(contrase(?:ñ|n)a|password|token|c[oó]digo de acceso)\s*(?:es|:)?\s*[^\s,;]+/gi, '$1 [oculto]')
+    .replace(/\/(?:start\s+link_|link\s+)[A-Za-z0-9-]{8,80}/gi, '[enlace de acceso oculto]')
+    .slice(0, 500)
   if (!text) return
   await ctx.db.prepare('INSERT INTO assistant_messages (store_id, telegram_user_id, role, content) VALUES (?, ?, ?, ?)')
     .bind(ctx.store.id, ctx.telegramUserId, role, text).run()

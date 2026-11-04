@@ -6,6 +6,7 @@ import { useCart } from '../../contexts/CartContext'
 import { useCatalog } from '../../contexts/CatalogContext'
 import { whatsappLink } from '../../lib/whatsapp'
 import { IS_PUBLIC_DEMO } from '../../lib/publicDemo'
+import { templateLayout } from '../../lib/templateLayouts'
 
 /** Enlace de navegación con estado activo sutil (subrayado fino). */
 function NavLink({ to, children, active }: { to: string; children: React.ReactNode; active?: boolean }) {
@@ -28,6 +29,9 @@ export default function Header() {
   const { categories } = useCatalog()
   const navigate = useNavigate()
   const location = useLocation()
+  const headerLayout = templateLayout(store.theme.template).header
+  const centered = headerLayout === 'centered'
+  const compact = headerLayout === 'compact'
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -76,7 +80,7 @@ export default function Header() {
   const openCart = () => document.dispatchEvent(new CustomEvent('open-cart'))
 
   return (
-    <header className={header.sticky ? 'sticky top-0 z-40' : 'relative z-40'}>
+    <header className={`header--${headerLayout} ${header.sticky ? 'sticky top-0 z-40' : 'relative z-40'}`} data-header-layout={headerLayout}>
       {/* Barra informativa configurable */}
       {header.topbarEnabled && (
         <div className="bg-ink text-canvas">
@@ -112,7 +116,7 @@ export default function Header() {
 
       {/* Barra principal */}
       <div className={`bg-surface/92 backdrop-blur-md border-b border-line ${header.sticky ? 'supports-[backdrop-filter]:bg-surface/85' : ''}`}>
-        <div className="shell flex items-center gap-2 sm:gap-6 h-[64px] lg:h-[76px]">
+        <div className={`shell relative flex items-center gap-2 sm:gap-6 ${compact ? 'h-[56px] lg:h-[60px]' : 'h-[64px] lg:h-[76px]'}`}>
           <button
             onClick={() => setMobileMenuOpen(true)}
             className="lg:hidden -ml-2 p-2.5 text-ink hover:opacity-60 transition-opacity"
@@ -123,7 +127,7 @@ export default function Header() {
           </button>
 
           {/* Marca: logo gráfico o wordmark tipográfico */}
-          <Link to="/" className="flex items-center gap-2.5 shrink-0 min-h-[44px]" aria-label={`${store.name} — inicio`}>
+          <Link to="/" className={`flex items-center gap-2.5 shrink-0 min-h-[44px] ${centered ? 'lg:absolute lg:left-1/2 lg:-translate-x-1/2' : ''}`} aria-label={`${store.name} — inicio`}>
             {store.logo ? (
               <img
                 src={store.logo}
@@ -138,7 +142,7 @@ export default function Header() {
           </Link>
 
           {/* Navegación de escritorio */}
-          <nav className="hidden lg:flex items-stretch self-stretch ml-4" aria-label="Categorías">
+          <nav className={`${centered ? 'hidden' : 'hidden lg:flex'} items-stretch self-stretch ml-4`} aria-label="Categorías">
             <NavLink to="/category/all" active={location.pathname === '/category/all'}>Catálogo</NavLink>
             {navCategories.map((cat) => (
               <NavLink
@@ -207,6 +211,17 @@ export default function Header() {
           </div>
         </div>
       </div>
+
+      {centered && (
+        <nav className="hidden lg:flex justify-center h-11 border-b border-line bg-surface/92 backdrop-blur-md" aria-label="Categorías">
+          <NavLink to="/category/all" active={location.pathname === '/category/all'}>Catálogo</NavLink>
+          {navCategories.map((cat) => (
+            <NavLink key={cat.slug} to={`/category/${cat.slug}`} active={location.pathname === `/category/${cat.slug}`}>
+              {cat.name}
+            </NavLink>
+          ))}
+        </nav>
+      )}
 
       {/* Buscador móvil */}
       {searchOpen && (

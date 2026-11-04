@@ -69,6 +69,10 @@ En **Configuración** puedes cambiar, sin tocar código ni volver a publicar:
 
 Al guardar, la tienda muestra los nuevos colores y datos inmediatamente.
 
+En **Apariencia** puedes probar 13 familias visuales con una vista previa de la tienda antes de guardar. El editor conserva tus productos y muestra 12 paletas listas para usar. También puedes subir un logotipo PNG, JPG o WebP, revisar tres combinaciones generadas y ajustar los tonos con el selector o con HEX. Si una combinación no tiene suficiente contraste, el panel te indica qué corregir.
+
+Desde Telegram, usa **⚙️ Configurar mi tienda** o `/configurar` para abrir los accesos permanentes a datos de contacto, logotipo, colores, plantilla, portada, productos y vista previa privada. Esta vista previa pide iniciar sesión y no activa la tienda.
+
 ## Usar el bot de Telegram (opcional)
 
 Con el bot puedes crear y modificar productos conversando:
@@ -82,7 +86,9 @@ Con el bot puedes crear y modificar productos conversando:
 >
 > **Bot:** ✅ Producto creado.
 
-Comandos útiles: `/stats`, `/productos`, `/categorias`, `/pedido`, `/ayuda`.
+Comandos útiles: `/stats`, `/productos`, `/categorias`, `/pedido`, `/configurar`, `/continuar`, `/ayuda`.
+
+Si acabas de recibir una tienda nueva, el asistente te ofrecerá configurarla paso a paso. Puedes salir cuando quieras y retomarla con `/continuar`. Los propietarios de tiendas existentes conservan su saludo habitual; pueden iniciar el recorrido manualmente con ese comando.
 
 El bot **nunca inventa** precios, stock ni fotos: si falta un dato, te lo pide.
 

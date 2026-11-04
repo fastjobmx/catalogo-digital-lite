@@ -6,7 +6,7 @@ import { escapeHtml } from './tools'
 export function mainMenuKeyboard(multiStore = false): InlineKeyboard {
   const rows: InlineKeyboard['inline_keyboard'] = [
     [{ text: '➕ Agregar producto', callback_data: 'm:new_product' }, { text: '📦 Ver inventario', callback_data: 'm:inventory' }],
-    [{ text: '🛒 Consultar pedidos', callback_data: 'm:orders' }, { text: '🎨 Editar mi tienda', callback_data: 'm:appearance' }],
+    [{ text: '🛒 Consultar pedidos', callback_data: 'm:orders' }, { text: '⚙️ Configurar mi tienda', callback_data: 'm:appearance' }],
     [{ text: '✨ Preguntar a la IA', callback_data: 'm:ask_ai' }, { text: '📊 Reportes', callback_data: 'm:reports' }],
     [{ text: '🏷️ Categorías', callback_data: 'm:categories' }, { text: '❔ Ayuda', callback_data: 'm:help' }],
   ]
@@ -81,5 +81,5 @@ export const HELP_TEXT = [
   '📄 Un archivo CSV para actualizar precios y stock',
   '',
   'Antes de cambiar algo importante te muestro una vista previa y te pido confirmación.',
-  'Comandos: /menu · /productos · /pedidos · /cancelar · /tienda · /ayuda',
+  'Comandos: /menu · /productos · /pedidos · /configurar · /continuar · /cancelar · /tienda · /ayuda',
 ].join('\n')

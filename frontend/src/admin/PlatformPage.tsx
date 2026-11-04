@@ -113,6 +113,7 @@ export default function PlatformPage() {
                 <tr key={store.id} className="border-b border-line last:border-0 align-top">
                   <td className="p-4">
                     <p className="font-bold text-ink">{store.name}</p>
+                    {store.activationRequestStatus === 'pending' && <span className="mt-1 inline-flex rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-900">Solicitó activación</span>}
                     <a className="text-xs text-muted hover:text-ink" href={store.id === 1 ? '/' : `/t/${store.slug}`} target="_blank" rel="noreferrer">/{store.id === 1 ? '' : `t/${store.slug}`}</a>
                     <p className="text-xs text-muted">{store.ownerEmail || 'Sin propietario con correo'}</p>
                   </td>
@@ -161,6 +162,8 @@ export default function PlatformPage() {
             <Field label="Estilo visual">
               <select className="input-field" value={form.template} onChange={(e) => setForm({ ...form, template: e.target.value as CreateStorePayload['template'] })}>
                 <option value="minimalista">Minimalista</option><option value="moderno">Moderno</option><option value="premium">Premium</option><option value="personalizado">Personalizado</option>
+                <option value="luxury">Luxury</option><option value="urban">Urban</option><option value="boutique">Boutique</option><option value="natural">Natural</option><option value="tech">Tech</option>
+                <option value="playful">Playful</option><option value="gourmet">Gourmet</option><option value="artesanal">Artesanal</option><option value="editorial">Editorial</option>
               </select>
             </Field>
             {form.template === 'personalizado'

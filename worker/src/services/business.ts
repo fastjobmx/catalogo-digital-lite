@@ -1,4 +1,5 @@
 import { storeAssetPrefix } from '../lib/assets'
+import { TEMPLATE_KEYS, type TemplateKey } from './templates'
 
 export type BusinessSource = 'admin' | 'telegram' | 'platform' | 'system'
 
@@ -243,6 +244,15 @@ export async function updateStoreConfiguration(
   }
   await recordBusinessAction(db, 'store_updated', 'store', String(context.storeId), fields, context)
   return entries.length
+}
+
+export async function updateStoreTemplate(db: D1Database, template: string, context: AuditContext): Promise<number> {
+  if (!(TEMPLATE_KEYS as readonly string[]).includes(template)) throw new Error('INVALID_STORE_TEMPLATE')
+  const result = await db.prepare("UPDATE stores SET template = ?, updated_at = datetime('now') WHERE id = ?")
+    .bind(template as TemplateKey, context.storeId).run()
+  if (!result.meta.changes) throw new Error('STORE_NOT_FOUND')
+  await recordBusinessAction(db, 'store_template_updated', 'store', String(context.storeId), { template }, context)
+  return 1
 }
 
 /** Applies an owner-confirmed Telegram store change in one atomic D1 batch.

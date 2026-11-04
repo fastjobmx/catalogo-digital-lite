@@ -10,6 +10,7 @@ import { bytesToBase64, type TelegramMessage } from './telegramApi'
 import { say, sayPhoto, rememberTurn, type AssistantContext } from './context'
 import { analyzeProductPhotos } from './ai'
 import { escapeHtml, formatMoney } from './tools'
+import { advanceAfterPublishedProduct } from './onboarding'
 import { backToMenu } from './menus'
 import type { PendingOperation } from './operations'
 
@@ -188,8 +189,8 @@ async function uniqueSkuSuggestion(ctx: AssistantContext, draft: TelegramProduct
 
 function draftKeyboard(operationId: string, imageCount: number) {
   const rows: Array<Array<{ text: string; callback_data: string }>> = [
-    [{ text: '✅ Publicar producto', callback_data: `pd:publish:${operationId}` }],
-    [{ text: '✏️ Editar información', callback_data: `pd:edit:${operationId}` }, { text: '✖ Cancelar', callback_data: `pd:cancel:${operationId}` }],
+    [{ text: '✅ Guardar producto', callback_data: `pd:publish:${operationId}` }],
+    [{ text: '✏️ Editar', callback_data: `pd:edit:${operationId}` }, { text: '❌ Cancelar', callback_data: `pd:cancel:${operationId}` }],
   ]
   if (imageCount > 1) rows.push([{ text: '🖼 Ver fotos', callback_data: `pd:photo:${operationId}:0` }])
   return { inline_keyboard: rows }
@@ -222,7 +223,7 @@ async function sendDraftPreview(ctx: AssistantContext, operationId: string, draf
     `Categoría: ${escapeHtml(draft.fields.categoryName)}${mark('category')}\n` +
     `Código: ${escapeHtml(draft.fields.sku)}\n` +
     `${escapeHtml(draft.fields.description)}${mark('description')}\n\n${variants}\n\n` +
-    `Fotos: ${draft.images.length}${ai.size ? '\n✨ = sugerido por la IA a partir de tus fotos; revísalo.' : ''}\n<i>No se publica hasta que toques “Publicar producto”.</i>`
+    `Fotos: ${draft.images.length}${ai.size ? '\n✨ = sugerido por la IA a partir de tus fotos; revísalo.' : ''}\n<i>No se guarda ni se publica hasta que toques “Guardar producto”.</i>`
   await sayPhoto(ctx, mainImage.telegramFileId, caption, draftKeyboard(operationId, draft.images.length))
 }
 
@@ -563,4 +564,5 @@ export async function publishProductDraft(ctx: AssistantContext, active: Pending
     `✅ <b>¡Producto publicado!</b>\n${escapeHtml(saved?.name || product.name)}\nCódigo: ${escapeHtml(product.sku)} · ${formatMoney(Number(saved?.price ?? product.price), ctx.store.currency)}\n` +
     `Stock: ${saved?.stock ?? product.variants.reduce((sum, variant) => sum + variant.stock, 0)} u. · Fotos: ${imageUrls.length}\n\nYa está visible en tu tienda:\n${escapeHtml(url)}`,
     backToMenu())
+  await advanceAfterPublishedProduct(ctx)
 }

@@ -52,6 +52,11 @@ export const actionSchemas = {
   update_store_name: z.object({ name: z.string().trim().min(2).max(80).regex(/^[\p{L}\p{N}][\p{L}\p{N} .&'’_-]*$/u) }),
   update_store_colors: z.object({
     primaryColor: z.string().regex(/^#?[0-9a-fA-F]{6}$/),
+    /** Full legible palette prepared by the assistant (logo or named color). */
+    palette: z.object(Object.fromEntries(
+      ['background', 'surface', 'text', 'textMuted', 'border', 'primary', 'secondary', 'accent', 'button', 'buttonText']
+        .map((key) => [key, z.string().regex(/^#[0-9a-fA-F]{6}$/)]),
+    ) as Record<'background' | 'surface' | 'text' | 'textMuted' | 'border' | 'primary' | 'secondary' | 'accent' | 'button' | 'buttonText', z.ZodString>).strict().optional(),
   }).strict(),
   update_hero_title: z.object({ title: z.string().trim().min(3).max(100).refine((value) => !/[\u0000-\u001f\u007f]/.test(value)) }),
   update_store_logo: z.object({ logoUrl: z.string().min(1) }),

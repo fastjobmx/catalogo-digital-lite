@@ -8,6 +8,7 @@ import { totalStock } from '../lib/catalog'
 import ProductImage from './ProductImage'
 import PriceTag from './PriceTag'
 import { resolveImageUrl } from '../lib/imageSources'
+import { templateLayout } from '../lib/templateLayouts'
 
 export default function ProductCard({ product, priority = false }: { product: ProductApi; priority?: boolean }) {
   const { store } = useStore()
@@ -21,6 +22,12 @@ export default function ProductCard({ product, priority = false }: { product: Pr
   const href = `/product/${encodeURIComponent(product.sku)}`
   const [primary, secondaryUrl] = product.imageUrls || []
   const secondary = resolveImageUrl(secondaryUrl)
+  const layout = templateLayout(store.theme.template)
+  const centered = layout.card === 'centered'
+  const overlay = layout.card === 'overlay'
+  const minimal = layout.card === 'minimal'
+  const boxed = layout.card === 'boxed'
+  const sizeLabel = soldOut ? 'Sin tallas disponibles' : sizes.length > 0 ? `Tallas ${sizes.slice(0, 5).join(' · ')}` : 'Talla única'
 
   // Añade la primera variante disponible sin salir del listado.
   const quickAdd = () => {
@@ -44,13 +51,17 @@ export default function ProductCard({ product, priority = false }: { product: Pr
   }
 
   return (
-    <article className="group flex flex-col h-full">
+    <article
+      className={`product-card product-card--${layout.card} group flex flex-col h-full ${boxed ? 'border border-line bg-surface p-2 sm:p-2.5' : ''}`}
+      data-card-layout={layout.card}
+      style={boxed ? { borderRadius: 'var(--radius-card)' } : undefined}
+    >
       <div className="relative overflow-hidden bg-canvas" style={{ borderRadius: 'var(--radius-card)' }}>
         <Link to={href} aria-label={`Ver ${product.name}`} className="block">
           <ProductImage
             src={primary ?? null}
             alt={product.name}
-            ratio="4:5"
+            ratio={layout.ratio}
             priority={priority}
             imgClassName="transition-transform duration-[900ms] ease-out group-hover:scale-[1.03]"
           />
@@ -66,6 +77,12 @@ export default function ProductCard({ product, priority = false }: { product: Pr
             />
           )}
         </Link>
+
+        {overlay && (
+          <Link to={href} className="absolute inset-x-0 bottom-0 block bg-gradient-to-t from-black/80 via-black/45 to-transparent px-3 pb-3 pt-12 text-white" tabIndex={-1} aria-hidden="true">
+            <span className="block text-[13px] font-extrabold uppercase leading-tight tracking-[0.04em] line-clamp-2">{product.name}</span>
+          </Link>
+        )}
 
         <div className="absolute top-3 left-3 flex flex-col items-start gap-1.5 pointer-events-none">
           {soldOut && <span className="badge badge-out">Agotado</span>}
@@ -91,27 +108,29 @@ export default function ProductCard({ product, priority = false }: { product: Pr
         )}
       </div>
 
-      <div className="pt-3.5 flex flex-col gap-1.5 flex-1">
-        <div className="flex items-center justify-between gap-2 min-h-[16px]">
+      <div className={`pt-3.5 flex flex-col gap-1.5 flex-1 ${centered ? 'items-center text-center' : ''} ${boxed ? 'px-1.5 pb-1.5' : ''}`}>
+        {!minimal && !overlay && <div className={`flex items-center gap-2 min-h-[16px] ${centered ? 'justify-center' : 'justify-between'}`}>
           <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted truncate">
             {product.brand || '—'}
           </p>
           {!soldOut && stock <= 5 && (
             <span className="text-[10px] font-medium text-accent whitespace-nowrap">Últimas {stock}</span>
           )}
-        </div>
+        </div>}
 
-        <Link to={href} className="block">
-          <h3 className="text-[14px] sm:text-[15px] font-medium leading-snug text-ink line-clamp-2 min-h-[2.6em] hover:text-accent transition-colors">
+        <Link to={href} className={`block ${overlay ? 'sr-only' : ''}`}>
+          <h3 className={`text-[14px] sm:text-[15px] leading-snug text-ink line-clamp-2 hover:text-accent transition-colors ${minimal ? 'font-normal' : 'font-medium min-h-[2.6em]'} ${layout.upperTitles && !overlay ? 'uppercase tracking-[0.06em] text-[13px] sm:text-[14px]' : ''} ${centered ? 'font-display' : ''}`}>
             {product.name}
           </h3>
         </Link>
 
         <PriceTag price={product.price} compareAt={product.compareAtPrice} currency={store.currency} />
 
-        <div className="flex items-end justify-between gap-2 mt-auto pt-1">
+        {minimal || centered ? (
+          <p className="text-[10px] uppercase tracking-[0.12em] text-muted truncate mt-auto pt-1">{sizeLabel}</p>
+        ) : <div className="flex items-end justify-between gap-2 mt-auto pt-1">
           <p className="text-[10px] uppercase tracking-[0.12em] text-muted truncate">
-            {soldOut ? 'Sin tallas disponibles' : sizes.length > 0 ? `Tallas ${sizes.slice(0, 5).join(' · ')}` : 'Talla única'}
+            {sizeLabel}
           </p>
           <Link
             to={href}
@@ -121,7 +140,7 @@ export default function ProductCard({ product, priority = false }: { product: Pr
           >
             Ver <ArrowUpRight size={12} aria-hidden="true" />
           </Link>
-        </div>
+        </div>}
       </div>
     </article>
   )

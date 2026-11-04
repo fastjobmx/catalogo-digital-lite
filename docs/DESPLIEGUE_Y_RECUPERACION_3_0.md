@@ -167,3 +167,10 @@ Para revertir solo el webhook del bot maestro: `deleteWebhook` de ese bot (o vol
 - Los tokens de activación y los códigos de Telegram se guardan solo como hash SHA-256; se muestran una vez.
 - El superadministrador se define únicamente por secretos (`ADMIN_EMAIL`, `ADMIN_PASSWORD_HASH`, `MASTER_ADMIN_TELEGRAM_IDS`); ninguna fila de la base puede otorgarlo.
 - No copiar tokens de staging a producción ni del asistente al bot maestro.
+
+## Onboarding 3.1 (migración 0008) — staging 2026-11-03
+
+- Respaldo `.tmp/staging-0008/staging-pre-0008.sql` (SHA-256 `f610787cdc6d8569ba40be71c421cd2e4c08da66232cdb45d22ba47dca029dc7`); Time Travel previo `000000a7-00000000-00005119-1d8fb18e0efd16ec1b3a4bf6ae129278`.
+- `0008_store_onboarding.sql` aplicada en `sneakerhub-telegram-staging-db`; Worker `8a7afb51` → `b6b92066-2340-4620-abed-1d6bbe3aa4ac`. E2E 15/15 y smoke OK.
+- Reversión: `npx wrangler rollback 8a7afb51-665a-4eaf-a3b3-4fe14d9f3a1e --config wrangler.remote-staging.toml` y luego `database/rollback/0008_store_onboarding.down.sql`.
+- Producción: no aplicada. Procedimiento en `docs/ONBOARDING_CLIENTES.md` §8.

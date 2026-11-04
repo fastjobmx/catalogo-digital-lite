@@ -5,6 +5,10 @@ import { proposeChange, type PendingOperation } from './operations'
 import { escapeHtml } from './tools'
 import { backToMenu } from './menus'
 import type { TelegramMessage } from './telegramApi'
+import { getOnboarding, storeOnboardingLogoOptions } from './onboarding'
+import { analyzeLogoColors } from './ai'
+import { palettesFromColors, palettesFromPng } from './logoPalette'
+import { bytesToBase64 } from './telegramApi'
 
 export function photoFileId(message: TelegramMessage): string | null {
   const document = message.document
@@ -22,6 +26,17 @@ export async function proposeStoreImage(ctx: AssistantContext, kind: 'banner' | 
   } catch {
     await say(ctx, 'No pude usar esa imagen. Envía una foto JPG, PNG o WebP de buena calidad.')
     return
+  }
+  if (kind === 'logo') {
+    const onboarding = await getOnboarding(ctx)
+    if (onboarding?.status === 'in_progress' && onboarding.step === 'logo') {
+      let options = image.contentType === 'image/png' ? await palettesFromPng(image.bytes).catch(() => null) : null
+      if (!options && ctx.env.GEMINI_API_KEY && image.bytes.byteLength <= 8 * 1024 * 1024) {
+        const vision = await analyzeLogoColors(ctx, { mimeType: image.contentType, data: bytesToBase64(image.bytes) })
+        if (vision.ok) options = palettesFromColors(vision.value.primaryColor, vision.value.accentColor)
+      }
+      await storeOnboardingLogoOptions(ctx, options)
+    }
   }
   if (kind === 'banner' && image.width < 800) {
     await say(ctx, `La imagen mide ${image.width}×${image.height} px. Para el banner usa una foto horizontal de al menos 800 px de ancho (ideal 1600 px).`)

@@ -52,7 +52,17 @@ describe('friendly conversation', () => {
     await send(textUpdate(OWNER, 'Hola', 'Laura'))
     expect(telegram.messages()[0]).toContain('Laura')
     expect(telegram.messages()[0]).toContain('Moda Urbana')
-    expect(buttons(telegram).map((button) => button.text)).toEqual(expect.arrayContaining(['➕ Agregar producto', '📦 Ver inventario', '🛒 Consultar pedidos', '🎨 Editar mi tienda', '✨ Preguntar a la IA']))
+    expect(buttons(telegram).map((button) => button.text)).toEqual(expect.arrayContaining(['➕ Agregar producto', '📦 Ver inventario', '🛒 Consultar pedidos', '⚙️ Configurar mi tienda', '✨ Preguntar a la IA']))
+  })
+
+  it('does not retain passwords or access tokens in conversation memory', async () => {
+    stubServices()
+    await send(textUpdate(OWNER, 'Mi contraseña es Secreto123, el token abcdef-123456789 y el código de acceso QWER-1234.'))
+    const row = h.db.query<{ content: string }>('SELECT content FROM assistant_messages WHERE role = ? ORDER BY id DESC LIMIT 1', 'user')[0]
+    expect(row?.content).not.toContain('Secreto123')
+    expect(row?.content).not.toContain('abcdef-123456789')
+    expect(row?.content).not.toContain('QWER-1234')
+    expect(row?.content).toContain('[oculto]')
   })
 
   it('offers the menu instead of a technical error when it does not understand and AI is off', async () => {
@@ -196,7 +206,7 @@ describe('photos, documents and AI', () => {
     expect(telegram.messages().at(-1)).toContain('Vista previa del producto')
     expect(telegram.messages().at(-1)).toContain('✨')
     expect(h.db.query('SELECT COUNT(*) AS n FROM products WHERE store_id = ?', moda)).toEqual([{ n: 3 }])
-    await send(callbackUpdate(OWNER, callbackFor(telegram, /Publicar producto/)!))
+    await send(callbackUpdate(OWNER, callbackFor(telegram, /Guardar producto/)!))
     const created = h.db.query<{ name: string; price: number; image_urls: string; brand: string | null }>("SELECT name, price, image_urls, brand FROM products WHERE store_id = ? AND name = 'Zapatos deportivos negros'", moda)
     expect(created).toHaveLength(1)
     expect(created[0]).toMatchObject({ price: 180000, brand: null })

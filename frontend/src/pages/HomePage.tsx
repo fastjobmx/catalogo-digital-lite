@@ -85,8 +85,10 @@ export default function HomePage() {
 
   const { order, enabled } = store.theme.sections
 
+  const template = store.theme.template || 'personalizado'
+
   return (
-    <div className="bg-canvas">
+    <div className={`bg-canvas store-home template--${template}`} data-template={template}>
       {order
         .filter((key) => enabled[key])
         .map((key) => sections[key])

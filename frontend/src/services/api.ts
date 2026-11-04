@@ -107,6 +107,7 @@ export interface StoreConfigApi {
  paymentInfo: string | null
   defaultWhatsappMessage: string
   themeConfig?: Partial<ThemeConfig> | null
+  template?: string
 }
 
 export async function getStoreConfig(): Promise<StoreConfigApi> {
@@ -520,7 +521,7 @@ export async function activateAccount(token: string, password: string): Promise<
 
 export interface PlatformStore {
   id: number; slug: string; name: string; status: string; planCode: string; template: string; businessType: string
-  products: number; ordersLast30: number; aiPercent: number; ownerEmail: string | null; createdAt: string
+  products: number; ordersLast30: number; aiPercent: number; ownerEmail: string | null; createdAt: string; activationRequestStatus: string | null
 }
 
 export interface PlatformSummary {
@@ -537,7 +538,7 @@ export interface ProvisionResponse {
 }
 
 export interface CreateStorePayload {
-  name: string; slug?: string; businessType: string; template: 'minimalista' | 'moderno' | 'premium' | 'personalizado'
+  name: string; slug?: string; businessType: string; template: 'minimalista' | 'moderno' | 'premium' | 'personalizado' | 'luxury' | 'urban' | 'boutique' | 'natural' | 'tech' | 'playful' | 'gourmet' | 'artesanal' | 'editorial'
   primaryColor?: string; whatsapp?: string; ownerEmail?: string; ownerTelegramId?: string; planCode: string
 }
 

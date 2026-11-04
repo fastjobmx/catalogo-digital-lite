@@ -153,6 +153,8 @@ export interface FooterConfig {
 }
 
 export interface ThemeConfig {
+  /** Family selected by the merchant. Controls composition as well as tokens. */
+  template?: string
   style: StyleConfig
   header: HeaderConfig
   hero: HeroConfig
@@ -196,6 +198,7 @@ export const SAFE_FONTS = FONT_OPTIONS.map((f) => f.value)
 
 export interface ThemePreset {
   id: string
+  template: string
   name: string
   description: string
   palette: PaletteConfig
@@ -238,51 +241,37 @@ const PALETTE_TECH: PaletteConfig = {
   text: '#14181F',
   textMuted: '#64707F',
   border: '#DFE3E8',
-  primary: '#1F6FEB',
+  primary: '#1B63D8',
   secondary: '#DCE7F7',
   accent: '#3F6C8F',
   button: '#14181F',
   buttonText: '#F7F9FC',
 }
 
-// Tres presets, una sola tienda: solo cambian variables de presentación.
+// Each family changes composition, typography, density and card treatment.
 export const THEME_PRESETS: ThemePreset[] = [
-  {
-    id: 'streetwear-premium',
-    name: 'Streetwear Premium',
-    description: 'Editorial, neutro y fotográfico. La identidad base de la plantilla.',
-    palette: PALETTE_STREETWEAR,
-    typography: { fontPrimary: 'Inter', fontDisplay: 'Manrope', scale: 'normal', headingWeight: 'bold' },
-    radius: 'square',
-    buttonStyle: 'solid',
-    cardStyle: 'flat',
-    darkMode: false,
-  },
-  {
-    id: 'boutique-elegance',
-    name: 'Boutique Elegance',
-    description: 'Fondos cálidos, serif editorial y bordes suaves. Sofisticado y sereno.',
-    palette: PALETTE_BOUTIQUE,
-    typography: { fontPrimary: 'DM Sans', fontDisplay: 'Playfair Display', scale: 'normal', headingWeight: 'semibold' },
-    radius: 'soft',
-    buttonStyle: 'solid',
-    cardStyle: 'bordered',
-    darkMode: false,
-  },
-  {
-    id: 'tech-minimal',
-    name: 'Tech Minimal',
-    description: 'Composición limpia, azul técnico y acentos fríos. Preciso y moderno.',
-    palette: PALETTE_TECH,
-    typography: { fontPrimary: 'Space Grotesk', fontDisplay: 'Sora', scale: 'compact', headingWeight: 'semibold' },
-    radius: 'soft',
-    buttonStyle: 'solid',
-    cardStyle: 'bordered',
-    darkMode: false,
-  },
+  { id: 'minimalista', template: 'minimalista', name: 'Minimalista', description: 'Mucho aire, titulares centrados y tarjetas precisas.', palette: { ...PALETTE_STREETWEAR, primary: '#30343B', button: '#30343B', accent: '#707782' }, typography: { fontPrimary: 'Inter', fontDisplay: 'Inter', scale: 'normal', headingWeight: 'semibold' }, radius: 'soft', buttonStyle: 'outline', cardStyle: 'bordered', darkMode: false },
+  { id: 'moderno', template: 'moderno', name: 'Moderno', description: 'Bloques vivos, botones sólidos y jerarquía geométrica.', palette: PALETTE_TECH, typography: { fontPrimary: 'Space Grotesk', fontDisplay: 'Sora', scale: 'normal', headingWeight: 'bold' }, radius: 'round', buttonStyle: 'solid', cardStyle: 'elevated', darkMode: false },
+  { id: 'premium', template: 'premium', name: 'Premium', description: 'Fotografía protagonista y tonos neutros cálidos.', palette: PALETTE_STREETWEAR, typography: { fontPrimary: 'DM Sans', fontDisplay: 'Playfair Display', scale: 'normal', headingWeight: 'semibold' }, radius: 'soft', buttonStyle: 'solid', cardStyle: 'flat', darkMode: false },
+  { id: 'personalizado', template: 'personalizado', name: 'Personalizado', description: 'Base flexible para ajustar cada detalle de marca.', palette: PALETTE_TECH, typography: { fontPrimary: 'Inter', fontDisplay: 'Manrope', scale: 'normal', headingWeight: 'bold' }, radius: 'soft', buttonStyle: 'solid', cardStyle: 'elevated', darkMode: false },
+  { id: 'luxury', template: 'luxury', name: 'Luxury', description: 'Fondo oscuro, detalles dorados y composición serena.', palette: { background: '#151311', surface: '#211E1A', text: '#F7F2E8', textMuted: '#B8AA96', border: '#40382D', primary: '#C4A36A', secondary: '#32291E', accent: '#E2C98F', button: '#C4A36A', buttonText: '#17130D' }, typography: { fontPrimary: 'DM Sans', fontDisplay: 'Playfair Display', scale: 'large', headingWeight: 'semibold' }, radius: 'square', buttonStyle: 'outline', cardStyle: 'flat', darkMode: true },
+  { id: 'urban', template: 'urban', name: 'Urban', description: 'Contraste alto, grilla compacta y acento enérgico.', palette: { background: '#111317', surface: '#1B1E24', text: '#F7F8FA', textMuted: '#A5ABB5', border: '#343942', primary: '#F04F36', secondary: '#2A2D34', accent: '#FFB547', button: '#D73F28', buttonText: '#FFFFFF' }, typography: { fontPrimary: 'Space Grotesk', fontDisplay: 'Space Grotesk', scale: 'normal', headingWeight: 'extrabold' }, radius: 'square', buttonStyle: 'solid', cardStyle: 'flat', darkMode: true },
+  { id: 'boutique', template: 'boutique', name: 'Boutique', description: 'Portada centrada, serif delicada y tonos rosa tierra.', palette: { ...PALETTE_BOUTIQUE, primary: '#763B4C', button: '#763B4C', accent: '#A96D73' }, typography: { fontPrimary: 'DM Sans', fontDisplay: 'Playfair Display', scale: 'large', headingWeight: 'semibold' }, radius: 'round', buttonStyle: 'soft', cardStyle: 'bordered', darkMode: false },
+  { id: 'natural', template: 'natural', name: 'Natural', description: 'Verdes botánicos, superficies suaves y ritmo amplio.', palette: { background: '#F4F5EE', surface: '#FFFFFF', text: '#202B22', textMuted: '#647063', border: '#DDE2D6', primary: '#365C42', secondary: '#DFE8D9', accent: '#8A6B3E', button: '#365C42', buttonText: '#FFFFFF' }, typography: { fontPrimary: 'Inter', fontDisplay: 'Manrope', scale: 'normal', headingWeight: 'semibold' }, radius: 'round', buttonStyle: 'soft', cardStyle: 'elevated', darkMode: false },
+  { id: 'tech', template: 'tech', name: 'Tech', description: 'Paneles oscuros, líneas frías y navegación compacta.', palette: { background: '#0F1724', surface: '#172437', text: '#F2F7FF', textMuted: '#A3B5CB', border: '#2A3C53', primary: '#53B9E8', secondary: '#1D3850', accent: '#9A83FF', button: '#176B96', buttonText: '#FFFFFF' }, typography: { fontPrimary: 'Space Grotesk', fontDisplay: 'Sora', scale: 'compact', headingWeight: 'bold' }, radius: 'soft', buttonStyle: 'solid', cardStyle: 'bordered', darkMode: true },
+  { id: 'playful', template: 'playful', name: 'Playful', description: 'Formas redondas, color alegre y titulares grandes.', palette: { background: '#FFF8EF', surface: '#FFFFFF', text: '#30212E', textMuted: '#786777', border: '#F0DFD5', primary: '#873261', secondary: '#F6DDEB', accent: '#A94D24', button: '#873261', buttonText: '#FFFFFF' }, typography: { fontPrimary: 'Manrope', fontDisplay: 'Sora', scale: 'large', headingWeight: 'extrabold' }, radius: 'pill', buttonStyle: 'solid', cardStyle: 'elevated', darkMode: false },
+  { id: 'gourmet', template: 'gourmet', name: 'Gourmet', description: 'Titulares centrados, tonos cacao y acentos de especias.', palette: { background: '#F8F3EC', surface: '#FFFDF9', text: '#302017', textMuted: '#76675B', border: '#E9DDCE', primary: '#713B26', secondary: '#EFE2D1', accent: '#A7782B', button: '#713B26', buttonText: '#FFFFFF' }, typography: { fontPrimary: 'DM Sans', fontDisplay: 'Playfair Display', scale: 'normal', headingWeight: 'semibold' }, radius: 'soft', buttonStyle: 'solid', cardStyle: 'bordered', darkMode: false },
+  { id: 'artesanal', template: 'artesanal', name: 'Artesanal', description: 'Textura cálida, serif hecha a mano y bordes orgánicos.', palette: { background: '#F7F1E5', surface: '#FFFDF7', text: '#352C20', textMuted: '#766A56', border: '#E5D9C4', primary: '#5D4930', secondary: '#E9DCC4', accent: '#8B5436', button: '#5D4930', buttonText: '#FFFFFF' }, typography: { fontPrimary: 'Inter', fontDisplay: 'Playfair Display', scale: 'normal', headingWeight: 'semibold' }, radius: 'round', buttonStyle: 'outline', cardStyle: 'bordered', darkMode: false },
+  { id: 'editorial', template: 'editorial', name: 'Editorial', description: 'Titular de revista, grilla asimétrica y mucho espacio.', palette: { background: '#F4F2ED', surface: '#FFFFFF', text: '#181818', textMuted: '#6C6A66', border: '#DAD7CF', primary: '#262626', secondary: '#E4E0D8', accent: '#963F31', button: '#262626', buttonText: '#FFFFFF' }, typography: { fontPrimary: 'Inter', fontDisplay: 'Playfair Display', scale: 'large', headingWeight: 'bold' }, radius: 'square', buttonStyle: 'outline', cardStyle: 'flat', darkMode: false },
 ]
 
+/** Twelve ready-to-use palettes, previewable independently from the template. */
+export const BRAND_PALETTES = THEME_PRESETS
+  .filter((preset) => preset.template !== 'personalizado')
+  .map((preset) => ({ id: preset.template, name: preset.name, palette: preset.palette }))
+
 export const DEFAULT_THEME: ThemeConfig = {
+  template: 'personalizado',
   style: {
     palette: PALETTE_STREETWEAR,
     typography: { fontPrimary: 'Inter', fontDisplay: 'Manrope', scale: 'normal', headingWeight: 'bold' },
@@ -448,6 +437,7 @@ export function mergeTheme(partial: unknown, fallbacks: ThemeFallbacks = {}): Th
   const p = partial as Partial<ThemeConfig>
 
   return {
+    ...(typeof p.template === 'string' ? { template: p.template } : {}),
     style: migrateStyle(p.style, fallbacks),
     header: { ...DEFAULT_THEME.header, ...(p.header || {}) },
     hero: { ...DEFAULT_THEME.hero, ...(p.hero || {}) },
