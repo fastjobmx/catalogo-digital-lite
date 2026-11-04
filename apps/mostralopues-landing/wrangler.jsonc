@@ -1,0 +1,9 @@
+{
+  // MOSTRALO PUES! marketing site — Cloudflare Pages project, separate from Catálogo Digital IA.
+  // Static files only: no Functions, no bindings, no secrets, no D1/R2/KV.
+  // URL: https://mostralopues.pages.dev      Publish: npm run cf:deploy
+  "$schema": "../../worker/node_modules/wrangler/config-schema.json",
+  "name": "mostralopues",
+  "compatibility_date": "2025-09-01",
+  "pages_build_output_dir": "./dist"
+}
