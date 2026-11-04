@@ -2,7 +2,9 @@
 
 El asistente de Telegram guía al propietario nuevo para revisar los datos del negocio, definir la identidad visual, elegir una plantilla, añadir productos y solicitar la activación. Los cambios se guardan por tienda, quedan en `audit_log` y la activación sigue en manos del equipo con permisos.
 
-Estado: **implementado y probado en staging** (Worker `b6b92066`, migración `0008`). **Producción sin cambios**: requiere autorización expresa (ver §7).
+Estado: **en producción** desde el 2026-11-03 (commit `b110b2d`, Worker `ac6acb57`, migración `0008`, frontend Netlify `index-DrZH2Exj.js`). Staging: Worker `b6b92066`. Registro en §7 y §8.
+
+Las tiendas que ya existían (SneakerHub, Distribumax y Muy Parcero) quedaron marcadas como existentes: no reciben la bienvenida automática, conservan su diseño y pueden usar las 13 plantillas y las paletas desde el panel (Apariencia) o Telegram (`/configurar`); el recorrido guiado se abre con `/continuar`.
 
 ## 1. Flujo del propietario
 
@@ -128,7 +130,21 @@ npx wrangler rollback 8a7afb51-665a-4eaf-a3b3-4fe14d9f3a1e --config wrangler.rem
 npx wrangler d1 execute sneakerhub-telegram-staging-db --remote --config wrangler.remote-staging.toml --file ../database/rollback/0008_store_onboarding.down.sql
 ```
 
-## 8. Publicación en producción (requiere autorización)
+## 8. Publicación en producción
+
+**Registro (2026-11-03, autorizado):** commit `b110b2d` en `main`; respaldo `.tmp/production-0008/production-pre-0008.sql` (205.972 bytes, SHA-256 `efb1e293573267d02c1fdef7a8ff8b9a049f813a16c257fde7a9e06329e5df02`); Time Travel previo `00000084-00000024-00005119-d451fe6e78c2eb96805659e29b3f44ca`. Verificación sobre copia: 18 tablas con hash idéntico tras migrar y revertir. `0008` aplicada en `catalogo-lite-production-db`: 3 tiendas, 29 productos, 114 variantes, 13 categorías, 7 pedidos y 54 auditorías sin cambios; 0 violaciones de FK; tiendas 1, 2 y 3 marcadas como existentes. Worker `catalogo-lite-api`: `88c33008` → `ac6acb57-4ee2-4174-8705-bff90877cf99`; 10 secretos intactos. Smoke: health 200, SneakerHub/Distribumax/Muy Parcero 200, tienda inexistente 404, admin 401, webhooks del asistente y del maestro 403 sin secreto. Netlify publicó `index-DrZH2Exj.js`; SneakerHub y Muy Parcero cargan sin errores ni desbordamiento (375 y 1280 px), SneakerHub con su composición anterior.
+
+Reversión de producción (no bajar de `f9928a44`):
+
+```powershell
+cd worker
+npx wrangler rollback 88c33008-53b2-4b2e-bf69-2837850a5ee8 --config wrangler.production.toml
+npx wrangler d1 execute catalogo-lite-production-db --remote --config wrangler.production.toml --file ../database/rollback/0008_store_onboarding.down.sql
+```
+
+El frontend se revierte desde Netlify (publicar el deploy anterior) o con `git revert b110b2d`.
+
+Procedimiento seguido:
 
 1. Commit y push a `main` (Netlify publica el frontend: plantillas, vista previa y panel).
 2. Respaldo de `catalogo-lite-production-db` (`wrangler d1 export … --remote --config wrangler.production.toml`) y bookmark de Time Travel.

@@ -174,3 +174,4 @@ Para revertir solo el webhook del bot maestro: `deleteWebhook` de ese bot (o vol
 - `0008_store_onboarding.sql` aplicada en `sneakerhub-telegram-staging-db`; Worker `8a7afb51` → `b6b92066-2340-4620-abed-1d6bbe3aa4ac`. E2E 15/15 y smoke OK.
 - Reversión: `npx wrangler rollback 8a7afb51-665a-4eaf-a3b3-4fe14d9f3a1e --config wrangler.remote-staging.toml` y luego `database/rollback/0008_store_onboarding.down.sql`.
 - Producción: no aplicada. Procedimiento en `docs/ONBOARDING_CLIENTES.md` §8.
+- Producción (autorizado, 2026-11-03): `0008` aplicada en `catalogo-lite-production-db` (respaldo `.tmp/production-0008/`, Time Travel `00000084-00000024-00005119-d451fe6e78c2eb96805659e29b3f44ca`); Worker `88c33008` → `ac6acb57-4ee2-4174-8705-bff90877cf99`. Reversión en `docs/ONBOARDING_CLIENTES.md` §8.
