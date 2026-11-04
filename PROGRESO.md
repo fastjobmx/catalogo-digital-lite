@@ -430,3 +430,5 @@ Producción fases 2–6 (autorizado, 2026-11-04): respaldo `.tmp/production-0010
 ### Migración a Cloudflare — 2026-11-04
 
 Frontend publicado en Cloudflare Workers Static Assets: https://catalogo-digital-ia.catalogo-lite-worker.workers.dev (Worker `catalogo-digital-ia`, versión `23744f4e`), con fallback de SPA y `/api/*` por service binding hacia `catalogo-lite-api` (mismo origen, sin CORS). Validado: rutas, ambas tiendas, imágenes de R2, producto, carrito sin enviar pedidos, 401 sin sesión, móvil. Builds de Netlify desactivados (`ignore = "exit 0"`), sitio conservado. Pendiente con aprobación: desplegar el backend con `PUBLIC_STORE_BASE_URL` y `ALLOWED_ORIGIN` de Cloudflare (preparado en `wrangler.production.toml`; el despliegue fue bloqueado a la espera de autorización). Detalle: `docs/MIGRACION_CLOUDFLARE.md`.
+
+Backend con URLs de Cloudflare (autorizado, 2026-11-04): `93d77cc7` → `7890daf2-a831-4582-b330-ef16004649da`; CORS Cloudflare + Netlify en transición, otros orígenes rechazados; los tres bots con webhooks intactos, 0 pendientes y sin errores.

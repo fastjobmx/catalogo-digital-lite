@@ -8,7 +8,7 @@ Fecha: 2026-11-04. Objetivo: que la plataforma funcione sin Netlify.
 |---|---|
 | **URL nueva** | **https://catalogo-digital-ia.catalogo-lite-worker.workers.dev** |
 | Frontend | Worker `catalogo-digital-ia` (Workers Static Assets), versión `23744f4e-8a78-4214-9ce5-119680dd90d8` |
-| Backend | Worker `catalogo-lite-api` sin cambios: versión `93d77cc7-ac57-4a43-a320-fdc303345250` |
+| Backend | Worker `catalogo-lite-api`, versión `7890daf2-a831-4582-b330-ef16004649da` (antes `93d77cc7`): enlaces y CORS apuntan a Cloudflare |
 | Base de datos e imágenes | Las mismas D1 (`catalogo-lite-production-db`) y R2 (`catalogo-lite-production-assets`); nada duplicado |
 | Bots | Los tres sin cambios de tokens ni webhooks |
 | Netlify | Ya no construye (`ignore = "exit 0"`). El último deploy sigue en línea para enlaces antiguos |
@@ -51,9 +51,13 @@ npm run deploy:cloudflare   # build en modo cloudflare + wrangler deploy (usa el
 - **Diseño responsive:** sin desbordamiento horizontal a 375 px en ambas tiendas. Sin errores de consola en la navegación pública.
 - **Pruebas:** Worker 245/245 y frontend 67/67, con compilación correcta. El paquete es el mismo que publicaba Netlify; solo cambia la dirección de la API.
 
-Pendiente de verificar por el propietario: el **inicio de sesión real** (no tengo tu contraseña de producción) y los flujos de Telegram después del paso 4.
+Pendiente de verificar por el propietario: el **inicio de sesión real** (no tengo tu contraseña de producción) y un recorrido en Telegram que entregue un enlace nuevo (por ejemplo, “👁 Ver mi tienda” o “🔑 Nuevos accesos”).
 
-## 4. Paso pendiente que requiere tu aprobación: enlaces generados por el backend
+## 4. Enlaces generados por el backend (aplicado con autorización)
+
+**Aplicado el 2026-11-04:** Worker `93d77cc7` → `7890daf2`; 10 secretos intactos. CORS acepta el origen de Cloudflare y el de Netlify (transición) y rechaza cualquier otro. Tiendas 200, panel sin sesión 401, webhooks sin secreto 403. Bots (`master-maintenance.mjs status`): `@CatalogoDigitalMaestro_bot`, `@SneakerHubAdmin_bot` y `@SneakerHubPruebas_bot` con los mismos webhooks, 0 pendientes y sin errores. Desde ahora el bot maestro, el asistente y los avisos entregan enlaces `workers.dev`.
+
+Detalle del cambio:
 
 El backend todavía genera los enlaces con la base de Netlify (`PUBLIC_STORE_BASE_URL`). Afecta a:
 - Bot maestro: URL de cada tienda nueva, accesos y activación.
@@ -74,7 +78,7 @@ cd worker
 npx wrangler deploy --config wrangler.production.toml
 ```
 
-Reversión: `npx wrangler rollback 93d77cc7-ac57-4a43-a320-fdc303345250 --config wrangler.production.toml`. **No bajar de `f9928a44`.**
+Reversión del backend: `npx wrangler rollback 93d77cc7-ac57-4a43-a320-fdc303345250 --config wrangler.production.toml` (vuelve a los enlaces de Netlify). **No bajar de `f9928a44`.**
 
 ## 5. Referencias a Netlify corregidas
 
