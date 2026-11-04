@@ -72,9 +72,17 @@ No se vincula nada por nombre de usuario ni por correo: solo con el código de u
   - Tienda principal no seleccionable sin membresía.
   - Tiendas eliminadas y tienda principal idéntica.
 
-## 5. Publicación en producción (pendiente de autorización)
+## 5. Publicación en producción
 
-Solo cambia el Worker; no hay migración ni cambios de frontend.
+**Publicado (autorizado, 2026-11-04):**
+- Commit `7a7dd26` en `main`.
+- Worker `catalogo-lite-api`: `ac6acb57` → `ebf20122-e2e3-4527-bd4f-d7f3cf2735de`.
+- Sin migraciones pendientes; 10 secretos intactos.
+- Smoke test: health 200; SneakerHub, Distribumax y Muy Parcero 200; tienda inexistente 404; panel sin sesión 401; webhooks del asistente y del maestro 403 sin secreto.
+- Datos sin cambios: 3 tiendas, 29 productos, 114 variantes, 7 pedidos y 2 membresías. 0 errores recientes.
+- No se modificó ninguna membresía de producción: la vinculación de Muy Parcero la haces tú con el paso 2.
+
+Solo cambió el Worker; no hubo migración ni cambios de frontend.
 
 ```powershell
 cd worker

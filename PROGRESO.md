@@ -410,3 +410,5 @@ Producción (autorizado, 2026-11-03): commit `b110b2d` en `main`, respaldo `.tmp
 ### Varias tiendas por cuenta de Telegram — 2026-11-04
 
 Diagnóstico de solo lectura en producción: Muy Parcero tenía propietario sin Telegram vinculado y su código de vinculación seguía sin usar; SneakerHub se reconoce por `TELEGRAM_OWNER_ID`, así que el asistente veía una sola tienda. Implementado: `/tiendas` y `/cambiar_tienda`, tienda actual visible, cancelación de pendientes al cambiar, botones atados a su tienda, tienda adicional por código para una cuenta existente (sin rebajar roles) y reutilización de la cuenta en el bot maestro. Worker 215/215; staging `40ab6cd4` con prueba de escritura 16/16. Producción sin cambios. Instrucciones y detalle: `docs/MULTITIENDA_TELEGRAM.md`.
+
+Producción (autorizado, 2026-11-04): commit `7a7dd26`, Worker `ac6acb57` → `ebf20122-e2e3-4527-bd4f-d7f3cf2735de`; smoke OK, secretos y datos intactos, membresías sin modificar.
