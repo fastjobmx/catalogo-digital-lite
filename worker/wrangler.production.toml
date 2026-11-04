@@ -13,10 +13,12 @@ ENVIRONMENT = "production"
 STORE_NAME = "SneakerHub Premium"
 STORE_CURRENCY = "COP"
 STORE_COUNTRY = "CO"
-ALLOWED_ORIGIN = "https://catalogo-digital-ia.netlify.app"
+# Frontend en Cloudflare Workers Static Assets. Netlify queda solo durante la transición
+# (enlaces ya entregados); retirarlo de esta lista cuando se apague el sitio.
+ALLOWED_ORIGIN = "https://catalogo-digital-ia.catalogo-lite-worker.workers.dev,https://catalogo-digital-ia.netlify.app"
 COMMERCE_ENABLED = "true"
 # Plataforma 3.0: base pública para enlaces de tiendas (/t/<dirección>) y activaciones.
-PUBLIC_STORE_BASE_URL = "https://catalogo-digital-ia.netlify.app"
+PUBLIC_STORE_BASE_URL = "https://catalogo-digital-ia.catalogo-lite-worker.workers.dev"
 # Secretos adicionales (wrangler secret put): MASTER_BOT_TOKEN, MASTER_WEBHOOK_SECRET,
 # MASTER_ADMIN_TELEGRAM_IDS. Opcional: TELEGRAM_BOT_USERNAME, PLATFORM_AI_MONTHLY_CAP_MICROS.
 

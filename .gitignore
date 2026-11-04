@@ -73,3 +73,5 @@ worker/wrangler.remote-staging.toml
 # Sistema operativo
 .DS_Store
 Thumbs.db
+# Public build settings for the Cloudflare frontend (no secrets)
+!frontend/.env.cloudflare

@@ -1,3 +1,5 @@
+> **Obsoleto desde el 2026-11-04.** El frontend se publica en Cloudflare Workers Static Assets. Ver [MIGRACION_CLOUDFLARE.md](MIGRACION_CLOUDFLARE.md). Este documento se conserva como referencia histórica.
+
 # Preparación GitHub + Netlify — SneakerHub Premium
 
 ## Netlify

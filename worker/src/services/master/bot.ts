@@ -166,7 +166,7 @@ async function handleCommand(ctx: MasterContext, text: string): Promise<void> {
     case '/dominio_estado': {
       const status = args[1]
       if (!args[0] || !status || !['verificado', 'activo', 'retirado'].includes(status)) { await say(ctx, 'Uso: /dominio_estado &lt;dominio&gt; &lt;verificado|activo|retirado&gt;'); return }
-      await propose(ctx, 'domain_status', { domain: args[0], status }, `🌐 Cambiar <b>${escapeHtml(args[0])}</b> a <b>${status}</b>. “Activo” hace que el dominio sirva la tienda: confirma antes que el DNS y Netlify estén listos.`)
+      await propose(ctx, 'domain_status', { domain: args[0], status }, `🌐 Cambiar <b>${escapeHtml(args[0])}</b> a <b>${status}</b>. “Activo” hace que el dominio sirva la tienda: confirma antes que el DNS y el dominio en Cloudflare estén listos.`)
       return
     }
     case '/consumo': await showAiAlerts(ctx); return
@@ -403,7 +403,7 @@ async function proposeDomain(ctx: MasterContext, ref: string | undefined, domain
   const store = await requireStoreRef(ctx, ref)
   if (!store) return
   if (!domain) { await say(ctx, 'Indica el dominio. Ejemplo: /dominio moda-urbana www.modaurbana.com'); return }
-  await propose(ctx, 'set_domain', { slug: store.slug, domain }, `🌐 Registrar el dominio <b>${escapeHtml(domain)}</b> para <b>${escapeHtml(store.name)}</b>.\nQuedará “pendiente” hasta configurar DNS y Netlify (paso manual documentado).`)
+  await propose(ctx, 'set_domain', { slug: store.slug, domain }, `🌐 Registrar el dominio <b>${escapeHtml(domain)}</b> para <b>${escapeHtml(store.name)}</b>.\nQuedará “pendiente” hasta configurar el DNS y el dominio en Cloudflare (paso manual documentado).`)
 }
 
 async function confirmOperation(ctx: MasterContext, operationId: string): Promise<void> {

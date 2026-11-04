@@ -46,7 +46,7 @@ export type Env = {
  GEMINI_PRICE_INPUT_MICROS_PER_MTOK?: string
  GEMINI_PRICE_OUTPUT_MICROS_PER_MTOK?: string
  ALLOWED_ORIGIN?: string
- /** Public storefront base URL used in links (e.g. https://catalogo-digital-ia.netlify.app). */
+ /** Public storefront base URL used in links (e.g. https://catalogo-digital-ia.catalogo-lite-worker.workers.dev). */
  PUBLIC_STORE_BASE_URL?: string
  /** Master (platform) bot. Separate token and webhook secret from store bots. */
  MASTER_BOT_TOKEN?: string

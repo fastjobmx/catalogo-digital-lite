@@ -115,7 +115,7 @@ app.post('/invoices/:id/status', async (c) => {
   try { return c.json(await setInvoiceStatus(c.env.DB, Number(c.req.param('id')), body.status, actor(c))) } catch (error) { return fail(c, error) }
 })
 
-// Custom domains: pendiente → verificado → activo → retirado (DNS and Netlify are manual steps).
+// Custom domains: pendiente → verificado → activo → retirado (DNS and the Cloudflare custom domain are manual steps).
 app.post('/domains/:domain/status', async (c) => {
   const body = await c.req.json().catch(() => null) as { status?: string } | null
   if (!body?.status || !['verificado', 'activo', 'retirado'].includes(body.status)) return c.json({ error: 'Invalid status' }, 400)

@@ -1,4 +1,9 @@
+# RETIRADO (2026-11-04): el frontend vive en Cloudflare Workers Static Assets
+# (frontend/wrangler.jsonc). Netlify ya no construye: el comando "ignore" sale con 0,
+# lo que cancela cada build sin consumir minutos. El último deploy sigue en línea
+# para enlaces antiguos hasta que se apague el sitio (ver docs/MIGRACION_CLOUDFLARE.md).
 [build]
+  ignore = "exit 0"
   base = "frontend"
   command = "npm run build"
   publish = "dist"
