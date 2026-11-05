@@ -642,3 +642,26 @@ export const aiCatalogApi = {
   studio: (imageUrl: string, preset: StudioPreset, idempotencyKey: string, token: string) => fetchApi<{ image: { mimeType: string; data: string }; preset: StudioPreset; charged: number }>('/api/admin/ai/studio', { method: 'POST', headers: { ...bearer(token), 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ imageUrl, preset }) }),
   readCatalogPage: (image: string, mimeType: string, idempotencyKey: string, token: string) => fetchApi<{ rows: CatalogPageRow[]; readable: boolean; charged: number }>('/api/admin/ai/catalog-page', { method: 'POST', headers: { ...bearer(token), 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ image, mimeType }) }),
 }
+
+// ---- catalogue trial (no account) ------------------------------------------------------
+
+export interface TrialProduct { name: string; price: number | null; description: string; imageUrl: string | null }
+export interface TrialView { id: string; businessName: string; template: string; products: TrialProduct[]; expiresAt: string; temporary: true; published: false }
+
+async function trialFetch<T>(path: string, init: RequestInit & { token?: string } = {}): Promise<T> {
+  const headers = new Headers(init.headers)
+  if (init.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json')
+  if (init.token) headers.set('X-Trial-Token', init.token)
+  const response = await fetch(`${API_BASE}${path}`, { ...init, headers })
+  const body = await response.json().catch(() => ({})) as T & ApiError
+  if (!response.ok) throw new ApiRequestError(body.error || `HTTP ${response.status}`, response.status, body.code)
+  return body
+}
+
+export const trialApi = {
+  create: (businessName: string, template: string) => trialFetch<TrialView & { editToken: string }>('/api/trial', { method: 'POST', body: JSON.stringify({ businessName, template }) }),
+  get: (id: string) => trialFetch<TrialView>(`/api/trial/${id}`),
+  save: (id: string, token: string, payload: { businessName: string; template: string; products: TrialProduct[] }) => trialFetch<TrialView>(`/api/trial/${id}`, { method: 'PUT', token, body: JSON.stringify(payload) }),
+  photo: (id: string, token: string, file: File) => { const form = new FormData(); form.append('file', file); return trialFetch<{ url: string }>(`/api/trial/${id}/photos`, { method: 'POST', token, body: form }) },
+  remove: (id: string, token: string) => trialFetch<{ deleted: boolean }>(`/api/trial/${id}`, { method: 'DELETE', token }),
+}

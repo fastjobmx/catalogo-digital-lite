@@ -571,3 +571,18 @@ Asistente de 6 pasos en `/admin/importar`: Archivo → Lectura → Columnas → 
 
 - Servidor 283/283 y panel 78/78.
 - En el navegador, con el catálogo real de Luz Mágica (solo lectura y pedido simulado): 10/10.
+
+### Módulos IA — Fase 7 (prueba de catálogo sin registro) — 2026-11-05
+
+**Qué hace**
+
+- En `/prueba`, el visitante arma una vista previa temporal de su catálogo: dura 48 horas, no se publica y lleva `noindex`.
+- No crea usuarios ni tiendas y no guarda datos de contacto. La IP queda solo como hash.
+- Admite hasta 6 fotos y 12 productos, con límites por IP y un tope diario.
+- El cron borra las pruebas vencidas.
+- Usa la migración aditiva `0013`.
+
+**Verificación**
+
+- Servidor 289/289 y panel 78/78.
+- Staging (Worker `d81e1207-23bc-4434-81e6-b2a39719a1e2`): navegador 11/11.

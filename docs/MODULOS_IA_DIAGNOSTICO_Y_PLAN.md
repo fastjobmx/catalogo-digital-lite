@@ -229,3 +229,31 @@ Todas las fases se hacen en local y staging. Producción solo con tu autorizaci�
     - No hubo desborde en celular, y en computador la columna quedó centrada.
     - La tienda real (Boutique) no cambió.
   - Staging: Worker `66f8d745-8f15-49ef-9b1f-83a95526dbce`, que ya acepta la plantilla nueva.
+
+**Fase 7 — Prueba de catálogo sin registro: hecha en local y staging (2026-11-05).**
+
+- **Migración aditiva `0013_catalog_trials.sql`** (`trial_sessions`, `trial_rate_limits`), con reversión en `database/rollback/0013_catalog_trials.down.sql`.
+- **Servidor** (`worker/src/services/trials.ts`, rutas públicas `/api/trial`).
+  - Crear, ver, guardar, subir foto, borrar y servir las fotos de la prueba.
+  - Para editar hace falta un token de un solo uso, que se guarda solo como hash. Quien recibe el enlace solo puede ver.
+- **Reglas.**
+  - Dura 48 horas y no crea usuarios ni tiendas.
+  - No guarda correo, teléfono ni la IP en claro: la IP queda como un hash con la clave secreta del sistema.
+  - Admite hasta 6 fotos y 12 productos. Cada foto se revisa por su contenido real (JPG, PNG o WebP); no basta con lo que dice el navegador.
+  - Una prueba solo puede usar sus propias fotos.
+  - Límites: 5 pruebas por IP y hora, 40 fotos y 120 guardados por IP y hora, y un tope diario global `TRIALS_DAILY_LIMIT` (300 por defecto). Se puede apagar con `TRIALS_ENABLED=false`.
+  - Todo lleva `noindex`. La ruta general de fotos (`/api/assets`) no sirve las fotos de las pruebas.
+  - El cron borra las pruebas vencidas con sus fotos.
+- **Panel** (`/prueba` y `/prueba/:id`).
+  - Nombre del negocio, estilo, fotos, nombre y precio opcional de cada producto.
+  - La vista previa respeta la plantilla, incluida Stories, y lleva una franja fija: «Vista previa temporal · no está publicada y no recibe pedidos · se borra el …».
+  - No hay botones de compra simulados. Un producto sin precio muestra «Precio a consultar».
+  - Se puede copiar el enlace para compartir y borrar la prueba en cualquier momento.
+  - «Quiero crear mi tienda de verdad» abre WhatsApp de MOSTRALO PUES! (+57 350 6912734) con el enlace de la prueba. La tienda real se crea por el canal actual.
+  - La IA no se usa en la prueba.
+- **Corrección durante las pruebas.** Una respuesta tardía de la carga inicial podía borrar una foto recién agregada. Ahora se ignoran las respuestas viejas.
+- **Pruebas.**
+  - Servidor 289/289: 6 nuevas sobre token, foto falsa, foto ajena, límites, vencimiento con limpieza, borrado y apagado.
+  - Panel 78/78, con `build` correcto.
+  - Staging (`0013` aplicada, Worker `d81e1207`): navegador 11/11 en celular y computador. Se comprobó que no se crea ninguna tienda (1 → 1) y que, al borrar la prueba, desaparece junto con sus fotos.
+- **Sin hacer.** El sitio comercial de MOSTRALO PUES! no enlaza todavía a `/prueba`: no lo toqué, porque modificarlo no era necesario. Se puede agregar con tu autorización.

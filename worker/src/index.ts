@@ -16,6 +16,8 @@ import masterRoutes from './routes/master'
 import { cleanupAssistantMemory } from './services/assistant/context'
 import { cleanupExpiredTelegramProductAssets } from './services/telegramProductImages'
 import { releaseExpiredReservations } from './ai/credits'
+import trialRoutes from './routes/trial'
+import { cleanupExpiredTrials } from './services/trials'
 import type { Principal, EffectiveRole } from './tenancy/access'
 import type { StoreRecord } from './tenancy/stores'
 
@@ -45,6 +47,10 @@ export type Env = {
  GEMINI_MODEL?: string
  /** Gemini model that returns images (AI Studio). Unset = the studio is not offered. */
  GEMINI_IMAGE_MODEL?: string
+ /** Catalogue trial without sign-up: 'false' turns it off. */
+ TRIALS_ENABLED?: string
+ /** Maximum trials created per day across the platform (default 300). */
+ TRIALS_DAILY_LIMIT?: string
  /** Output price per million tokens for that image model, in micro-dollars (for the monthly budget). */
  GEMINI_IMAGE_PRICE_OUTPUT_MICROS_PER_MTOK?: string
  /** Estimated USD micros per million tokens (configurable; used for budgets). */
@@ -93,7 +99,7 @@ app.use('*', cors({
  },
  credentials: true,
  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
- allowHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key', 'X-Store-Slug', 'X-Store-Host'],
+ allowHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key', 'X-Store-Slug', 'X-Store-Host', 'X-Trial-Token'],
 }))
 
 // Rutas públicas (sin autenticación)
@@ -103,6 +109,7 @@ app.route('/api/products', productsRoutes)
 app.route('/api/categories', categoriesRoutes)
 app.route('/api/upload', uploadRoutes)
 app.route('/api/assets', uploadRoutes)
+app.route('/api/trial', trialRoutes)
 app.route('/api/orders', ordersRoutes)
 app.route('/api/telegram', telegramRoutes)
 app.route('/api/auth', authRoutes)
@@ -131,6 +138,7 @@ const worker = {
  fetch: (request: Request, env: Env['Bindings'], context: ExecutionContext) => app.fetch(request, env, context),
  scheduled: (_controller: ScheduledController, env: Env['Bindings'], context: ExecutionContext) => {
   if (env.ASSETS) context.waitUntil(cleanupExpiredTelegramProductAssets(env.DB, env.ASSETS))
+  context.waitUntil(cleanupExpiredTrials(env.DB, env.ASSETS).catch((error) => console.error('Trial cleanup failed:', error instanceof Error ? error.message : 'unknown')))
   context.waitUntil(releaseExpiredReservations(env.DB).catch((error) => console.error('AI credit reservation cleanup failed:', error instanceof Error ? error.message : 'unknown')))
   context.waitUntil(cleanupAssistantMemory(env.DB).catch((error) => console.error('Assistant memory cleanup failed:', error instanceof Error ? error.message : 'unknown')))
  },

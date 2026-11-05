@@ -31,6 +31,7 @@ const ActivationPage = lazy(() => import('./admin/ActivationPage'))
 const AdminImport = lazy(() => import('./admin/pages/Import'))
 const AdminPhotoProducts = lazy(() => import('./admin/pages/PhotoProducts'))
 const AdminStudio = lazy(() => import('./admin/pages/Studio'))
+const TrialPage = lazy(() => import('./pages/TrialPage'))
 const ResetPasswordPage = lazy(() => import('./admin/ResetPasswordPage'))
 const PlatformPage = lazy(() => import('./admin/PlatformPage'))
 
@@ -65,6 +66,9 @@ export default function App() {
           <CatalogProvider>
           <CartProvider>
             <Routes>
+              {/* Catalogue trial without an account (temporary, unpublished, noindex) */}
+              <Route path="/prueba" element={<Suspense fallback={null}><TrialPage /></Suspense>} />
+              <Route path="/prueba/:id" element={<Suspense fallback={null}><TrialPage /></Suspense>} />
               {/* Public store routes */}
               <Route element={<StoreLayout />}>
                 <Route path="/" element={<HomePage />} />
