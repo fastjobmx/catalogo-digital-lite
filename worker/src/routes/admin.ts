@@ -11,6 +11,7 @@ import { INVITABLE_ROLES, listUserMemberships, ROLE_LABELS, type StoreRole } fro
 import { PRIMARY_STORE_ID, adminStoreUrl } from '../tenancy/stores'
 import { createAccessToken, ensureUser, findUserByEmail, normalizeEmail, upsertMembership } from '../services/platformUsers'
 import { getStoreAiUsage } from '../ai/usage'
+import { AiCatalogError, photoToProduct, readCatalogPage } from '../services/aiCatalog'
 import { ImportError, applyImportBatch, createImportJob, finishImportJob, listImportJobs, previewImport } from '../services/catalogImport'
 import { CreditError, createCreditRequest, creditSummary, listCreditCosts, listCreditMovements, listCreditRequests } from '../ai/credits'
 import type { Context } from 'hono'
@@ -343,6 +344,19 @@ app.post('/imports/:id/batches/:index', adminAuth, requireRole('admin'), async (
 app.post('/imports/:id/finish', adminAuth, requireRole('admin'), async (c) => {
  try { return c.json(await finishImportJob(c.env.DB, c.get('storeId')!, c.req.param('id'))) } catch (error) { return importFail(c, error) }
 })
+
+// AI for the catalogue (photo → product suggestion, scanned PDF page → rows). Each call goes through
+// the store AI switch, the monthly budget and credits; failed calls never consume credits.
+async function aiAction(c: Context<Env>, action: (key: string, body: Record<string, unknown>) => Promise<unknown>) {
+ const body = await c.req.json().catch(() => null) as Record<string, unknown> | null
+ if (!body) return c.json({ error: 'Invalid JSON body' }, 400)
+ try { return c.json(await action((c.req.header('Idempotency-Key') || '').trim(), body)) } catch (error) {
+  if (error instanceof AiCatalogError) return c.json({ error: error.message, code: error.code }, error.status)
+  throw error
+ }
+}
+app.post('/ai/photo-product', adminAuth, requireRole('admin'), (c) => aiAction(c, (key, body) => photoToProduct(c.env, c.get('storeId')!, c.get('adminEmail') || 'unknown', key, body)))
+app.post('/ai/catalog-page', adminAuth, requireRole('admin'), (c) => aiAction(c, (key, body) => readCatalogPage(c.env, c.get('storeId')!, c.get('adminEmail') || 'unknown', key, body)))
 
 // ============================================
 // CRUD Productos (protegido)

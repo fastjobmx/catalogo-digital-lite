@@ -80,3 +80,16 @@ describe('PDF text layout', () => {
     ])).toEqual([['Producto', 'Precio'], ['Tocador Imperia', '$1.200.000']])
   })
 })
+
+describe('AI-read PDF rows', () => {
+  it('keeps values as written and moves long color or size texts to the description', async () => {
+    const { aiRowsToTable } = await import('./readers')
+    const table = aiRowsToTable('luz.pdf', 150, [{ sku: '', name: 'TOCADOR IMPERIA', price: '1.050.000$', stock: '', category: '', color: 'Disponible en cualquier color de la lista de colores.', size: '1.75 de altura x 1.20 de ancho', description: 'Espejo corredizo.' }])
+    expect(table.aiRead).toBe(true)
+    expect(table.rows[1]).toEqual(['', 'TOCADOR IMPERIA', '1.050.000$', '', '', '', '', 'Espejo corredizo. · Disponible en cualquier color de la lista de colores. · 1.75 de altura x 1.20 de ancho'])
+    const { headerRow, mapping } = detectMapping(table.rows)
+    const { products, issues } = buildProducts(table.rows, headerRow, mapping, { generateSku: true, defaultStock: null })
+    expect(products[0]!.product).toMatchObject({ sku: 'IMP-TOCADOR-IMPERIA', price: 1050000 })
+    expect(issues).toEqual([])
+  })
+})

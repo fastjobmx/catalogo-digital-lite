@@ -511,3 +511,26 @@ Asistente de 6 pasos en `/admin/importar`: Archivo → Lectura → Columnas → 
 
 - La lectura de PDF escaneados con IA pasa a la Fase 4.
 - Producción no se ha tocado.
+
+### Módulos IA — Fase 4 (productos desde fotos y PDF escaneados con IA) — 2026-11-05
+
+**Funciones nuevas**
+
+- **«Desde fotos»** (`/admin/fotos`): la IA sugiere nombre, descripción y categoría. El código, el precio y las existencias los pone la tienda.
+- **«Leer con IA»** en la importación: sirve para PDF escaneados, procesa hasta 20 páginas por vez y copia los datos tal como aparecen.
+
+**Servidor**
+
+- Rutas `POST /api/admin/ai/photo-product` y `POST /api/admin/ai/catalog-page`.
+- Pasan por el interruptor de IA, el presupuesto mensual y los créditos.
+- Solo se aceptan fotos de la propia tienda.
+
+**Verificación**
+
+- La visión de Gemini se verificó contra la API real.
+- Servidor 280/280 y panel 78/78.
+- Staging (Worker `fe874925-5d16-4d3b-9cb9-6dba5a559a62`): API 10/10 y navegador 13/13, con tiendas temporales que se eliminaron al final.
+
+**Pendiente**
+
+- Producción no se ha tocado.

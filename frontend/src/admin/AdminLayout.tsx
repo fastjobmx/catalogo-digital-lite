@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Package, Boxes, Tag, Settings, LogOut, Bot, Sparkles, ClipboardList,
-  Palette, Menu, X, ExternalLink, ChevronRight, CircleUserRound, Building2, Coins, FileUp,
+  Palette, Menu, X, ExternalLink, ChevronRight, CircleUserRound, Building2, Coins, FileUp, Camera,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
@@ -34,6 +34,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       { to: '/admin/products#inventory', activeTo: '/admin/products', icon: Boxes, label: 'Inventario' },
       { to: '/admin/categories', icon: Tag, label: 'Categorías' },
       { to: '/admin/importar', icon: FileUp, label: 'Importar' },
+      { to: '/admin/fotos', icon: Camera, label: 'Desde fotos' },
     ],
   },
   {

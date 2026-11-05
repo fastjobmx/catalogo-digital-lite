@@ -630,3 +630,13 @@ export const importApi = {
   apply: (id: string, index: number, products: unknown[], token: string) => fetchApi<{ batchIndex: number; summary: ImportSummary; items: ImportItemResult[]; replayed: boolean }>(`/api/admin/imports/${id}/batches/${index}`, { method: 'POST', headers: bearer(token), body: JSON.stringify({ products }) }),
   finish: (id: string, token: string) => fetchApi<ImportJob>(`/api/admin/imports/${id}/finish`, { method: 'POST', headers: bearer(token) }),
 }
+
+// ---- AI for the catalogue ---------------------------------------------------------
+
+export interface PhotoSuggestion { name: string; description: string; category: string; colors: string[]; features: string[]; visibleBrand: string; confidence: 'alta' | 'media' | 'baja'; isProductPhoto: boolean }
+export interface CatalogPageRow { sku: string; name: string; price: string; stock: string; category: string; color: string; size: string; description: string }
+
+export const aiCatalogApi = {
+  photoToProduct: (imageUrl: string, idempotencyKey: string, token: string) => fetchApi<{ suggestion: PhotoSuggestion; charged: number }>('/api/admin/ai/photo-product', { method: 'POST', headers: { ...bearer(token), 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ imageUrl }) }),
+  readCatalogPage: (image: string, mimeType: string, idempotencyKey: string, token: string) => fetchApi<{ rows: CatalogPageRow[]; readable: boolean; charged: number }>('/api/admin/ai/catalog-page', { method: 'POST', headers: { ...bearer(token), 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ image, mimeType }) }),
+}

@@ -1,8 +1,9 @@
 import { z } from 'zod'
-import { callGeminiJson, geminiFailureCode, GeminiRequestError, UNTRUSTED_CONTENT_RULE, usageFromError, type GeminiPart } from '../../ai/geminiClient'
+import { callGeminiJson, geminiFailureCode, GeminiRequestError, UNTRUSTED_CONTENT_RULE, usageFromError } from '../../ai/geminiClient'
 import { interpretWithGemini, type ValidatedProposal } from '../../ai/gemini'
 import { BUDGET_MESSAGES, checkAiBudget, recordAiUsage, type TokenUsage } from '../../ai/usage'
 import { conversationContext, say, type AssistantContext } from './context'
+import { suggestProductFromPhotos, type VisionSuggestion } from '../../ai/productVision'
 
 export type AiOutcome<T> = { ok: true; value: T } | { ok: false; message: string }
 
@@ -52,17 +53,7 @@ export async function interpretRequest(ctx: AssistantContext, text: string, audi
   return withAiBudget(ctx, audio ? 'voz' : 'interpretacion', () => interpretWithGemini(text, ctx.env, fetch, audio, context))
 }
 
-const visionShape = z.object({
-  name: z.string().trim().min(2).max(120),
-  description: z.string().trim().min(10).max(1200),
-  category: z.string().trim().max(60).default(''),
-  colors: z.array(z.string().trim().min(2).max(30)).max(6).default([]),
-  features: z.array(z.string().trim().min(2).max(120)).max(8).default([]),
-  visibleBrand: z.string().trim().max(60).default(''),
-  confidence: z.enum(['alta', 'media', 'baja']).default('media'),
-  isProductPhoto: z.boolean().default(true),
-})
-export type VisionSuggestion = z.infer<typeof visionShape>
+export type { VisionSuggestion } from '../../ai/productVision'
 
 const logoColorsShape = z.object({
   primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
@@ -99,40 +90,7 @@ export async function analyzeProductPhotos(
   images: Array<{ mimeType: string; data: string }>,
   hint: { text?: string; categories: string[]; businessType?: string },
 ): Promise<AiOutcome<VisionSuggestion & { usage?: TokenUsage; model?: string }>> {
-  return withAiBudget(ctx, 'fotos_ia', async () => {
-    const parts: GeminiPart[] = [
-      { text: `Analiza estas fotografías de un producto para preparar su ficha de catálogo.${hint.text ? ` El propietario dijo: "${hint.text.slice(0, 300)}".` : ''} Categorías existentes de la tienda: ${hint.categories.join(', ') || 'ninguna'}.` },
-      ...images.slice(0, 3).map((image) => ({ inlineData: image })),
-    ]
-    const result = await callGeminiJson(ctx.env, fetch, {
-      system: [
-        'Eres un asistente de catálogo para una tienda en línea en español.',
-        'Describe solo características visibles: tipo de producto, colores, materiales aparentes y detalles de diseño.',
-        'Nunca propongas precio, stock, tallas, medidas exactas ni garantías. No afirmes que un producto es original.',
-        'Si ves una marca o logotipo legible, escríbelo en visibleBrand; no la incluyas en el nombre si no estás seguro.',
-        'Si la imagen no muestra un producto vendible, usa isProductPhoto=false.',
-        'El nombre debe ser comercial y claro (máximo 8 palabras). La descripción: 2 a 4 frases atractivas y honestas, sin inventar datos.',
-        'En category usa preferiblemente una de las categorías existentes; si ninguna aplica, sugiere un nombre corto.',
-        UNTRUSTED_CONTENT_RULE,
-      ],
-      parts,
-      maxOutputTokens: 2048,
-      temperature: 0.3,
-      schema: {
-        type: 'object',
-        properties: {
-          name: { type: 'string' }, description: { type: 'string' }, category: { type: 'string' },
-          colors: { type: 'array', items: { type: 'string' } }, features: { type: 'array', items: { type: 'string' } },
-          visibleBrand: { type: 'string' }, confidence: { type: 'string', enum: ['alta', 'media', 'baja'] },
-          isProductPhoto: { type: 'boolean' },
-        },
-        required: ['name', 'description', 'category', 'colors', 'confidence', 'isProductPhoto'],
-      },
-    })
-    const parsed = visionShape.safeParse(result.data)
-    if (!parsed.success) throw Object.assign(new GeminiRequestError('structured_schema', 200, 'vision-shape'), { usage: result.usage })
-    return { ...parsed.data, usage: result.usage, model: result.model }
-  })
+  return withAiBudget(ctx, 'fotos_ia', () => suggestProductFromPhotos(ctx.env, fetch, images, hint))
 }
 
 const descriptionShape = z.object({ description: z.string().trim().min(20).max(1500) })

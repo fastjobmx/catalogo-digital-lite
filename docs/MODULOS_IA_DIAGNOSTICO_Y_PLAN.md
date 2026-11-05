@@ -157,3 +157,27 @@ Todas las fases se hacen en local y staging. Producción solo con tu autorizaci�
 - Pendiente:
   - **La lectura de PDF escaneados con IA se pasa a la Fase 4**, junto con la visión de Gemini, que hay que verificar con la API real. Hoy un PDF sin texto muestra un aviso y no se finge que se leyó.
   - El aviso de seguridad de `zod` en el panel ya existía antes de esta fase; no lo trajeron estas dependencias.
+
+**Fase 4 — Catálogo desde fotos y PDF escaneados con IA: hecha en local y staging (2026-11-05).**
+
+- **Visión de Gemini verificada contra la API real** (`gemini-3.8-flash`, en staging).
+  - Una foto de un tocador dio nombre, descripción y categoría, sin precio. Tarda unos 6 a 13 s.
+  - La página 5 del catálogo de Luz Mágica escaneada dio «TOCADOR IMPERIA · 1.050.000$», copiado tal cual y sin código ni existencias inventados.
+- **Servidor.**
+  - `worker/src/ai/productVision.ts`: un solo lugar para el análisis de fotos, que también usa Telegram con el mismo texto de instrucciones, más la transcripción de páginas.
+  - `worker/src/services/aiCatalog.ts` y las rutas `POST /api/admin/ai/photo-product` y `POST /api/admin/ai/catalog-page`.
+  - Funcionan con `runWithCredits` y exigen Idempotency-Key y el rol admin.
+  - Solo se aceptan fotos de la propia tienda (`stores/<id>/products/`).
+- **Panel.**
+  - «Desde fotos» (`/admin/fotos`): hasta 12 fotos, que se reducen en el navegador. La IA sugiere nombre, descripción y categoría; el código, el precio y las existencias los pone la tienda. Si la IA ve una marca, el panel pide confirmarla.
+  - En «Importar», el bloque «Leer con IA» procesa hasta 20 páginas por vez. Lo leído se marca como «Leído con IA», y los textos largos de color o talla pasan a la descripción en lugar de cortarse.
+  - El límite de PDF sube a 60 MB, porque nunca se suben al servidor. El catálogo real pesa 25.6 MB.
+- **Pruebas.**
+  - Servidor 280/280: 7 nuevas sobre fotos ajenas, falta de créditos, IA apagada, devolución de créditos si falla y validación previa al gasto.
+  - Panel 78/78, con `build` correcto.
+  - Staging (Worker `fe874925`):
+    - API real: 10/10.
+    - Navegador con Gemini real: 13/13. Cubre 2 fotos convertidas en 2 productos y un PDF escaneado convertido en importación con el precio correcto. La fila con dos precios posibles quedó marcada con error, sin adivinar.
+- **Pendiente.**
+  - Costo real medido: unos US$ 0.002 a 0.003 por foto o página (estimado por tokens). El precio en créditos lo defines tú.
+  - Estudio IA (Fase 5) necesita un modelo que genere imágenes; falta verificarlo.

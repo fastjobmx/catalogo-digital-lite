@@ -1,10 +1,10 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, FileUp, Loader2, Upload } from 'lucide-react'
+import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, FileUp, Loader2, Sparkles, Upload } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { useCatalog } from '../../contexts/CatalogContext'
-import { importApi, type ImportItemResult, type ImportPreview, type ImportSummary } from '../../services/api'
-import { readImportFile, ReadError } from '../../lib/import/readers'
+import { aiCatalogApi, creditsApi, importApi, type CatalogPageRow, type ImportItemResult, type ImportPreview, type ImportSummary, type StoreCredits } from '../../services/api'
+import { aiRowsToTable, forEachPdfPageImage, readImportFile, ReadError } from '../../lib/import/readers'
 import { buildProducts, detectMapping, FIELD_LABELS, IMPORT_FIELDS, type ColumnMapping, type ImportProduct, type RowIssue } from '../../lib/import/mapping'
 import type { RawTable } from '../../lib/import/table'
 import { formatMoney } from '../../lib/format'
@@ -142,7 +142,7 @@ export default function ImportProducts() {
             className="w-full rounded-card border-2 border-dashed border-line hover:border-brand/50 p-10 text-center transition-colors">
             {busy ? <Loader2 className="mx-auto animate-spin text-brand" /> : <Upload className="mx-auto text-brand" />}
             <p className="mt-3 font-bold text-ink">Elige o arrastra tu archivo</p>
-            <p className="mt-1 text-sm text-muted">CSV, Excel (.xlsx) o PDF con texto · hasta 15 MB</p>
+            <p className="mt-1 text-sm text-muted">CSV o Excel (.xlsx) hasta 15 MB · PDF hasta 60 MB</p>
           </button>
           <input ref={input} type="file" className="sr-only" accept=".csv,.txt,.xlsx,.pdf,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => void pick(e.target.files?.[0])} />
           <ul className="mt-5 grid gap-2 text-sm text-muted sm:grid-cols-3">
@@ -161,12 +161,18 @@ export default function ImportProducts() {
               <option value="" disabled>Cambiar de hoja…</option>{table.sheets.map((sheet) => <option key={sheet} value={sheet}>{sheet}</option>)}
             </select></label>
           )}
-          {table.textless && (
-            <p className="rounded-btn border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-              Este PDF casi no tiene texto seleccionable: parece hecho con imágenes o escaneado, así que no se puede leer como tabla. Exporta tu lista a Excel o CSV. La lectura de PDF con IA todavía no está disponible.
+          {table.aiRead && (
+            <p className="rounded-btn border border-brand/30 bg-brand/5 p-3 text-sm text-ink">
+              <b>Leído con IA.</b> La IA copió lo que vio en las páginas; lo que no estaba escrito quedó vacío. Compara nombres y precios con tu PDF en la vista previa antes de importar.
             </p>
           )}
-          {table.source === 'pdf' && !table.textless && <p className="text-sm text-muted">En los PDF las columnas se reconocen por la posición del texto. Revisa bien la vista previa: si se ve desordenada, es mejor usar Excel o CSV.</p>}
+          {table.textless && !table.aiRead && (
+            <p className="rounded-btn border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              Este PDF casi no tiene texto seleccionable: parece hecho con imágenes o escaneado, así que no se puede leer como tabla. Puedes leerlo con IA o exportar tu lista a Excel o CSV.
+            </p>
+          )}
+          {table.source === 'pdf' && !table.textless && !table.aiRead && <p className="text-sm text-muted">En los PDF las columnas se reconocen por la posición del texto. Revisa bien la vista previa: si se ve desordenada, es mejor usar Excel o CSV o leerlo con IA.</p>}
+          {table.source === 'pdf' && !table.aiRead && file && token && <PdfAiReader file={file} pages={table.pages || 1} token={token} onRead={(next) => { const detected = detectMapping(next.rows); setTable(next); setHeaderRow(detected.headerRow); setMapping(detected.mapping) }} />}
           <label className="block text-sm text-ink">Fila de títulos:
             <select className="input-field ml-2 inline-block w-auto py-1" value={headerRow} onChange={(e) => { const row = Number(e.target.value); setHeaderRow(row); setMapping(row >= 0 ? detectMapping([table.rows[row]!]).mapping : {}) }}>
               <option value={-1}>El archivo no tiene títulos</option>
@@ -339,6 +345,71 @@ function Nav({ onBack, onNext, nextLabel = 'Siguiente', nextDisabled, busy }: { 
     <div className="flex justify-between gap-2 pt-2">
       <button type="button" className="btn-ghost" onClick={onBack} disabled={busy}><ArrowLeft size={16} /> Atrás</button>
       <button type="button" className="btn-brand" onClick={onNext} disabled={nextDisabled || busy}>{busy ? <Loader2 size={16} className="animate-spin" /> : null}{nextLabel} <ArrowRight size={16} /></button>
+    </div>
+  )
+}
+
+const MAX_AI_PAGES = 20
+
+/** Reads scanned PDF pages with AI, one page at a time (credits per page when the platform sets a cost). */
+function PdfAiReader({ file, pages, token, onRead }: { file: File; pages: number; token: string; onRead: (table: RawTable) => void }) {
+  const [credits, setCredits] = useState<StoreCredits | null>(null)
+  const [from, setFrom] = useState('1')
+  const [to, setTo] = useState(String(Math.min(pages, MAX_AI_PAGES)))
+  const [state, setState] = useState<{ busy: boolean; done: number; total: number; error: string | null }>({ busy: false, done: 0, total: 0, error: null })
+  useEffect(() => { creditsApi.get(token).then(setCredits).catch(() => setCredits(null)) }, [token])
+
+  const cost = credits?.costs.find((item) => item.feature === 'importar_pdf_pagina')
+  const available = Boolean(credits?.aiEnabled) && cost?.enabled !== false
+  const start = Math.max(1, Number(from) || 1)
+  const end = Math.min(pages, Number(to) || start)
+  const count = Math.max(0, end - start + 1)
+
+  const run = async () => {
+    if (count < 1 || count > MAX_AI_PAGES) { setState((s) => ({ ...s, error: `Elige entre 1 y ${MAX_AI_PAGES} páginas por vez.` })); return }
+    const list = Array.from({ length: count }, (_, i) => start + i)
+    setState({ busy: true, done: 0, total: list.length, error: null })
+    const rows: CatalogPageRow[] = []
+    const unreadable: number[] = []
+    try {
+      let done = 0
+      await forEachPdfPageImage(file, list, async (image) => {
+        const result = await aiCatalogApi.readCatalogPage(image.data, image.mimeType, crypto.randomUUID(), token)
+        rows.push(...result.rows)
+        if (!result.rows.length) unreadable.push(image.page)
+        done++
+        setState((s) => ({ ...s, done }))
+      })
+      if (!rows.length) { setState({ busy: false, done: 0, total: 0, error: 'La IA no encontró productos en esas páginas.' }); return }
+      onRead(aiRowsToTable(file.name, pages, rows))
+      setState({ busy: false, done: 0, total: 0, error: unreadable.length ? `Sin productos legibles en las páginas ${unreadable.join(', ')}.` : null })
+    } catch (err) {
+      setState({ busy: false, done: 0, total: 0, error: `${err instanceof Error ? err.message : 'La IA no pudo leer el PDF.'}${rows.length ? ' Las páginas leídas antes del error no se usaron; vuelve a intentarlo.' : ''}` })
+    }
+  }
+
+  if (!credits) return null
+  return (
+    <div className="rounded-btn border border-line p-4 space-y-3 text-sm">
+      <p className="font-bold text-ink flex items-center gap-2"><Sparkles size={15} /> Leer con IA</p>
+      {!available
+        ? <p className="text-muted">{!credits.aiEnabled ? 'La IA está desactivada para tu tienda.' : 'Esta función de IA está pausada por la plataforma.'}</p>
+        : (
+          <>
+            <p className="text-muted">La IA transcribe los productos de cada página tal como están escritos; no inventa precios ni códigos. {cost?.configured ? `${cost.credits} créditos por página · tienes ${credits.balance}.` : 'Usa el límite mensual de IA de tu plan.'} Si falla una página, no se descuenta.</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <span>Páginas</span>
+              <input className="input-field w-20 py-1" inputMode="numeric" value={from} onChange={(e) => setFrom(e.target.value.replace(/\D/g, ''))} aria-label="Desde la página" />
+              <span>a</span>
+              <input className="input-field w-20 py-1" inputMode="numeric" value={to} onChange={(e) => setTo(e.target.value.replace(/\D/g, ''))} aria-label="Hasta la página" />
+              <span className="text-muted">de {pages} (máximo {MAX_AI_PAGES} por vez)</span>
+              <button type="button" className="btn-brand py-1.5" disabled={state.busy || count < 1} onClick={() => void run()}>
+                {state.busy ? <><Loader2 size={14} className="animate-spin" /> Página {state.done + 1} de {state.total}</> : `Leer ${count} ${count === 1 ? 'página' : 'páginas'}`}
+              </button>
+            </div>
+          </>
+        )}
+      {state.error && <p className="text-red-700" role="alert">{state.error}</p>}
     </div>
   )
 }

@@ -8,9 +8,13 @@ export type RawTable = {
   pages?: number
   /** True when a PDF has (almost) no selectable text: probably scanned images. */
   textless?: boolean
+  /** Rows transcribed by AI from page images: they must be checked against the document. */
+  aiRead?: boolean
 }
 
 export const MAX_FILE_BYTES = 15 * 1024 * 1024
+/** PDFs are only read in the browser (never uploaded), so large printed catalogues are allowed. */
+export const MAX_PDF_BYTES = 60 * 1024 * 1024
 export const MAX_ROWS = 5000
 export const MAX_CELL_CHARS = 2000
 
