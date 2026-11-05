@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { KeyRound, Loader2, ShieldCheck, Store } from 'lucide-react'
+import { Loader2, ShieldCheck } from 'lucide-react'
+import PlatformAuthShell from './PlatformAuthShell'
 import { activateAccount, getActivationInfo } from '../services/api'
 import { useAuth } from '../contexts/AuthContext'
 import { TENANT_SLUG, tenantPath } from '../lib/tenant'
@@ -48,15 +49,7 @@ export default function ActivationPage() {
   }
 
   return (
-    <div className="min-h-screen bg-canvas flex items-center justify-center px-4 py-12">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <span className="grid place-items-center w-16 h-16 mx-auto mb-4 rounded-card bg-brand text-brand-foreground">
-            <KeyRound size={28} />
-          </span>
-          <h1 className="text-2xl font-black tracking-tight text-ink">Activa tu cuenta</h1>
-          {info && <p className="text-muted text-sm mt-1.5 flex items-center justify-center gap-1.5"><Store size={14} /> {info.store.name}</p>}
-        </div>
+    <PlatformAuthShell title="Activa tu cuenta" subtitle="Tienda IA Express · panel administrativo" storeName={info?.store.name ?? null}>
         <div className="card p-8">
           {loadError ? (
             <p role="alert" className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-btn px-4 py-3">{loadError}</p>
@@ -80,7 +73,6 @@ export default function ActivationPage() {
             </form>
           )}
         </div>
-      </div>
-    </div>
+    </PlatformAuthShell>
   )
 }

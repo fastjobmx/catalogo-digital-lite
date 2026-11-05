@@ -1,5 +1,5 @@
 {
-  // Frontend of Catálogo Digital IA on Cloudflare Workers Static Assets.
+  // Frontend of the Tienda IA Express platform (technical name catalogo-digital-ia) on Workers Static Assets.
   // Deploy:  npm run deploy:cloudflare  (build with .env.cloudflare, then wrangler deploy)
   // Public URL: https://catalogo-digital-ia.catalogo-lite-worker.workers.dev
   "$schema": "../worker/node_modules/wrangler/config-schema.json",
@@ -12,8 +12,9 @@
     "binding": "ASSETS",
     // /t/<tienda>/admin, /plataforma, /admin/... reload without 404.
     "not_found_handling": "single-page-application",
-    // Only API paths run the script; every other request is a free static asset hit.
-    "run_worker_first": ["/api/*"]
+    // API paths and HTML pages run the script (pages get per-store share metadata, see cloudflare/worker.js);
+    // static files under these folders are served directly without running it.
+    "run_worker_first": ["/*", "!/assets/*", "!/brand/*", "!/seed-images/*", "!/favicon.svg"]
   },
   // Backend Worker (unchanged): images under /api/assets/* and any relative /api call.
   "services": [{ "binding": "API", "service": "catalogo-lite-api" }],

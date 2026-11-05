@@ -4,7 +4,9 @@ import { useAuth } from '../contexts/AuthContext'
 import { useStore } from '../contexts/StoreContext'
 import { isBackendAvailable, requestPasswordReset } from '../services/api'
 import { isOfflineDemoAuthEnabled } from '../lib/authMode'
-import { Store, ShieldCheck, Loader2, ArrowLeft } from 'lucide-react'
+import { ShieldCheck, Loader2, ArrowLeft } from 'lucide-react'
+import PlatformAuthShell from './PlatformAuthShell'
+import { TENANT_SLUG } from '../lib/tenant'
 
 export default function LoginPage() {
   const { login, isAuthenticated } = useAuth()
@@ -55,21 +57,12 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-canvas flex items-center justify-center px-4 py-12">
-      <div className="w-full max-w-md">
-        {/* Encabezado de marca */}
-        <div className="text-center mb-8">
-          {store.logo ? (
-            <img src={store.logo} alt={store.name} className="h-14 mx-auto mb-4 object-contain" />
-          ) : (
-            <span className="grid place-items-center w-16 h-16 mx-auto mb-4 rounded-card bg-brand text-brand-foreground font-black text-2xl">
-              {store.name.trim().charAt(0).toUpperCase()}
-            </span>
-          )}
-          <h1 className="text-2xl font-black tracking-tight text-ink">{store.name}</h1>
-          <p className="text-muted text-sm mt-1.5">Acceso al panel administrativo</p>
-        </div>
-
+    <PlatformAuthShell
+      title="Tienda IA Express"
+      subtitle="Acceso al panel administrativo"
+      storeName={TENANT_SLUG ? store.name : null}
+      below={<Link to="/" className="inline-flex items-center gap-2 text-sm font-semibold hover:text-white transition-colors"><ArrowLeft size={16} /> Volver a la tienda</Link>}
+    >
         {/* Tarjeta de inicio de sesión */}
         <div className="card p-8">
           {offlineDemoAuth && (
@@ -136,18 +129,6 @@ export default function LoginPage() {
           {!offlineDemoAuth && <p className="mt-6 border-t border-line pt-5 text-center text-[11px] leading-relaxed text-muted">Se requiere una sesión válida del servidor para acceder al panel.</p>}
         </div>
 
-        <div className="text-center mt-6">
-          <Link to="/" className="inline-flex items-center gap-2 text-sm font-semibold text-muted hover:text-brand transition-colors">
-            <ArrowLeft size={16} />
-            Volver a la tienda
-          </Link>
-        </div>
-
-        <p className="text-center text-[11px] text-muted/70 mt-6 flex items-center justify-center gap-1.5">
-          <Store size={12} />
-          Panel de administración
-        </p>
-      </div>
-    </div>
+    </PlatformAuthShell>
   )
 }

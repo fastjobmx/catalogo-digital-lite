@@ -200,6 +200,11 @@ export default function AdminLayout() {
         <LogOut size={18} />
         Cerrar sesión
       </button>
+      {/* Platform identity of the administration area (the store keeps its own branding above). */}
+      <p className="flex items-center gap-2 px-3 pt-2 text-[11px] font-semibold text-muted">
+        <img src="/brand/tiendaiaexpress/icon-192.png" alt="" width={16} height={16} className="rounded" />
+        Tienda IA Express
+      </p>
     </div>
   )
 

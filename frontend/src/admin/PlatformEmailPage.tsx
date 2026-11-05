@@ -59,7 +59,7 @@ export default function PlatformEmailPage() {
       <div className="mx-auto max-w-6xl space-y-6">
         <header className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-xs font-bold uppercase tracking-widest text-muted">Plataforma</p>
+            <p className="text-xs font-bold uppercase tracking-widest text-muted flex items-center gap-2"><img src="/brand/tiendaiaexpress/icon-192.png" alt="" width={20} height={20} className="rounded" /> Tienda IA Express · Plataforma</p>
             <h1 className="text-2xl font-black tracking-tight text-ink">Plantillas de correo electrónico</h1>
           </div>
           <Link to="/plataforma" className="btn-ghost"><ArrowLeft size={16} /> Volver a la plataforma</Link>

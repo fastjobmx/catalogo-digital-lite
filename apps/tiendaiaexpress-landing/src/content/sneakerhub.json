@@ -1,0 +1,179 @@
+{
+  "capturedAt": "2026-11-04T19:52:42.810Z",
+  "storeUrl": "https://catalogo-digital-ia.catalogo-lite-worker.workers.dev",
+  "store": {
+    "name": "SneakerHub Premium",
+    "slogan": "Tu estilo, tu ritmo",
+    "description": "Sneakers, streetwear y accesorios seleccionados con envio a todo el pais.",
+    "businessType": "Calzado y streetwear"
+  },
+  "categories": [
+    {
+      "name": "Urbano",
+      "slug": "urbano",
+      "count": 4
+    },
+    {
+      "name": "Running",
+      "slug": "running",
+      "count": 6
+    },
+    {
+      "name": "Casual",
+      "slug": "casual",
+      "count": 2
+    },
+    {
+      "name": "Outdoor",
+      "slug": "outdoor",
+      "count": 4
+    },
+    {
+      "name": "Accesorios",
+      "slug": "accesorios",
+      "count": 5
+    }
+  ],
+  "productCount": 21,
+  "products": [
+    {
+      "sku": "KINETIK-06",
+      "name": "Kinetik Aero Carbon",
+      "brand": "Kinetik",
+      "price": 389900,
+      "category": "Running",
+      "sizes": [
+        "40",
+        "41",
+        "42",
+        "43",
+        "44",
+        "45"
+      ],
+      "url": "https://catalogo-digital-ia.catalogo-lite-worker.workers.dev/product/KINETIK-06",
+      "image": "product-KINETIK-06.webp"
+    },
+    {
+      "sku": "NORD-02",
+      "name": "Nord Drift High",
+      "brand": "Nord",
+      "price": 219900,
+      "category": "Urbano",
+      "sizes": [
+        "40",
+        "41",
+        "42",
+        "43",
+        "44",
+        "45"
+      ],
+      "url": "https://catalogo-digital-ia.catalogo-lite-worker.workers.dev/product/NORD-02",
+      "image": "product-NORD-02.webp"
+    },
+    {
+      "sku": "ASTRAL-03",
+      "name": "Astral Wave Runner",
+      "brand": "Astral",
+      "price": 174900,
+      "category": "Urbano",
+      "sizes": [
+        "40",
+        "41",
+        "42",
+        "43",
+        "44",
+        "45"
+      ],
+      "url": "https://catalogo-digital-ia.catalogo-lite-worker.workers.dev/product/ASTRAL-03",
+      "image": "product-ASTRAL-03.webp"
+    },
+    {
+      "sku": "TERA-08",
+      "name": "Tera Trail GTX",
+      "brand": "Tera",
+      "price": 279900,
+      "category": "Running",
+      "sizes": [
+        "40",
+        "41",
+        "42",
+        "43",
+        "44",
+        "45"
+      ],
+      "url": "https://catalogo-digital-ia.catalogo-lite-worker.workers.dev/product/TERA-08",
+      "image": "product-TERA-08.webp"
+    },
+    {
+      "sku": "VANTA-01",
+      "name": "Vanta Court Low",
+      "brand": "Vanta",
+      "price": 189900,
+      "category": "Urbano",
+      "sizes": [
+        "38",
+        "39",
+        "40",
+        "41",
+        "42",
+        "43",
+        "44"
+      ],
+      "url": "https://catalogo-digital-ia.catalogo-lite-worker.workers.dev/product/VANTA-01",
+      "image": "product-VANTA-01.webp"
+    },
+    {
+      "sku": "NORD-22",
+      "name": "Nord Field Backpack",
+      "brand": "Nord",
+      "price": 199900,
+      "category": "Accesorios",
+      "sizes": [
+        "Unica"
+      ],
+      "url": "https://catalogo-digital-ia.catalogo-lite-worker.workers.dev/product/NORD-22",
+      "image": "product-NORD-22.webp"
+    }
+  ],
+  "templates": [
+    "artesanal",
+    "boutique",
+    "editorial",
+    "gourmet",
+    "luxury",
+    "minimalista",
+    "moderno",
+    "natural",
+    "personalizado",
+    "playful",
+    "premium",
+    "tech",
+    "urban"
+  ],
+  "imageSizes": {
+    "mobile-home": [
+      720,
+      1558
+    ],
+    "mobile-catalog": [
+      720,
+      1558
+    ],
+    "mobile-product": [
+      720,
+      1558
+    ],
+    "mobile-cart": [
+      720,
+      1558
+    ],
+    "desktop-home": [
+      1440,
+      900
+    ],
+    "desktop-product": [
+      1440,
+      900
+    ]
+  }
+}

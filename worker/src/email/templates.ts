@@ -1,7 +1,9 @@
 /** Email templates: a closed list of variables, server-only links and HTML sanitizing.
  * Templates decide the look and the words; they can never create, change or reveal tokens. */
 
-export const PLATFORM_NAME = 'MOSTRALO PUES!'
+export const PLATFORM_NAME = 'Tienda IA Express'
+/** Logo served by the platform itself (absolute URL, as email clients need). */
+export const EMAIL_LOGO_URL = 'https://catalogo-digital-ia.catalogo-lite-worker.workers.dev/brand/tiendaiaexpress/logo-720.png'
 
 export const EMAIL_VARIABLES = {
   nombre_usuario: 'Nombre de la persona',
@@ -93,7 +95,7 @@ export function renderTemplate(template: { subject: string; html: string; text: 
 
 // ---- default designs -------------------------------------------------------------
 
-const BRAND = { forest: '#102F25', lime: '#C6F25B', coral: '#FE7041', ivory: '#F7F8F3', ink: '#1C2A24', muted: '#5C6B63' }
+const BRAND = { forest: '#03301F', lime: '#CDF53F', coral: '#8A2FF5', ivory: '#F7F8F3', ink: '#1C2A24', muted: '#5C6B63' }
 
 function layout(body: string, preheader: string) {
   return `<!doctype html>
@@ -104,16 +106,13 @@ function layout(body: string, preheader: string) {
 <tr><td align="center">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#FFFFFF;border-radius:18px;overflow:hidden;">
 <tr><td style="background:${BRAND.forest};padding:22px 28px;">
-<table role="presentation" cellpadding="0" cellspacing="0"><tr>
-<td style="padding-right:12px;"><img src="https://mostralopues.pages.dev/icon-512.png" width="40" height="40" alt="MOSTRALO PUES!" style="display:block;border-radius:10px;"></td>
-<td style="font-size:20px;font-weight:bold;color:${BRAND.ivory};letter-spacing:0.5px;">MOSTRALO <span style="color:${BRAND.lime};">PUES!</span></td>
-</tr></table>
+<img src="${EMAIL_LOGO_URL}" width="220" height="84" alt="Tienda IA Express" style="display:block;width:220px;max-width:70%;height:auto;border-radius:10px;">
 </td></tr>
 <tr><td style="padding:32px 28px 8px 28px;font-size:16px;line-height:1.6;">
 ${body}
 </td></tr>
 <tr><td style="padding:24px 28px 28px 28px;border-top:1px solid #E6EAE7;font-size:12px;line-height:1.6;color:${BRAND.muted};">
-<strong style="color:${BRAND.forest};">MOSTRALO PUES!</strong> · Tu tienda online, más fácil con IA.<br>
+<strong style="color:${BRAND.forest};">Tienda IA Express</strong> · Tu tienda online, más fácil.<br>
 Este es un mensaje automático de {{nombre_plataforma}}. Nunca te pediremos tu contraseña por correo.
 </td></tr>
 </table>
@@ -126,7 +125,7 @@ const button = (variable: string, label: string) => `<table role="presentation" 
 </td></tr></table>
 <p style="margin:0 0 16px 0;font-size:13px;color:${BRAND.muted};">Si el botón no funciona, copia y pega este enlace en tu navegador:<br><a href="{{${variable}}}" style="color:${BRAND.forest};word-break:break-all;">{{${variable}}}</a></p>`
 
-const securityNote = (text: string) => `<p style="margin:16px 0 0 0;padding:14px 16px;background:#FFF4EF;border-left:4px solid ${BRAND.coral};border-radius:8px;font-size:14px;">${text}</p>`
+const securityNote = (text: string) => `<p style="margin:16px 0 0 0;padding:14px 16px;background:#F4EEFF;border-left:4px solid ${BRAND.coral};border-radius:8px;font-size:14px;">${text}</p>`
 
 export const DEFAULT_TEMPLATES: Record<SystemTemplateKey, { name: string; subject: string; html: string; text: string }> = {
   password_reset: {
@@ -149,7 +148,7 @@ El enlace vence en {{vence_en}} y sirve una sola vez.
 
 ¿No fuiste tú? Ignora este mensaje: tu contraseña actual sigue funcionando.
 
-MOSTRALO PUES! · Nunca te pediremos tu contraseña por correo.`,
+Tienda IA Express · Nunca te pediremos tu contraseña por correo.`,
   },
   invitation: {
     name: 'Invitación de usuario',
@@ -169,7 +168,7 @@ Activa tu acceso y crea tu contraseña aquí:
 
 La invitación vence en {{vence_en}} y sirve una sola vez. Si no la esperabas, ignora este mensaje.
 
-MOSTRALO PUES!`,
+Tienda IA Express · Tu tienda online, más fácil.`,
   },
   welcome: {
     name: 'Bienvenida',
@@ -188,7 +187,7 @@ Ingresa a tu panel: {{enlace_panel}}
 
 Si no creaste esta cuenta, escríbenos para revisarlo.
 
-MOSTRALO PUES!`,
+Tienda IA Express · Tu tienda online, más fácil.`,
   },
   admin_notice: {
     name: 'Notificación administrativa',
@@ -202,7 +201,7 @@ MOSTRALO PUES!`,
 
 Este aviso es sobre tu cuenta de {{nombre_comercio}} en {{nombre_plataforma}}.
 
-MOSTRALO PUES!`,
+Tienda IA Express · Tu tienda online, más fácil.`,
   },
   email_verification: {
     name: 'Verificación de correo',
@@ -219,7 +218,7 @@ Confirma que {{correo_usuario}} es tu correo para el panel de {{nombre_comercio}
 
 El enlace vence en {{vence_en}}. Si no reconoces esta solicitud, ignora este mensaje.
 
-MOSTRALO PUES!`,
+Tienda IA Express · Tu tienda online, más fácil.`,
   },
 }
 

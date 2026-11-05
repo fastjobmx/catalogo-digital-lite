@@ -6,8 +6,9 @@ import { THEME_PRESETS } from '../types/theme'
 import { formatMoney } from '../lib/format'
 import { prepareProductPhoto } from '../lib/imageResize'
 import { parseMoney } from '../lib/import/mapping'
+import { PLATFORM_BRAND } from '../lib/platformBrand'
 
-/** Platform sales contact (MOSTRALO PUES!) used only for the "create my real store" button. */
+/** Platform sales contact (Tienda IA Express WhatsApp) used only for the "create my real store" button. */
 const SALES_WHATSAPP = '573506912734'
 const MAX_PRODUCTS = 12
 const MAX_PHOTOS = 6
@@ -54,6 +55,7 @@ function TrialStart() {
     <main className="min-h-screen bg-[#f6f5f1] px-4 py-10 text-[#16181d]">
       <div className="mx-auto max-w-3xl space-y-8">
         <header className="space-y-3">
+          <a href={PLATFORM_BRAND.siteUrl} className="inline-block"><img src={PLATFORM_BRAND.logo} width={PLATFORM_BRAND.logoSize.width} height={PLATFORM_BRAND.logoSize.height} alt={PLATFORM_BRAND.name} className="h-auto w-[200px] rounded-xl" /></a>
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#5b6170]">Prueba gratis · sin registro</p>
           <h1 className="text-3xl font-black leading-tight sm:text-4xl">Mira cómo se vería tu catálogo</h1>
           <p className="text-[#4a4f5c]">Sube hasta {MAX_PHOTOS} fotos de tus productos y verás una vista previa con el estilo que elijas. Es temporal: <b>no se publica</b> y se borra sola en 48 horas. No te pedimos correo ni contraseña.</p>

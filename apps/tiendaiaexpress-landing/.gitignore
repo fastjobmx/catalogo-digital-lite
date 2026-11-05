@@ -1,0 +1,13 @@
+node_modules/
+dist/
+dist-ssr/
+test-results/
+playwright-report/
+.wrangler/
+scripts/.snapshot/
+brand-originals/previews/
+tests/screens/
+.tmp-prof/
+# Lighthouse: only the reports measured on the published site are kept
+tests/lighthouse/*
+!tests/lighthouse/live-*.report.html

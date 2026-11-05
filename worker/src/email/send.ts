@@ -17,13 +17,19 @@ export const isEmail = (value: unknown): value is string => typeof value === 'st
 
 /** Inserts the built-in templates the first time (never overwrites edits). */
 export async function ensureDefaultTemplates(db: D1Database): Promise<void> {
-  const existing = await db.prepare('SELECT COUNT(*) AS n FROM email_templates WHERE system_key IS NOT NULL').first<{ n: number }>()
-  if (Number(existing?.n || 0) >= SYSTEM_TEMPLATE_KEYS.length) return
-  await db.batch(SYSTEM_TEMPLATE_KEYS.map((key) => {
+  const { results } = await db.prepare('SELECT system_key, html, updated_by FROM email_templates WHERE system_key IS NOT NULL').all<{ system_key: SystemTemplateKey; html: string; updated_by: string }>()
+  const rows = new Map((results || []).map((row) => [row.system_key, row]))
+  const statements = SYSTEM_TEMPLATE_KEYS.flatMap((key) => {
     const template = DEFAULT_TEMPLATES[key]
-    return db.prepare('INSERT OR IGNORE INTO email_templates (system_key, name, subject, html, text, updated_by) VALUES (?, ?, ?, ?, ?, ?)')
-      .bind(key, template.name, template.subject, template.html, template.text, 'system')
-  }))
+    const row = rows.get(key)
+    if (!row) return [db.prepare('INSERT OR IGNORE INTO email_templates (system_key, name, subject, html, text, updated_by) VALUES (?, ?, ?, ?, ?, ?)').bind(key, template.name, template.subject, template.html, template.text, 'system')]
+    // Untouched system templates follow the current built-in design (for example, a new brand).
+    if (row.updated_by === 'system' && row.html !== template.html) {
+      return [db.prepare(`UPDATE email_templates SET name = ?, subject = ?, html = ?, text = ?, updated_at = datetime('now') WHERE system_key = ? AND updated_by = 'system'`).bind(template.name, template.subject, template.html, template.text, key)]
+    }
+    return []
+  })
+  if (statements.length) await db.batch(statements)
 }
 
 type TemplateRow = { id: number; system_key: string | null; name: string; subject: string; html: string; text: string; is_active: number }

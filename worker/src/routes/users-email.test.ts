@@ -52,7 +52,7 @@ describe('password recovery by email', () => {
     expect(verified).toEqual(unknown)
     expect(sent).toHaveLength(1)
     expect(sent[0]!.to).toBe('vendedor@tienda-a.co')
-    expect(sent[0]!.subject).toContain('MOSTRALO PUES!')
+    expect(sent[0]!.subject).toContain('Tienda IA Express')
     expect(sent[0]!.html).toContain('Crear nueva contraseña')
     expect(sent[0]!.html).toContain('60 minutos')
     expect(sent[0]!.html).not.toMatch(/ClaveVieja/)
@@ -250,5 +250,20 @@ describe('master bot reset', () => {
     verifyDirectly(memberId)
     const result = await adminPasswordReset(h.db, h.env, 'vendedor@tienda-a.co', 'superadmin')
     expect(result).toEqual({ email: 'vendedor@tienda-a.co', delivery: 'email' })
+  })
+})
+
+describe('platform brand in emails', () => {
+  it('untouched system templates follow the new brand; edited ones are kept', async () => {
+    const list = await json(await h.request('/api/platform/email/templates', { token: admin }))
+    const reset = list.items[0]
+    expect(reset.html).toContain('Tienda IA Express')
+    expect(reset.html).not.toContain('MOSTRALO')
+    h.db.sqlite.exec(`UPDATE email_templates SET html = 'viejo {{enlace_recuperacion}}' WHERE system_key = 'welcome'`)
+    h.db.sqlite.exec(`UPDATE email_templates SET html = replace(html, 'Tienda IA Express', 'Marca anterior') WHERE system_key = 'invitation'`)
+    h.db.sqlite.exec(`UPDATE email_templates SET updated_by = 'platform:yo' WHERE system_key = 'welcome'`)
+    const again = await json(await h.request('/api/platform/email/templates', { token: admin }))
+    expect(again.items.find((item: any) => item.systemKey === 'invitation').html).toContain('Tienda IA Express')
+    expect(again.items.find((item: any) => item.systemKey === 'welcome').html).toBe('viejo {{enlace_recuperacion}}')
   })
 })

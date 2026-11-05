@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import PlatformAttribution from '../PlatformAttribution'
 import { MapPin, Phone, Mail, Clock, Instagram, Facebook, Music2, MessageCircle, ArrowUpRight } from 'lucide-react'
 import { useStore } from '../../contexts/StoreContext'
 import { useCatalog } from '../../contexts/CatalogContext'
@@ -154,9 +155,7 @@ export default function Footer() {
 
         <div className="mt-10 flex flex-col items-start justify-between gap-3 border-t border-white/20 pt-5 text-xs footer-copy-soft sm:mt-12 sm:flex-row sm:items-center sm:gap-4">
           <p>© {new Date().getFullYear()} {store.name}. {footer.copyright}</p>
-          <p className="flex items-center gap-2">
-            Hecho con <span className="font-semibold text-canvas">Catálogo Digital Lite</span>
-          </p>
+          <PlatformAttribution className="text-canvas/90" />
         </div>
       </div>
     </footer>
