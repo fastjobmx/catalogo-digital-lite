@@ -166,7 +166,7 @@ export default function PlatformPage() {
               <select className="input-field" value={form.template} onChange={(e) => setForm({ ...form, template: e.target.value as CreateStorePayload['template'] })}>
                 <option value="minimalista">Minimalista</option><option value="moderno">Moderno</option><option value="premium">Premium</option><option value="personalizado">Personalizado</option>
                 <option value="luxury">Luxury</option><option value="urban">Urban</option><option value="boutique">Boutique</option><option value="natural">Natural</option><option value="tech">Tech</option>
-                <option value="playful">Playful</option><option value="gourmet">Gourmet</option><option value="artesanal">Artesanal</option><option value="editorial">Editorial</option>
+                <option value="playful">Playful</option><option value="gourmet">Gourmet</option><option value="artesanal">Artesanal</option><option value="editorial">Editorial</option><option value="stories">Stories (vertical)</option>
               </select>
             </Field>
             {form.template === 'personalizado'

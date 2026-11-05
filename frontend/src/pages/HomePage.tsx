@@ -9,6 +9,7 @@ import BenefitsSection from '../components/home/BenefitsSection'
 import ContactSection from '../components/home/ContactSection'
 import TestimonialsSection from '../components/home/TestimonialsSection'
 import CtaSection from '../components/home/CtaSection'
+import StoriesFeed from '../components/home/StoriesFeed'
 import type { SectionKey } from '../types/theme'
 
 export default function HomePage() {
@@ -86,6 +87,8 @@ export default function HomePage() {
   const { order, enabled } = store.theme.sections
 
   const template = store.theme.template || 'personalizado'
+  // Stories replaces the home sections with a vertical, one-product-per-screen feed.
+  if (template === 'stories') return <div className="store-home template--stories" data-template="stories"><StoriesFeed /></div>
 
   return (
     <div className={`bg-canvas store-home template--${template}`} data-template={template}>

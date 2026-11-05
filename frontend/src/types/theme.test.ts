@@ -19,10 +19,10 @@ describe('commercial closing section theme data', () => {
 })
 
 describe('store template families and palettes', () => {
-  it('keeps all 13 template families and 12 ready-to-use palettes available', () => {
-    expect(THEME_PRESETS).toHaveLength(13)
-    expect(BRAND_PALETTES).toHaveLength(12)
-    expect(new Set(THEME_PRESETS.map((preset) => preset.template)).size).toBe(13)
+  it('keeps all 14 template families and 13 ready-to-use palettes available', () => {
+    expect(THEME_PRESETS).toHaveLength(14)
+    expect(BRAND_PALETTES).toHaveLength(13)
+    expect(new Set(THEME_PRESETS.map((preset) => preset.template)).size).toBe(14)
   })
 
   it('preserves the selected template when reading a saved theme', () => {

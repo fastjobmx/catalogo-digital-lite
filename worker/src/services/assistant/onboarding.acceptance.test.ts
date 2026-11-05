@@ -102,7 +102,7 @@ describe('3.1 acceptance: logo, colors and templates', () => {
     const telegram = stubTelegram()
 
     await send(textUpdate(40104, '¿Cómo cambio la plantilla de mi tienda?'))
-    expect(buttons(telegram).filter((button) => button.url?.includes('store-preview?template='))).toHaveLength(13)
+    expect(buttons(telegram).filter((button) => button.url?.includes('store-preview?template='))).toHaveLength(14)
     await send(callbackUpdate(40104, `tpl:${storeId}:pick:editorial`))
     expect(h.db.query<{ template: string }>('SELECT template FROM stores WHERE id = ?', storeId)[0]!.template).not.toBe('editorial')
     await send(callbackUpdate(40104, `tpl:${storeId}:apply:editorial`))

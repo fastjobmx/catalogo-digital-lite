@@ -563,7 +563,7 @@ export interface ProvisionResponse {
 }
 
 export interface CreateStorePayload {
-  name: string; slug?: string; businessType: string; template: 'minimalista' | 'moderno' | 'premium' | 'personalizado' | 'luxury' | 'urban' | 'boutique' | 'natural' | 'tech' | 'playful' | 'gourmet' | 'artesanal' | 'editorial'
+  name: string; slug?: string; businessType: string; template: 'minimalista' | 'moderno' | 'premium' | 'personalizado' | 'luxury' | 'urban' | 'boutique' | 'natural' | 'tech' | 'playful' | 'gourmet' | 'artesanal' | 'editorial' | 'stories'
   primaryColor?: string; whatsapp?: string; ownerEmail?: string; ownerTelegramId?: string; planCode: string
 }
 

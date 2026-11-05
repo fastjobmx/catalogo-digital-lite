@@ -28,6 +28,8 @@ export const TEMPLATE_LAYOUTS: Record<string, TemplateLayout> = {
   gourmet: { header: 'centered', hero: 'overlay', card: 'centered', ratio: '4:3', upperTitles: false },
   artesanal: { header: 'standard', hero: 'split-reverse', card: 'boxed', ratio: '1:1', upperTitles: false },
   editorial: { header: 'centered', hero: 'editorial', card: 'minimal', ratio: '4:5', upperTitles: true },
+  // The home page becomes a vertical feed (StoriesFeed); category and search pages keep a compact grid.
+  stories: { header: 'compact', hero: 'overlay', card: 'overlay', ratio: '4:5', upperTitles: false },
 }
 
 export function templateLayout(template: string | undefined): TemplateLayout {

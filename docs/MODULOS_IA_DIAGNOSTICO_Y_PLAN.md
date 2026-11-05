@@ -204,3 +204,28 @@ Todas las fases se hacen en local y staging. Producción solo con tu autorizaci�
     - API real 6/6: 2 imágenes en unos 9 s cada una, y una comparación visual en la que el producto se conserva.
     - Navegador 6/6.
 - **Límite.** El costo estimado incluye los tokens de razonamiento al precio de imagen, así que puede quedar hasta un 30 % por encima de lo real. Es una estimación conservadora.
+
+**Fase 6 — Plantilla vertical Stories: hecha en local y staging (2026-11-05).**
+
+- **Plantilla `stories`.**
+  - Se agregó en el servidor (`TEMPLATE_KEYS`, paleta oscura con acento coral, tipografías Manrope y Sora) y en el panel (`THEME_PRESETS`, `TEMPLATE_LAYOUTS`).
+  - Aparece sola en Apariencia, en Plataforma y en la lista de plantillas de los bots, porque todos usan la misma lista. No se cambió la configuración ni los webhooks de los bots.
+  - Ninguna tienda cambia de plantilla sola.
+- **Escaparate** (`frontend/src/components/home/StoriesFeed.tsx`).
+  - Una portada con logo, título y filtro por categorías.
+  - Luego un producto por pantalla, con deslizamiento vertical que se ajusta a cada producto; las flechas del teclado también avanzan.
+  - Tocar los lados de la foto cambia entre las fotos del mismo producto. Cada producto muestra su posición (por ejemplo 1/115), precio, descuento y «Agotado».
+  - «Añadir al pedido» usa el mismo carrito y el mismo envío por WhatsApp de siempre. Si el producto tiene varias opciones, lleva a la ficha para elegir.
+  - El botón de WhatsApp queda fijo. En computador, la columna se ve centrada.
+  - Diseño propio: no copia la interfaz de ninguna red social.
+  - Las páginas de categoría, búsqueda y producto siguen con la cuadrícula normal.
+- **Pruebas.**
+  - Servidor 283/283, con la lista de plantillas del asistente actualizada a 14.
+  - Panel 78/78, con `build` correcto.
+  - En el navegador, con el catálogo real de Luz Mágica (solo lectura, la plantilla cambiada únicamente en el navegador de prueba y el pedido simulado): 10/10.
+    - Se vieron 115 productos, a pantalla completa.
+    - Funcionó el cambio de foto al tocar.
+    - El pedido llegó a `wa.me/573242117323`.
+    - No hubo desborde en celular, y en computador la columna quedó centrada.
+    - La tienda real (Boutique) no cambió.
+  - Staging: Worker `66f8d745-8f15-49ef-9b1f-83a95526dbce`, que ya acepta la plantilla nueva.

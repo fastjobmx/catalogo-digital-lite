@@ -4,7 +4,7 @@
 
 export const TEMPLATE_KEYS = [
   'minimalista', 'moderno', 'premium', 'personalizado', 'luxury', 'urban', 'boutique',
-  'natural', 'tech', 'playful', 'gourmet', 'artesanal', 'editorial',
+  'natural', 'tech', 'playful', 'gourmet', 'artesanal', 'editorial', 'stories',
 ] as const
 export type TemplateKey = typeof TEMPLATE_KEYS[number]
 
@@ -22,6 +22,7 @@ export const TEMPLATE_LABELS: Record<TemplateKey, string> = {
   gourmet: 'Gourmet',
   artesanal: 'Artesanal',
   editorial: 'Editorial',
+  stories: 'Stories (vertical)',
 }
 
 type Palette = { background: string; surface: string; text: string; textMuted: string; border: string; primary: string; secondary: string; accent: string; button: string; buttonText: string }
@@ -40,6 +41,7 @@ const PALETTES: Record<TemplateKey, Palette> = {
   gourmet: { background: '#F8F3EC', surface: '#FFFDF9', text: '#302017', textMuted: '#76675B', border: '#E9DDCE', primary: '#713B26', secondary: '#EFE2D1', accent: '#A7782B', button: '#713B26', buttonText: '#FFFFFF' },
   artesanal: { background: '#F7F1E5', surface: '#FFFDF7', text: '#352C20', textMuted: '#766A56', border: '#E5D9C4', primary: '#5D4930', secondary: '#E9DCC4', accent: '#8B5436', button: '#5D4930', buttonText: '#FFFFFF' },
   editorial: { background: '#F4F2ED', surface: '#FFFFFF', text: '#181818', textMuted: '#6C6A66', border: '#DAD7CF', primary: '#262626', secondary: '#E4E0D8', accent: '#963F31', button: '#262626', buttonText: '#FFFFFF' },
+  stories: { background: '#0C0C0E', surface: '#18181C', text: '#FFFFFF', textMuted: '#B4B4BE', border: '#2C2C33', primary: '#FF5C82', secondary: '#26262D', accent: '#FFC24B', button: '#FF5C82', buttonText: '#16080D' },
 }
 
 export const TEMPLATE_DESIGNS: Record<TemplateKey, { typography: Record<string, string>; radius: string; density: string; buttonStyle: string; cardStyle: string; darkMode: boolean; align: 'left' | 'center' }> = {
@@ -56,6 +58,7 @@ export const TEMPLATE_DESIGNS: Record<TemplateKey, { typography: Record<string, 
   gourmet: { typography: { fontPrimary: 'DM Sans', fontDisplay: 'Playfair Display', scale: 'normal', headingWeight: 'semibold' }, radius: 'soft', density: 'normal', buttonStyle: 'solid', cardStyle: 'bordered', darkMode: false, align: 'center' },
   artesanal: { typography: { fontPrimary: 'Inter', fontDisplay: 'Playfair Display', scale: 'normal', headingWeight: 'semibold' }, radius: 'round', density: 'spacious', buttonStyle: 'outline', cardStyle: 'bordered', darkMode: false, align: 'left' },
   editorial: { typography: { fontPrimary: 'Inter', fontDisplay: 'Playfair Display', scale: 'large', headingWeight: 'bold' }, radius: 'square', density: 'spacious', buttonStyle: 'outline', cardStyle: 'flat', darkMode: false, align: 'left' },
+  stories: { typography: { fontPrimary: 'Manrope', fontDisplay: 'Sora', scale: 'normal', headingWeight: 'extrabold' }, radius: 'round', density: 'compact', buttonStyle: 'solid', cardStyle: 'flat', darkMode: true, align: 'center' },
 }
 
 export type BusinessProfile = { key: string; label: string; categories: string[]; heroEyebrow: string }

@@ -557,3 +557,17 @@ Asistente de 6 pasos en `/admin/importar`: Archivo → Lectura → Columnas → 
 **Para producción**
 
 - Hay que agregar `GEMINI_IMAGE_MODEL` y `GEMINI_IMAGE_PRICE_OUTPUT_MICROS_PER_MTOK` a `wrangler.production.toml`, con autorización.
+
+### Módulos IA — Fase 6 (plantilla vertical Stories) — 2026-11-05
+
+**Plantilla `stories`**
+
+- En la portada, cada producto ocupa la pantalla y se pasa deslizando hacia arriba. Tocar los lados de la foto cambia entre las fotos del producto.
+- Usa el mismo carrito y el mismo pedido por WhatsApp de siempre.
+- Aparece en Apariencia, en Plataforma y en los bots.
+- Ninguna tienda cambia de plantilla sola.
+
+**Verificación**
+
+- Servidor 283/283 y panel 78/78.
+- En el navegador, con el catálogo real de Luz Mágica (solo lectura y pedido simulado): 10/10.

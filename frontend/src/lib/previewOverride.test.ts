@@ -37,7 +37,7 @@ describe('unsaved preview from the assistant', () => {
 describe('template families', () => {
   it('gives every template a layout and makes the families structurally different', () => {
     const templates = THEME_PRESETS.map((preset) => preset.template)
-    expect(templates).toHaveLength(13)
+    expect(templates).toHaveLength(14)
     for (const template of templates) expect(TEMPLATE_LAYOUTS[template], template).toBeDefined()
     const signatures = new Set(templates.map((template) => {
       const layout = templateLayout(template)
