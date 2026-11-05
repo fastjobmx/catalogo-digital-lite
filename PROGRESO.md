@@ -639,3 +639,22 @@ El detalle está en `docs/USUARIOS_CORREOS_DIAGNOSTICO_Y_PLAN.md` §4.
 
 - Proveedor de correo y dominio.
 - Producción: sin autorización todavía.
+
+### Usuarios y correos — en producción — 2026-11-05 (autorizado)
+
+**Lo que se publicó**
+
+- **Base de datos:** migración `0014` aplicada. Respaldo en `.tmp/production-0014/`; punto de restauración (Time Travel) `00000164-00000000-0000511a-d99c2250ab0dae7364b3add08768056a`.
+- **Servidor:** `5fe8c831` → `2b02f6a7-48cb-44ee-bf5d-5587c1a070b1`.
+- **Panel:** `b8ca7677` → `d5992e6a-b337-490f-afea-7e1248861b1c`.
+
+**Verificación en vivo**
+
+- API 12/12, pedido por WhatsApp 9/9 y prueba sin registro 10/10.
+- Los conteos quedaron iguales a los de antes del despliegue.
+
+**Pendiente**
+
+- Proveedor de correo y dominio propio.
+
+La reversión está en `docs/USUARIOS_CORREOS_DIAGNOSTICO_Y_PLAN.md` §5.

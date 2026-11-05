@@ -119,3 +119,48 @@ Decisiones aprobadas:
    - Opcional: `EMAIL_TEST_RECIPIENTS`, con direcciones adicionales autorizadas para las pruebas.
 4. **Enviar una prueba** desde `/plataforma/correos` y revisar el historial.
 5. **Verificar el correo de los usuarios actuales** desde «Usuarios y accesos». Hasta entonces, la recuperación por correo no se les envía; Telegram sigue funcionando.
+
+## 5. Despliegue a producción (2026-11-05, autorizado: «lleva todo a producción»)
+
+### Qué se publicó
+
+- **Respaldo:** `.tmp/production-0014/production-pre-0014.sql` (1.601 registros).
+- **Punto de restauración (Time Travel):** `00000164-00000000-0000511a-d99c2250ab0dae7364b3add08768056a`.
+- **Base de datos:** migración `0014` aplicada en `catalogo-lite-production-db` (3 tablas y 3 columnas nuevas).
+- **Servidor** `catalogo-lite-api`: `5fe8c831` → `2b02f6a7-48cb-44ee-bf5d-5587c1a070b1`. Los 10 secretos siguen intactos.
+- **Panel** `catalogo-digital-ia`: `b8ca7677` → `d5992e6a-b337-490f-afea-7e1248861b1c`.
+
+### Verificación en vivo
+
+- **API: 12 de 12.**
+  - Salud del servidor y tiendas con sus productos.
+  - «¿Olvidaste tu contraseña?» probado solo con un correo inexistente: responde de forma genérica.
+  - Las rutas nuevas exigen sesión.
+  - La verificación de correo rechaza enlaces falsos.
+  - Las páginas nuevas cargan.
+- **Pedido por WhatsApp:** 9 de 9.
+- **Prueba sin registro:** 10 de 10.
+- **Conteos iguales** antes y después: 4 tiendas, 147 productos, 14 pedidos, 3 usuarios y 4 membresías.
+- **Correos enviados:** 0, porque no hay proveedor.
+
+### Reversión
+
+1. **Panel:**
+
+   ```
+   cd frontend; node ../worker/node_modules/wrangler/bin/wrangler.js rollback b8ca7677-f274-426e-8237-9c118bf3f2d7
+   ```
+
+2. **Servidor:**
+
+   ```
+   cd worker; npx wrangler rollback 5fe8c831-fc47-42dd-8168-d4c238ae5f68 --config wrangler.production.toml
+   ```
+
+3. **Solo si hace falta:** `database/rollback/0014_users_email.down.sql`. Borra las plantillas y el historial de envíos.
+
+### Pendiente
+
+- Dominio propio y proveedor de correo, cargando `RESEND_API_KEY`, `EMAIL_PROVIDER` y `EMAIL_FROM`.
+- Que los usuarios verifiquen su correo.
+- **Cambio de comportamiento:** el bot maestro ya no entrega el enlace de restablecimiento cuando el usuario no tiene ni Telegram ni correo verificado.
