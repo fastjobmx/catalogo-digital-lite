@@ -609,3 +609,24 @@ export const platformCreditsApi = {
   store: (slug: string, token: string) => fetchApi<CreditTotals & { movements: CreditMovement[]; requests: CreditRequest[] }>(`/api/platform/stores/${slug}/credits`, { headers: auth(token) }),
   grant: (slug: string, payload: { kind: 'recarga' | 'ajuste'; amount: number; reason: string }, idempotencyKey: string, token: string) => fetchApi<CreditTotals & { replayed: boolean }>(`/api/platform/stores/${slug}/credits`, { method: 'POST', headers: { ...auth(token), 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(payload) }),
 }
+
+// ---- bulk product import ----------------------------------------------------------
+
+export type ImportAction = 'create' | 'update' | 'skip' | 'invalid'
+export interface ImportItemResult {
+  index: number; sku: string; name: string; action: ImportAction; errors: string[]; warnings: string[]; category?: string | null
+  changes?: { price?: { from: number; to: number }; stock?: Array<{ variant: string; from: number; to: number }> }
+}
+export interface ImportSummary { create: number; update: number; skip: number; invalid: number }
+export interface ImportPreview { items: ImportItemResult[]; summary: ImportSummary; newCategories: string[]; limit: { max: number | null; count: number } }
+export interface ImportJob { id: string; sourceType: string; fileName: string; status: string; created: number; updated: number; skipped: number; failed: number; createdAt: string; completedAt: string | null }
+export interface ImportOptions { updateExisting: boolean; createCategories: boolean }
+
+const bearer = (token: string) => ({ Authorization: `Bearer ${token}` })
+export const importApi = {
+  list: (token: string) => fetchApi<{ items: ImportJob[] }>('/api/admin/imports', { headers: bearer(token) }),
+  start: (sourceType: 'csv' | 'xlsx' | 'pdf', fileName: string, options: ImportOptions, token: string) => fetchApi<{ id: string }>('/api/admin/imports', { method: 'POST', headers: bearer(token), body: JSON.stringify({ sourceType, fileName, options }) }),
+  preview: (id: string, products: unknown[], token: string) => fetchApi<ImportPreview>(`/api/admin/imports/${id}/preview`, { method: 'POST', headers: bearer(token), body: JSON.stringify({ products }) }),
+  apply: (id: string, index: number, products: unknown[], token: string) => fetchApi<{ batchIndex: number; summary: ImportSummary; items: ImportItemResult[]; replayed: boolean }>(`/api/admin/imports/${id}/batches/${index}`, { method: 'POST', headers: bearer(token), body: JSON.stringify({ products }) }),
+  finish: (id: string, token: string) => fetchApi<ImportJob>(`/api/admin/imports/${id}/finish`, { method: 'POST', headers: bearer(token) }),
+}

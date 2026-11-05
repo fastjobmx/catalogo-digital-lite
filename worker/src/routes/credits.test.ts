@@ -139,7 +139,7 @@ describe('running AI actions with credits', () => {
     await setCost('foto_a_producto', 5, false)
     expect(await run('accion-00004', call)).toMatchObject({ ok: false, reason: 'feature_disabled' })
     await setCost('foto_a_producto', 5, true)
-    h.db.sqlite.prepare('UPDATE stores SET ai_enabled = 0 WHERE id = ?').run(storeA)
+    h.db.sqlite.exec(`UPDATE stores SET ai_enabled = 0 WHERE id = ${storeA}`)
     expect(await run('accion-00005', call)).toMatchObject({ ok: false, reason: 'disabled' })
     expect(call).not.toHaveBeenCalled()
     expect(await creditSummary(h.db, storeA)).toMatchObject({ balance: 14 })
@@ -173,8 +173,8 @@ describe('running AI actions with credits', () => {
   })
 
   it('the ledger rejects impossible rows even if code tried to write them', () => {
-    expect(() => h.db.sqlite.prepare("INSERT INTO ai_credit_ledger (store_id, kind, amount, actor) VALUES (?, 'recarga', -5, 'x')").run(storeA)).toThrow()
-    expect(() => h.db.sqlite.prepare("INSERT INTO ai_credit_ledger (store_id, kind, amount, actor) VALUES (?, 'consumo', 0, 'x')").run(storeA)).toThrow()
+    expect(() => h.db.sqlite.exec(`INSERT INTO ai_credit_ledger (store_id, kind, amount, actor) VALUES (${storeA}, 'recarga', -5, 'x')`)).toThrow()
+    expect(() => h.db.sqlite.exec(`INSERT INTO ai_credit_ledger (store_id, kind, amount, actor) VALUES (${storeA}, 'consumo', 0, 'x')`)).toThrow()
   })
 })
 
@@ -182,7 +182,7 @@ describe('store purge', () => {
   it('removes the credit history of a purged test store', async () => {
     await recharge('tienda-b', 5, 'recarga-0010')
     await h.request('/api/admin/credits/requests', { method: 'POST', token: ownerB, store: 'tienda-b', body: { credits: 10 } })
-    h.db.sqlite.prepare("UPDATE stores SET status = 'draft' WHERE id = ?").run(storeB)
+    h.db.sqlite.exec(`UPDATE stores SET status = 'draft' WHERE id = ${storeB}`)
     const purge = await h.request('/api/platform/stores/tienda-b', { method: 'DELETE', token: admin, body: { confirm: 'tienda-b' } })
     expect(purge.status).toBe(200)
     expect(h.db.query('SELECT COUNT(*) AS n FROM ai_credit_ledger WHERE store_id = ?', storeB)).toEqual([{ n: 0 }])

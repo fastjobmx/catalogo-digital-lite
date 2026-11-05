@@ -135,3 +135,25 @@ Todas las fases se hacen en local y staging. Producción solo con tu autorizaci�
   - Staging de punta a punta: 14/14, con una tienda temporal que se eliminó al final.
 - Staging: `0011` aplicada y Worker `9b3af30b`. **Producción sin cambios.**
 - Pendiente: definir los costos en créditos (es una decisión comercial) y la revisión visual de las pantallas con datos reales.
+
+**Fase 3 — Importación: hecha en local y staging (2026-11-05).**
+
+- Migración `0012_catalog_imports.sql` (`import_jobs`, `import_job_batches`), con reversión en `database/rollback/0012_catalog_imports.down.sql`.
+- Servidor: `worker/src/services/catalogImport.ts`, con las rutas `GET/POST /api/admin/imports`, `POST /api/admin/imports/:id/preview`, `POST /api/admin/imports/:id/batches/:n` y `POST /api/admin/imports/:id/finish`. Exigen el rol admin o superior.
+- Panel: lectores en `frontend/src/lib/import/` (CSV propio, `read-excel-file@9.3.12` y `pdfjs-dist@6.4.299`, ambos con carga diferida) y el asistente de 6 pasos en `/admin/importar`.
+- Reglas:
+  - Solo crea productos nuevos.
+  - Un código que ya existe se omite, salvo que se marque «Actualizar productos que ya existen». En ese caso cambian solo el precio y las existencias, con la confirmación expresa del paso 5.
+  - Una fila sin precio no se importa, porque el producto aparecería en $0 y el panel no muestra los productos ocultos.
+  - Las filas sin código no se importan, salvo que se active «Crear códigos internos».
+  - Si faltan existencias, quedan en 0, salvo que la tienda indique un valor por defecto.
+  - Las fórmulas no se ejecutan: de Excel se lee solo el valor guardado, y un texto que empieza por «=» se rechaza.
+  - Se respeta el límite de productos del plan.
+  - Cada lote se aplica una sola vez, y un reintento devuelve el resultado guardado.
+- Pruebas:
+  - Servidor 273/273, con 8 pruebas nuevas.
+  - Panel 77/77, con 8 pruebas nuevas, y `build` correcto.
+  - Staging: `0012` aplicada y Worker `e102c4a8`. La prueba en navegador contra staging dio 18/18 con CSV, Excel (con una fórmula y un producto que ya existía) y PDF con tabla, en computador y celular, usando una tienda temporal que se eliminó al final.
+- Pendiente:
+  - **La lectura de PDF escaneados con IA se pasa a la Fase 4**, junto con la visión de Gemini, que hay que verificar con la API real. Hoy un PDF sin texto muestra un aviso y no se finge que se leyó.
+  - El aviso de seguridad de `zod` en el panel ya existía antes de esta fase; no lo trajeron estas dependencias.

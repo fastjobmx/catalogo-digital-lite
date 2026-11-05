@@ -491,3 +491,23 @@ El diagnóstico y el plan por fases están en `docs/MODULOS_IA_DIAGNOSTICO_Y_PLA
 
 - Producción: no se ha tocado.
 - Las pantallas no se revisaron con datos reales en el navegador.
+
+### Módulos IA — Fase 3 (importación desde CSV, Excel y PDF) — 2026-11-05
+
+Asistente de 6 pasos en `/admin/importar`: Archivo → Lectura → Columnas → Vista previa → Confirmar → Resultado.
+
+- **Lectura en el navegador.** El archivo se lee en el navegador con un lector CSV propio, `read-excel-file@9.3.12` y `pdfjs-dist@6.4.299`.
+- **Validación en el servidor.** El servidor vuelve a validar todo, con la migración aditiva `0012` y lotes de 50 que se aplican una sola vez.
+- **Productos que ya existen.** No se tocan, salvo que la tienda lo autorice expresamente; en ese caso cambian solo el precio y las existencias.
+- **Datos que no se inventan.** No se importan filas sin precio y no se generan códigos sin permiso.
+- **Contenido no confiable.** Las fórmulas no se ejecutan y el texto importado se guarda como texto.
+
+**Verificación**
+
+- Servidor 273/273 y panel 77/77.
+- Staging: `0012` aplicada y Worker `e102c4a8-b78b-4e9f-9476-c1e876a6efdf`. Prueba en navegador 18/18, con una tienda temporal que se eliminó al final.
+
+**Pendiente**
+
+- La lectura de PDF escaneados con IA pasa a la Fase 4.
+- Producción no se ha tocado.

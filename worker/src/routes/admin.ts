@@ -11,6 +11,7 @@ import { INVITABLE_ROLES, listUserMemberships, ROLE_LABELS, type StoreRole } fro
 import { PRIMARY_STORE_ID, adminStoreUrl } from '../tenancy/stores'
 import { createAccessToken, ensureUser, findUserByEmail, normalizeEmail, upsertMembership } from '../services/platformUsers'
 import { getStoreAiUsage } from '../ai/usage'
+import { ImportError, applyImportBatch, createImportJob, finishImportJob, listImportJobs, previewImport } from '../services/catalogImport'
 import { CreditError, createCreditRequest, creditSummary, listCreditCosts, listCreditMovements, listCreditRequests } from '../ai/credits'
 import type { Context } from 'hono'
 
@@ -315,6 +316,32 @@ app.post('/credits/requests', adminAuth, requireRole('admin'), async (c) => {
   if (error instanceof CreditError) return c.json({ error: error.message, code: error.code }, error.status)
   throw error
  }
+})
+
+// Bulk product import. Files are read in the browser; these routes receive normalized rows in
+// batches, validate everything again and only touch existing products when the job allows it.
+function importFail(c: Context<Env>, error: unknown) {
+ if (error instanceof ImportError) return c.json({ error: error.message, code: error.code }, error.status)
+ throw error
+}
+app.get('/imports', adminAuth, requireRole('admin'), async (c) => c.json({ items: await listImportJobs(c.env.DB, c.get('storeId')!) }))
+app.post('/imports', adminAuth, requireRole('admin'), async (c) => {
+ const body = await c.req.json().catch(() => null)
+ if (!body) return c.json({ error: 'Invalid JSON body' }, 400)
+ try { return c.json(await createImportJob(c.env.DB, c.get('storeId')!, body, c.get('adminEmail') || 'unknown'), 201) } catch (error) { return importFail(c, error) }
+})
+app.post('/imports/:id/preview', adminAuth, requireRole('admin'), async (c) => {
+ const body = await c.req.json().catch(() => null) as { products?: unknown } | null
+ if (!body) return c.json({ error: 'Invalid JSON body' }, 400)
+ try { return c.json(await previewImport(c.env.DB, c.get('storeId')!, c.req.param('id'), body.products)) } catch (error) { return importFail(c, error) }
+})
+app.post('/imports/:id/batches/:index', adminAuth, requireRole('admin'), async (c) => {
+ const body = await c.req.json().catch(() => null) as { products?: unknown } | null
+ if (!body) return c.json({ error: 'Invalid JSON body' }, 400)
+ try { return c.json(await applyImportBatch(c.env.DB, auditContext(c), c.req.param('id'), Number(c.req.param('index')), body.products)) } catch (error) { return importFail(c, error) }
+})
+app.post('/imports/:id/finish', adminAuth, requireRole('admin'), async (c) => {
+ try { return c.json(await finishImportJob(c.env.DB, c.get('storeId')!, c.req.param('id'))) } catch (error) { return importFail(c, error) }
 })
 
 // ============================================

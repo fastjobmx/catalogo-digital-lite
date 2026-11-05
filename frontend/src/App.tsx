@@ -28,6 +28,7 @@ import { lazy, Suspense } from 'react'
 
 // Platform-only screens load on demand so the storefront bundle stays small.
 const ActivationPage = lazy(() => import('./admin/ActivationPage'))
+const AdminImport = lazy(() => import('./admin/pages/Import'))
 const ResetPasswordPage = lazy(() => import('./admin/ResetPasswordPage'))
 const PlatformPage = lazy(() => import('./admin/PlatformPage'))
 
@@ -95,6 +96,7 @@ export default function App() {
                   >
                     <Route index element={<AdminDashboard />} />
                     <Route path="products" element={<AdminProducts />} />
+                    <Route path="importar" element={<Suspense fallback={null}><AdminImport /></Suspense>} />
                     <Route path="categories" element={<AdminCategories />} />
                     <Route path="appearance" element={<AdminAppearance />} />
                     <Route path="apariencia" element={<Navigate to="/admin/appearance" replace />} />
