@@ -703,3 +703,4 @@ La reversión está en `docs/USUARIOS_CORREOS_DIAGNOSTICO_Y_PLAN.md` §5.
 - Navegador contra staging 33/33.
 - Staging en `2bf5cd38`.
 - Producción: `0015` aplicada (respaldo `.tmp/production-0015/`). Servidor `13561c72` → `dcb2c207`. Panel `8a155ad5`. Verificación en vivo correcta; los conteos quedaron iguales.
+- Corrección de fotos (commit `84e71d1`): las fotos subidas antes de escribir el nombre se borraban. Producción: servidor `dcb2c207` → `501b02d3`, panel `8a155ad5` → `f3011324`. Verificado en vivo.
