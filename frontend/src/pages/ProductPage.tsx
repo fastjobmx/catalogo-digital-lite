@@ -7,7 +7,7 @@ import { useStore } from '../contexts/StoreContext'
 import ProductImage from '../components/ProductImage'
 import PriceTag from '../components/PriceTag'
 import ProductCard from '../components/ProductCard'
-import { buildWhatsAppOrderMessage, getCheckoutIdempotencyKey, whatsappLink } from '../lib/whatsapp'
+import { buildWhatsAppOrderMessage, getCheckoutIdempotencyKey, goToWhatsApp, prepareWhatsAppTab, shouldOpenWhatsAppInSameTab, whatsappLink } from '../lib/whatsapp'
 import { createOrder, getProduct, type ProductApi } from '../services/api'
 import { resolveImageUrl } from '../lib/imageSources'
 import { IS_PUBLIC_DEMO } from '../lib/publicDemo'
@@ -43,6 +43,7 @@ export default function ProductPage() {
   const [lightbox, setLightbox] = useState(false)
   const [whatsappBusy, setWhatsappBusy] = useState(false)
   const [whatsappNotice, setWhatsappNotice] = useState('')
+  const [whatsappUrl, setWhatsappUrl] = useState<string | null>(null)
 
   useEffect(() => {
     if (!requestedSku || listedProduct || loading || !backendAvailable) return
@@ -188,11 +189,9 @@ export default function ProductPage() {
       setWhatsappNotice('El comercio aún no configuró un número válido de WhatsApp.')
       return
     }
-    const popup = window.open('about:blank', '_blank')
-    if (!popup) {
-      setWhatsappNotice('Permite las ventanas emergentes para abrir WhatsApp.')
-      return
-    }
+    // Desktop: tab opened inside the click; phones and in-app browsers use this tab (goToWhatsApp).
+    const popup = prepareWhatsAppTab()
+    setWhatsappUrl(null)
     setWhatsappBusy(true)
     setWhatsappNotice('Verificando precio y disponibilidad…')
     try {
@@ -203,14 +202,14 @@ export default function ProductPage() {
         candidate.sku === variant.sku || String(candidate.id) === String(variant.id),
       )
       if (!currentVariant || currentVariant.isActive === false || currentVariant.stock < 1) {
-        popup.close()
+        popup?.close()
         setWhatsappNotice('Esta variante ya no tiene stock. Actualizamos la ficha para que revises las opciones disponibles.')
         if (backendAvailable) await refresh()
         return
       }
       const currentPrice = currentVariant.priceOverride ?? currentProduct.price
       if (currentVariant.stock < qty || currentPrice !== price) {
-        popup.close()
+        popup?.close()
         setVariantId(currentVariant.id)
         setQty(Math.max(1, Math.min(qty, currentVariant.stock)))
         setWhatsappNotice('El precio o el stock cambió. Revisa los datos actualizados y vuelve a preparar el pedido.')
@@ -250,11 +249,11 @@ export default function ProductPage() {
       const message = buildWhatsAppOrderMessage({ items: registered.items.map((orderItem) => ({ productId: String(orderItem.productId || ''), variantId: orderItem.variantId, sku: orderItem.sku, name: orderItem.name, price: orderItem.price, image: orderItem.imageUrl || null, size: orderItem.size, color: orderItem.color, quantity: orderItem.quantity })), currency: registered.currency, storeName: store.name, orderDisplayId: registered.displayId, date: new Date().toLocaleString('es-CO') })
       const url = whatsappLink(phone, message)
       if (!url) throw new Error('WhatsApp no está configurado para este comercio.')
-      popup.opener = null
-      popup.location.href = url
-      setWhatsappNotice(`Pedido ${registered.displayId} registrado. WhatsApp está abierto; el mensaje no se envía hasta que pulses Enviar.`)
+      setWhatsappUrl(url)
+      setWhatsappNotice(`Pedido ${registered.displayId} registrado. Abriendo WhatsApp: el mensaje no se envía hasta que pulses Enviar. Si no se abre, toca «Abrir WhatsApp».`)
+      goToWhatsApp(url, popup)
     } catch {
-      popup.close()
+      popup?.close()
       setWhatsappNotice('No pudimos verificar el inventario. Inténtalo de nuevo antes de enviar el pedido.')
     } finally {
       setWhatsappBusy(false)
@@ -462,6 +461,16 @@ export default function ProductPage() {
             El pedido se abre en WhatsApp y no se envía hasta que tú lo confirmes en la conversación.
             </p>}
           {whatsappNotice && <p className="text-xs text-muted" role="status">{whatsappNotice}</p>}
+          {whatsappUrl && (
+            <a
+              href={whatsappUrl}
+              target={shouldOpenWhatsAppInSameTab() ? undefined : '_blank'}
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center gap-2 min-h-[44px] px-5 rounded-btn border border-[#25D366] text-[#128C4A] font-semibold hover:bg-[#25D366]/10 transition-colors"
+            >
+              <MessageCircle size={18} /> Abrir WhatsApp
+            </a>
+          )}
 
           {/* Garantías */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">

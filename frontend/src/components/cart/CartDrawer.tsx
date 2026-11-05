@@ -6,7 +6,7 @@ import { useStore } from '../../contexts/StoreContext'
 import { useCatalog } from '../../contexts/CatalogContext'
 import { ApiRequestError, createOrder, getProducts, validateCoupon } from '../../services/api'
 import { formatMoney } from '../../lib/format'
-import { buildWhatsAppOrderMessage, getCheckoutIdempotencyKey, whatsappLink } from '../../lib/whatsapp'
+import { buildWhatsAppOrderMessage, getCheckoutIdempotencyKey, goToWhatsApp, prepareWhatsAppTab, shouldOpenWhatsAppInSameTab, whatsappLink } from '../../lib/whatsapp'
 import type { CartItem } from '../../contexts/CartContext'
 import { IS_PUBLIC_DEMO } from '../../lib/publicDemo'
 
@@ -24,6 +24,8 @@ export default function CartDrawer() {
   const [customerNotes, setCustomerNotes] = useState('')
   const [checkoutBusy, setCheckoutBusy] = useState(false)
   const [checkoutMessage, setCheckoutMessage] = useState('')
+  // Manual fallback when the automatic jump to WhatsApp is blocked (popup blockers, in-app browsers).
+  const [whatsappUrl, setWhatsappUrl] = useState<string | null>(null)
   const [confirmClear, setConfirmClear] = useState(false)
   const [couponInput, setCouponInput] = useState('')
   const [coupon, setCoupon] = useState<{ code: string; discount: number } | null>(null)
@@ -32,7 +34,7 @@ export default function CartDrawer() {
   const [marketingConsent, setMarketingConsent] = useState(false)
 
   // Any cart change invalidates the previewed discount; the server validates it again.
-  useEffect(() => { setCoupon(null) }, [subtotal])
+  useEffect(() => { setCoupon(null); setWhatsappUrl(null) }, [subtotal])
 
   const applyCoupon = async () => {
     const code = couponInput.trim().toUpperCase()
@@ -82,13 +84,10 @@ export default function CartDrawer() {
       return
     }
 
-    // Abrimos la pestaña en el gesto del usuario y la redirigimos al terminar
-    // la validación para evitar que el navegador bloquee el enlace.
-    const whatsappWindow = window.open('about:blank', '_blank')
-    if (!whatsappWindow) {
-      setCheckoutMessage('Permite las ventanas emergentes para abrir WhatsApp.')
-      return
-    }
+    // En computador abrimos la pestaña dentro del clic para que el navegador la permita; en
+    // celulares y navegadores de apps se usa esta misma pestaña (ver goToWhatsApp).
+    const whatsappWindow = prepareWhatsAppTab()
+    setWhatsappUrl(null)
 
     setCheckoutBusy(true)
     setCheckoutMessage('Verificando precios y disponibilidad…')
@@ -134,7 +133,7 @@ export default function CartDrawer() {
 
       syncItems(currentItems)
       if (needsReview) {
-        whatsappWindow.close()
+        whatsappWindow?.close()
         setCheckoutMessage('El precio o el stock cambió. Revisa el carrito actualizado y vuelve a preparar el pedido.')
         return
       }
@@ -180,11 +179,11 @@ export default function CartDrawer() {
       })
       const url = whatsappLink(phone, message)
       if (!url) throw new Error('No se pudo construir el enlace de WhatsApp.')
-      whatsappWindow.opener = null
-      whatsappWindow.location.href = url
-      setCheckoutMessage(`Pedido ${registered.displayId} registrado. WhatsApp está abierto; el mensaje solo se envía cuando pulses Enviar.`)
+      setWhatsappUrl(url)
+      setCheckoutMessage(`Pedido ${registered.displayId} registrado. Abriendo WhatsApp: el mensaje solo se envía cuando pulses Enviar. Si no se abre, toca «Abrir WhatsApp».`)
+      goToWhatsApp(url, whatsappWindow)
     } catch (error) {
-      whatsappWindow.close()
+      whatsappWindow?.close()
       if (error instanceof ApiRequestError && error.code === 'COUPON_INVALID') { setCoupon(null); setCheckoutMessage(error.message); return }
       setCheckoutMessage('No pudimos verificar el inventario. Inténtalo de nuevo antes de enviar el pedido.')
     } finally {
@@ -198,15 +197,15 @@ export default function CartDrawer() {
   const containsUnavailableItem = items.some((item) => item.availableStock === 0)
 
   return (
-    <div className="fixed inset-0 z-50">
+    <div className="fixed inset-x-0 top-0 z-50 h-[100dvh]">
       <div
         className="absolute inset-0 bg-black/45 backdrop-blur-sm animate-fade-in"
         onClick={() => setIsOpen(false)}
       />
 
-      <div className="absolute right-0 top-0 bottom-0 w-full sm:max-w-md bg-surface shadow-2xl flex flex-col animate-slide-in-right">
+      <div className="absolute right-0 top-0 h-full w-full sm:max-w-md bg-surface shadow-2xl flex flex-col animate-slide-in-right">
         {/* Cabecera */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-line">
+        <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-line">
           <h2 className="flex items-center gap-2 text-lg font-bold text-ink">
             <ShoppingBag size={20} className="text-brand" />
             Tu carrito
@@ -221,147 +220,179 @@ export default function CartDrawer() {
           </button>
         </div>
 
-        {/* Artículos */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
-          {items.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-center py-12">
-              <span className="grid place-items-center w-16 h-16 rounded-full bg-canvas text-muted mb-4">
-                <ShoppingBag size={28} />
-              </span>
-              <p className="text-ink font-semibold">Tu carrito está vacío</p>
-              <p className="text-sm text-muted mt-1 mb-6">Agrega productos para comenzar tu pedido.</p>
-              <button onClick={() => setIsOpen(false)} className="btn-brand">
-                Ver productos
-              </button>
-            </div>
-          ) : (
-            items.map((item) => {
-              const productSlug = item.productSku || products.find((product) =>
-                product.variants.some((variant) => variant.sku === item.sku),
-              )?.sku || item.sku
-              return (
-              <div
-                key={`${item.productId}-${item.variantId}`}
-                className="flex gap-3 p-3 rounded-card border border-line bg-canvas/60"
-              >
-                <div className="w-20 h-20 rounded-btn overflow-hidden bg-canvas shrink-0">
-                  {item.image ? (
-                    <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full grid place-items-center text-muted text-xs">Sin foto</div>
-                  )}
-                </div>
-
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-2">
-                    <Link
-                      to={`/product/${encodeURIComponent(productSlug)}`}
-                      onClick={() => setIsOpen(false)}
-                      className="font-semibold text-ink text-sm leading-snug line-clamp-2 hover:text-brand transition-colors"
-                    >
-                      {item.name}
-                    </Link>
-                    <button
-                      onClick={() => removeItem(item.productId, item.variantId)}
-                      className="p-1 text-muted hover:text-red-500 transition-colors shrink-0"
-                      aria-label="Eliminar"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+        {/* Artículos, datos de entrega y totales: una sola zona con scroll para que en
+            pantallas bajas nada quede fuera de alcance. */}
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+          {/* Artículos */}
+          <div className="px-5 py-4 space-y-3">
+            {items.length === 0 ? (
+              <div className="min-h-[60vh] flex flex-col items-center justify-center text-center py-12">
+                <span className="grid place-items-center w-16 h-16 rounded-full bg-canvas text-muted mb-4">
+                  <ShoppingBag size={28} />
+                </span>
+                <p className="text-ink font-semibold">Tu carrito está vacío</p>
+                <p className="text-sm text-muted mt-1 mb-6">Agrega productos para comenzar tu pedido.</p>
+                <button onClick={() => setIsOpen(false)} className="btn-brand">
+                  Ver productos
+                </button>
+              </div>
+            ) : (
+              items.map((item) => {
+                const productSlug = item.productSku || products.find((product) =>
+                  product.variants.some((variant) => variant.sku === item.sku),
+                )?.sku || item.sku
+                return (
+                <div
+                  key={`${item.productId}-${item.variantId}`}
+                  className="flex gap-3 p-3 rounded-card border border-line bg-canvas/60"
+                >
+                  <div className="w-20 h-20 rounded-btn overflow-hidden bg-canvas shrink-0">
+                    {item.image ? (
+                      <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full grid place-items-center text-muted text-xs">Sin foto</div>
+                    )}
                   </div>
 
-                  {(item.size || item.color) && (
-                    <p className="text-xs text-muted mt-0.5">
-                      {[item.size, item.color].filter(Boolean).join(' · ')}
-                    </p>
-                  )}
-                  {item.availableStock === 0 && (
-                    <p className="text-xs text-red-600 mt-1" role="status">Sin stock. Elimina este artículo para continuar.</p>
-                  )}
-
-                  <div className="flex items-center justify-between mt-2.5">
-                    <div className="flex items-center rounded-btn border border-line bg-surface h-9">
-                      <button
-                        onClick={() => updateQuantity(item.productId, item.variantId, item.quantity - 1)}
-                        className="grid place-items-center w-8 h-full text-ink hover:bg-canvas rounded-l-btn transition-colors"
-                        aria-label="Restar"
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <Link
+                        to={`/product/${encodeURIComponent(productSlug)}`}
+                        onClick={() => setIsOpen(false)}
+                        className="font-semibold text-ink text-sm leading-snug line-clamp-2 hover:text-brand transition-colors"
                       >
-                        <Minus size={14} />
-                      </button>
-                      <span className="w-8 text-center text-sm font-semibold tabular-nums text-ink">{item.quantity}</span>
+                        {item.name}
+                      </Link>
                       <button
-                        onClick={() => updateQuantity(item.productId, item.variantId, item.quantity + 1)}
-                        disabled={item.availableStock !== undefined && item.quantity >= item.availableStock}
-                        className="grid place-items-center w-8 h-full text-ink hover:bg-canvas rounded-r-btn transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                        aria-label="Sumar"
+                        onClick={() => removeItem(item.productId, item.variantId)}
+                        className="p-1 text-muted hover:text-red-500 transition-colors shrink-0"
+                        aria-label="Eliminar"
                       >
-                        <Plus size={14} />
+                        <Trash2 size={16} />
                       </button>
                     </div>
-                    <span className="text-sm font-bold text-ink tabular-nums">
-                      {formatMoney(item.price * item.quantity, store.currency)}
-                    </span>
+
+                    {(item.size || item.color) && (
+                      <p className="text-xs text-muted mt-0.5">
+                        {[item.size, item.color].filter(Boolean).join(' · ')}
+                      </p>
+                    )}
+                    {item.availableStock === 0 && (
+                      <p className="text-xs text-red-600 mt-1" role="status">Sin stock. Elimina este artículo para continuar.</p>
+                    )}
+
+                    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 mt-2.5">
+                      <div className="flex items-center rounded-btn border border-line bg-surface h-9">
+                        <button
+                          onClick={() => updateQuantity(item.productId, item.variantId, item.quantity - 1)}
+                          className="grid place-items-center w-8 h-full text-ink hover:bg-canvas rounded-l-btn transition-colors"
+                          aria-label="Restar"
+                        >
+                          <Minus size={14} />
+                        </button>
+                        <span className="w-8 text-center text-sm font-semibold tabular-nums text-ink">{item.quantity}</span>
+                        <button
+                          onClick={() => updateQuantity(item.productId, item.variantId, item.quantity + 1)}
+                          disabled={item.availableStock !== undefined && item.quantity >= item.availableStock}
+                          className="grid place-items-center w-8 h-full text-ink hover:bg-canvas rounded-r-btn transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                          aria-label="Sumar"
+                        >
+                          <Plus size={14} />
+                        </button>
+                      </div>
+                      <span className="text-sm font-bold text-ink tabular-nums whitespace-nowrap">
+                        {formatMoney(item.price * item.quantity, store.currency)}
+                      </span>
+                    </div>
                   </div>
                 </div>
+                )
+              })
+            )}
+          </div>
+
+          {items.length > 0 && (
+            <div className="border-t border-line p-5 space-y-4">
+              {!IS_PUBLIC_DEMO && <div className="space-y-2">
+                <input
+                  type="text"
+                  placeholder="Nombre completo"
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  className="input-field text-sm"
+                />
+                <input type="tel" placeholder="Teléfono con indicativo (ej. +57…)" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} className="input-field text-sm" />
+                <input type="email" placeholder="Correo (opcional)" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} className="input-field text-sm" />
+                <input type="text" placeholder="Ciudad" value={customerCity} onChange={(e) => setCustomerCity(e.target.value)} className="input-field text-sm" />
+                <input
+                  type="text"
+                  placeholder="Dirección de entrega"
+                  value={deliveryInfo}
+                  onChange={(e) => setDeliveryInfo(e.target.value)}
+                  className="input-field text-sm"
+                />
+                <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} className="input-field text-sm">
+                  <option value="">Medio de pago preferido (opcional)</option>
+                  {['Transferencia', 'Tarjeta', 'Efectivo contraentrega', 'Otro'].map((method) => <option key={method} value={method}>{method}</option>)}
+                </select>
+                <textarea maxLength={500} placeholder="Observaciones de entrega (opcional)" value={customerNotes} onChange={(e) => setCustomerNotes(e.target.value)} className="input-field text-sm" rows={2} />
+                <div className="flex gap-2">
+                  <input type="text" placeholder="Cupón de descuento (opcional)" value={couponInput} onChange={(e) => setCouponInput(e.target.value.toUpperCase())} maxLength={20} className="input-field text-sm" aria-label="Cupón de descuento" />
+                  <button type="button" onClick={() => void applyCoupon()} className="shrink-0 rounded-btn border border-line px-3 text-sm font-semibold hover:bg-canvas">Aplicar</button>
+                </div>
+                {couponMessage && <p className="text-[11px] text-muted" role="status">{couponMessage}</p>}
+                <label className="flex items-start gap-2 text-[12px] text-muted">
+                  <input type="checkbox" checked={marketingConsent} onChange={(e) => setMarketingConsent(e.target.checked)} className="mt-0.5" />
+                  <span>Quiero recibir promociones de {store.name} por WhatsApp. Puedo darme de baja cuando quiera.</span>
+                </label>
+              </div>}
+
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted">Subtotal de productos</span>
+                  <span className="font-semibold text-ink tabular-nums">{formatMoney(subtotal, store.currency)}</span>
+                </div>
+                {coupon && coupon.discount > 0 && <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted">Cupón {coupon.code}</span>
+                  <span className="font-semibold text-ink tabular-nums">-{formatMoney(coupon.discount, store.currency)}</span>
+                </div>}
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold text-ink">Envío por cotizar</span>
+                  <span className="text-xl font-bold text-ink tabular-nums">Por cotizar</span>
+                </div>
+                {!IS_PUBLIC_DEMO && <p className="text-[11px] text-muted">El valor del envío se confirma con el comercio por WhatsApp.</p>}
               </div>
-              )
-            })
+
+              <div className="flex items-center justify-between text-xs">
+                {confirmClear ? (
+                  <span className="inline-flex items-center gap-2">
+                    <span className="text-ink">¿Vaciar el carrito?</span>
+                    <button onClick={() => setConfirmClear(false)} className="text-muted hover:text-ink">Cancelar</button>
+                    <button onClick={() => { clearCart(); setConfirmClear(false) }} className="font-semibold text-red-600">Vaciar</button>
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => setConfirmClear(true)}
+                    className="text-muted hover:text-red-500 transition-colors"
+                  >
+                    Vaciar carrito
+                  </button>
+                )}
+                <Link
+                  to="/category/all"
+                  onClick={() => setIsOpen(false)}
+                  className="inline-flex items-center gap-1 font-semibold text-ink hover:text-brand transition-colors"
+                >
+                  Seguir comprando <ArrowRight size={13} />
+                </Link>
+              </div>
+            </div>
           )}
         </div>
 
-        {/* Pie */}
+        {/* Pie fijo: el botón de envío siempre visible, también en celulares. */}
         {items.length > 0 && (
-          <div className="border-t border-line p-5 space-y-4 bg-surface">
-            {!IS_PUBLIC_DEMO && <div className="space-y-2">
-              <input
-                type="text"
-                placeholder="Nombre completo"
-                value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-                className="input-field text-sm"
-              />
-              <input type="tel" placeholder="Teléfono con indicativo (ej. +57…)" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} className="input-field text-sm" />
-              <input type="email" placeholder="Correo (opcional)" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} className="input-field text-sm" />
-              <input type="text" placeholder="Ciudad" value={customerCity} onChange={(e) => setCustomerCity(e.target.value)} className="input-field text-sm" />
-              <input
-                type="text"
-                placeholder="Dirección de entrega"
-                value={deliveryInfo}
-                onChange={(e) => setDeliveryInfo(e.target.value)}
-                className="input-field text-sm"
-              />
-              <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} className="input-field text-sm">
-                <option value="">Medio de pago preferido (opcional)</option>
-                {['Transferencia', 'Tarjeta', 'Efectivo contraentrega', 'Otro'].map((method) => <option key={method} value={method}>{method}</option>)}
-              </select>
-              <textarea maxLength={500} placeholder="Observaciones de entrega (opcional)" value={customerNotes} onChange={(e) => setCustomerNotes(e.target.value)} className="input-field text-sm" rows={2} />
-              <div className="flex gap-2">
-                <input type="text" placeholder="Cupón de descuento (opcional)" value={couponInput} onChange={(e) => setCouponInput(e.target.value.toUpperCase())} maxLength={20} className="input-field text-sm" aria-label="Cupón de descuento" />
-                <button type="button" onClick={() => void applyCoupon()} className="shrink-0 rounded-btn border border-line px-3 text-sm font-semibold hover:bg-canvas">Aplicar</button>
-              </div>
-              {couponMessage && <p className="text-[11px] text-muted" role="status">{couponMessage}</p>}
-              <label className="flex items-start gap-2 text-[12px] text-muted">
-                <input type="checkbox" checked={marketingConsent} onChange={(e) => setMarketingConsent(e.target.checked)} className="mt-0.5" />
-                <span>Quiero recibir promociones de {store.name} por WhatsApp. Puedo darme de baja cuando quiera.</span>
-              </label>
-            </div>}
-
-            <div className="space-y-1">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted">Subtotal de productos</span>
-                <span className="font-semibold text-ink tabular-nums">{formatMoney(subtotal, store.currency)}</span>
-              </div>
-              {coupon && coupon.discount > 0 && <div className="flex items-center justify-between text-sm">
-                <span className="text-muted">Cupón {coupon.code}</span>
-                <span className="font-semibold text-ink tabular-nums">-{formatMoney(coupon.discount, store.currency)}</span>
-              </div>}
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-ink">Envío por cotizar</span>
-                <span className="text-xl font-bold text-ink tabular-nums">Por cotizar</span>
-              </div>
-              {!IS_PUBLIC_DEMO && <p className="text-[11px] text-muted">El valor del envío se confirma con el comercio por WhatsApp.</p>}
-            </div>
-
+          <div className="shrink-0 border-t border-line bg-surface px-5 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] space-y-2">
             {!IS_PUBLIC_DEMO && <button
               onClick={handleWhatsAppCheckout}
               disabled={checkoutBusy || containsUnavailableItem}
@@ -375,29 +406,16 @@ export default function CartDrawer() {
             {IS_PUBLIC_DEMO && <p className="rounded-btn bg-canvas px-4 py-3 text-center text-sm font-semibold text-muted" role="status">Demo de catálogo: no se aceptan pedidos ni pagos.</p>}
             {checkoutMessage && <p className="text-xs text-muted" role="status">{checkoutMessage}</p>}
 
-            <div className="flex items-center justify-between text-xs">
-              {confirmClear ? (
-                <span className="inline-flex items-center gap-2">
-                  <span className="text-ink">¿Vaciar el carrito?</span>
-                  <button onClick={() => setConfirmClear(false)} className="text-muted hover:text-ink">Cancelar</button>
-                  <button onClick={() => { clearCart(); setConfirmClear(false) }} className="font-semibold text-red-600">Vaciar</button>
-                </span>
-              ) : (
-                <button
-                  onClick={() => setConfirmClear(true)}
-                  className="text-muted hover:text-red-500 transition-colors"
-                >
-                  Vaciar carrito
-                </button>
-              )}
-              <Link
-                to="/category/all"
-                onClick={() => setIsOpen(false)}
-                className="inline-flex items-center gap-1 font-semibold text-ink hover:text-brand transition-colors"
+            {whatsappUrl && (
+              <a
+                href={whatsappUrl}
+                target={shouldOpenWhatsAppInSameTab() ? undefined : '_blank'}
+                rel="noopener noreferrer"
+                className="w-full inline-flex items-center justify-center gap-2 min-h-[44px] rounded-btn border border-[#25D366] text-[#128C4A] font-semibold hover:bg-[#25D366]/10 transition-colors"
               >
-                Seguir comprando <ArrowRight size={13} />
-              </Link>
-            </div>
+                <MessageCircle size={18} /> Abrir WhatsApp
+              </a>
+            )}
           </div>
         )}
       </div>

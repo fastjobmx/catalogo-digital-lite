@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { buildWhatsAppOrderMessage } from './whatsapp'
 import type { CartItem } from '../contexts/CartContext'
 
@@ -56,5 +56,34 @@ describe('buildWhatsAppOrderMessage', () => {
     const item: CartItem = { productId: '1', sku: 'SH-1', name: 'Sin foto', price: 1, image: null, quantity: 1 }
     const message = buildWhatsAppOrderMessage({ items: [item], currency: 'COP', storeName: 'Tienda' })
     expect(message).not.toContain('Foto:')
+  })
+})
+
+describe('WhatsApp navigation strategy', () => {
+  it('uses the same tab on phones and in-app browsers, a new tab on desktop', async () => {
+    const { shouldOpenWhatsAppInSameTab } = await import('./whatsapp')
+    expect(shouldOpenWhatsAppInSameTab('Mozilla/5.0 (Linux; Android 14; SM-A546E) AppleWebKit/537.36 Chrome/141 Mobile Safari/537.36', false)).toBe(true)
+    expect(shouldOpenWhatsAppInSameTab('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Instagram 350.0', false)).toBe(true)
+    expect(shouldOpenWhatsAppInSameTab('Mozilla/5.0 (Linux; Android 14; wv) AppleWebKit/537.36 [FBAN/EMA;FBAV/400.0]', false)).toBe(true)
+    expect(shouldOpenWhatsAppInSameTab('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/145 Safari/537.36', false)).toBe(false)
+    expect(shouldOpenWhatsAppInSameTab('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15', true)).toBe(true)
+  })
+
+  it('redirects the prepared tab, or this tab when there is none or it was closed', async () => {
+    const { goToWhatsApp } = await import('./whatsapp')
+    const here = { location: { href: 'https://tienda.test/t/luz' } }
+    vi.stubGlobal('window', here)
+    const url = 'https://wa.me/573242117323?text=hola'
+    const tab = { closed: false, opener: {} as unknown, location: { href: 'about:blank' } } as unknown as Window
+    expect(goToWhatsApp(url, tab)).toBe('tab')
+    expect(tab.location.href).toBe(url)
+    expect(tab.opener).toBeNull()
+    expect(here.location.href).toBe('https://tienda.test/t/luz')
+    expect(goToWhatsApp(url, null)).toBe('same')
+    expect(here.location.href).toBe(url)
+    here.location.href = 'https://tienda.test/t/luz'
+    expect(goToWhatsApp(url, { closed: true } as unknown as Window)).toBe('same')
+    expect(here.location.href).toBe(url)
+    vi.unstubAllGlobals()
   })
 })

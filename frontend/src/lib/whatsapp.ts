@@ -11,6 +11,38 @@ export function whatsappLink(phone: string | null | undefined, message?: string)
   return `https://wa.me/${digits}${query}`
 }
 
+/**
+ * Phones, tablets and in-app browsers (Instagram, Facebook, TikTok…) block or leave blank a tab
+ * opened before an asynchronous step, so the order never reaches WhatsApp. There we navigate the
+ * current tab instead (it opens the WhatsApp app; the cart is kept for when the shopper returns).
+ */
+export function shouldOpenWhatsAppInSameTab(
+  userAgent: string = typeof navigator === 'undefined' ? '' : navigator.userAgent,
+  coarsePointer: boolean = typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches,
+): boolean {
+  if (/Android|iPhone|iPad|iPod|Mobile|FBAN|FBAV|FB_IAB|Instagram|TikTok|musical_ly|Line\/|; wv\)/i.test(userAgent)) return true
+  return coarsePointer
+}
+
+/** Desktop only: opens the placeholder tab inside the click so the browser allows it. */
+export function prepareWhatsAppTab(): Window | null {
+  if (shouldOpenWhatsAppInSameTab()) return null
+  try { return window.open('about:blank', '_blank') } catch { return null }
+}
+
+/** Sends the shopper to WhatsApp: the prepared tab when there is one, otherwise this tab. */
+export function goToWhatsApp(url: string, tab: Window | null): 'tab' | 'same' {
+  if (tab && !tab.closed) {
+    try {
+      tab.opener = null
+      tab.location.href = url
+      return 'tab'
+    } catch { /* a blocked or detached tab: fall back to this one */ }
+  }
+  window.location.href = url
+  return 'same'
+}
+
 export function buildWhatsAppOrderMessage(input: {
   items: CartItem[]
   currency: string

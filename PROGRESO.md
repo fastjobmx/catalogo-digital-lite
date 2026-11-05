@@ -444,3 +444,19 @@ Producción (autorizado, 2026-11-04): backend `7890daf2` → `c0ba4940-32fc-40c8
 Proyecto independiente en `apps/mostralopues-landing/` (React + Vite prerenderizado, GSAP diferido, teléfono 3D en Three.js). Worker propio `mostralopues`, solo archivos estáticos y sin bindings. **Sin desplegar**: el dry-run de Wrangler leyó 58 archivos y reportó «No bindings found». Playwright 20/20 en escritorio y móvil, más destinos reales verificados. Seis anchuras sin errores ni desbordes. Lighthouse móvil 93/100/100 y escritorio 99/100/100 (Performance, Accesibilidad, Buenas prácticas). SEO 66 por el `noindex` de prepublicación. LCP móvil simulado de 3,0 s, todavía por encima del objetivo de 2,5 s. La plataforma no se modificó. Detalle: `apps/mostralopues-landing/REPORTE.md`; propuesta: `docs/MOSTRALOPUES_FASE_A.md`.
 
 Publicado (autorizado, 2026-11-04) en **https://mostralopues.pages.dev**: proyecto Cloudflare Pages `mostralopues`, despliegue `6cff6fa8`. Se usó Pages en lugar de un Worker para tener la URL corta, así que el Worker `mostralopues` no se creó. Sigue con `noindex`. Verificado en vivo: Playwright 20/20, encabezados de seguridad y 404. Lighthouse en vivo: móvil 90/100/100, escritorio 98/100/100, con LCP móvil simulado de 3,4 s.
+
+### Pedido por WhatsApp en celulares — 2026-11-04
+
+El pedido se registraba, pero en celulares y en los navegadores de Instagram, Facebook y TikTok no llegaba a WhatsApp. Causa: la pestaña se abría en blanco y se redirigía después de registrar el pedido. Además, el botón «Enviar pedido por WhatsApp» quedaba fuera de la pantalla porque solo los productos tenían scroll.
+
+Arreglo (`frontend/src/lib/whatsapp.ts`, `CartDrawer.tsx`, `ProductPage.tsx`):
+- En celulares y en esas apps se navega a WhatsApp en la misma pestaña.
+- En computador se abre una pestaña nueva; si el navegador la bloquea, se usa la misma pestaña.
+- Botón de respaldo «Abrir WhatsApp».
+- El carrito tiene un solo scroll y el botón de envío queda fijo abajo.
+
+Verificación: frontend 69/69. Prueba de punta a punta con Playwright 9/9, en local y en producción, con el envío del pedido simulado (sin pedidos reales): Android, iPhone SE, ficha de producto y computador; todos abren `wa.me/<número de la tienda>`.
+
+Publicado con autorización: frontend `3f0bdfa0` → `b467399d-9ebd-415c-9457-93879940c5ae`. Para revertir: `cd frontend; node ../worker/node_modules/wrangler/bin/wrangler.js rollback 3f0bdfa0-ceae-4b58-b3c6-c27dc2c4d3d2`.
+
+Tienda Luz Mágica (`/t/luz-magica`, tienda 4, plan Profesional): creada desde el bot maestro. Se cargaron por API 115 productos, 273 fotos, 10 categorías, la plantilla Boutique rosa, el logo, la portada y los textos.
