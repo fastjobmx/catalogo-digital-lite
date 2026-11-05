@@ -182,6 +182,8 @@ function TrialStore({ id }: { id: string }) {
     const payload = {
       businessName: name.trim() || trial!.businessName, template, logoUrl, colors, whatsapp: whatsappInvalid ? (trial!.whatsapp || '') : whatsappDigits,
       products: drafts.filter((draft) => draft.name.trim() && !priceInvalid(draft)).map(toProduct),
+      // Photos of products not saved yet (no name or a price being typed) must not be deleted.
+      keep: drafts.filter((draft) => draft.imageUrl && (!draft.name.trim() || priceInvalid(draft))).map((draft) => draft.imageUrl!),
     }
     const timer = window.setTimeout(() => {
       setSaveState('saving')

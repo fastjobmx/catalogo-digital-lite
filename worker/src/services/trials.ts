@@ -8,6 +8,9 @@ import type { Env } from '../index'
 import { getTrialSettings, TRIAL_TEMPLATES, type TrialSettings, type TrialTemplate } from './trialSettings'
 
 const LIMITS = { photo: 60, save: 600, order: 20, ordersPerTrialDay: 200 } as const // per IP and hour (create comes from settings)
+/** Unused photos younger than this are kept: a save queued before an upload finished must never
+ * delete the new photo. Older orphans go on a later save, and everything goes when the trial is erased. */
+export const ORPHAN_GRACE_MS = 10 * 60_000
 const MAX_UPLOADS_FACTOR = 4 // uploads per trial: (products + logo) × factor, so replacing photos is possible but bounded
 
 export class TrialError extends Error {
@@ -207,17 +210,25 @@ export async function saveTrial(db: D1Database, env: Partial<Env['Bindings']>, i
   }
   await db.prepare(`UPDATE trial_sessions SET business_name = ?, template = ?, content_json = ?, product_count = ?, updated_at = datetime('now') WHERE id = ?`)
     .bind(businessName, template, JSON.stringify(content), products.length, trial.id).run()
-  // Photos that are no longer used are deleted right away: storage stays bounded.
-  await removeTrialAssets(env.ASSETS, trial.id, new Set([content.logoUrl, ...products.map((product) => product.imageUrl)].filter(Boolean).map((url) => String(url).split('/').pop()!)))
+  // Photos that are no longer used are deleted right away: storage stays bounded. Photos of products
+  // still being written in the editor (not saved yet, for example without a name) come in `keep`.
+  const keep = (Array.isArray(body.keep) ? body.keep : []).slice(0, (settings.maxProducts + 1) * MAX_UPLOADS_FACTOR)
+    .filter((url): url is string => typeof url === 'string' && ownImage.test(url))
+  await removeTrialAssets(env.ASSETS, trial.id, new Set([content.logoUrl, ...products.map((product) => product.imageUrl), ...keep].filter(Boolean).map((url) => String(url).split('/').pop()!)), ORPHAN_GRACE_MS)
   return getTrial(db, trial.id, token)
 }
 
-export async function removeTrialAssets(bucket: R2Bucket | undefined, id: string, keep: Set<string> = new Set()) {
+export async function removeTrialAssets(bucket: R2Bucket | undefined, id: string, keep: Set<string> = new Set(), graceMs = 0) {
   if (!bucket) return
+  const newest = Date.now() - graceMs
   let cursor: string | undefined
   do {
     const page = await bucket.list({ prefix: `trials/${id}/`, limit: 100, ...(cursor ? { cursor } : {}) })
-    for (const object of page.objects) if (!keep.has(object.key.split('/').pop()!)) await bucket.delete(object.key)
+    for (const object of page.objects) {
+      if (keep.has(object.key.split('/').pop()!)) continue
+      if (graceMs && object.uploaded && new Date(object.uploaded).getTime() > newest) continue
+      await bucket.delete(object.key)
+    }
     cursor = page.truncated ? page.cursor : undefined
   } while (cursor)
 }

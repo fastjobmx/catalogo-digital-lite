@@ -20,6 +20,8 @@ const activate = (id: string, token: string, body: Record<string, unknown> = {})
   method: 'POST', headers: { 'X-Trial-Token': token },
   body: { planChoice: 'ia', name: 'Ana Ruiz', email: 'ana@dulcehogar.test', phone: '+57 300 111 2233', consent: true, ...body },
 })
+/** Makes every stored photo older than the orphan grace period, as if uploaded a while ago. */
+const age = () => { for (const record of h.assets.objects.values()) (record as unknown as { uploaded: Date }).uploaded = new Date(Date.now() - 3_600_000) }
 const expire = (id: string, retainHours = 72) => h.db.sqlite.exec(`UPDATE trial_sessions SET expires_at = datetime('now', '-1 minute'), retain_until = datetime('now', '+${retainHours} hours') WHERE id = '${id}'`)
 
 /** A trial with `count` products, each with its own photo, plus a logo. */
@@ -84,11 +86,32 @@ describe('mini-store trial without sign-up', () => {
     const { trial, products } = await trialWithProducts(2)
     const { url: newPhoto } = await json(await photo(trial.id, trial.editToken))
     const edited = [{ ...products[0], name: 'Lámpara cálida', price: 85000, imageUrl: newPhoto }, products[1]]
+    // A replaced photo uploaded moments ago is kept for a while (a queued save must not delete new photos)...
+    await save(trial.id, trial.editToken, { products: edited })
+    expect((await h.request(products[0]!.imageUrl)).status).toBe(200)
+    // ...and deleted on a later save once it is older than the grace period.
+    age()
     const view = await json(await save(trial.id, trial.editToken, { products: edited }))
     expect(view.products[0]).toMatchObject({ name: 'Lámpara cálida', price: 85000, imageUrl: newPhoto })
     const oldFile = products[0]!.imageUrl.split('/').pop()
     expect([...h.assets.objects.keys()].some((key) => key.endsWith(oldFile))).toBe(false)
     expect((await h.request(newPhoto)).status).toBe(200)
+    // A photo uploaded before typing the product name survives the autosave (sent in `keep`).
+    const { url: early } = await json(await photo(trial.id, trial.editToken))
+    expect((await save(trial.id, trial.editToken, { products: edited, keep: [early, 'https://evil.example/x.png'] })).status).toBe(200)
+    expect((await h.request(early)).status).toBe(200)
+    const named = await json(await save(trial.id, trial.editToken, { products: [...edited, { id: 'p3', name: 'Nombre escrito después', price: 5000, imageUrl: early }] }))
+    expect(named.products[2].imageUrl).toBe(early)
+    expect((await h.request(early)).status).toBe(200)
+    // A save prepared before an upload finished does not delete the new photo.
+    const { url: fresh } = await json(await photo(trial.id, trial.editToken))
+    await save(trial.id, trial.editToken, { products: edited })
+    expect((await h.request(fresh)).status).toBe(200)
+    // Without `keep`, an old unused photo is deleted.
+    const { url: orphan } = await json(await photo(trial.id, trial.editToken))
+    age()
+    await save(trial.id, trial.editToken, { products: edited })
+    expect((await h.request(orphan)).status).toBe(404)
     // Delete a product.
     expect((await json(await save(trial.id, trial.editToken, { products: [edited[0]] }))).products).toHaveLength(1)
   })

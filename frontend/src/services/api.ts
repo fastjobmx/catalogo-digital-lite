@@ -675,7 +675,7 @@ export const trialApi = {
   config: () => trialFetch<TrialConfig>('/api/trial/config'),
   create: (businessName: string, template: TrialTemplate) => trialFetch<TrialView & { editToken: string }>('/api/trial', { method: 'POST', body: JSON.stringify({ businessName, template }) }),
   get: (id: string, token?: string | null) => trialFetch<TrialView>(`/api/trial/${id}`, { token: token || undefined }),
-  save: (id: string, token: string, payload: { businessName: string; template: TrialTemplate; logoUrl: string | null; whatsapp: string; colors: TrialColors; products: TrialProduct[] }) => trialFetch<TrialView>(`/api/trial/${id}`, { method: 'PUT', token, body: JSON.stringify(payload) }),
+  save: (id: string, token: string, payload: { businessName: string; template: TrialTemplate; logoUrl: string | null; whatsapp: string; colors: TrialColors; products: TrialProduct[]; keep: string[] }) => trialFetch<TrialView>(`/api/trial/${id}`, { method: 'PUT', token, body: JSON.stringify(payload) }),
   photo: (id: string, token: string, file: File) => { const form = new FormData(); form.append('file', file); return trialFetch<{ url: string }>(`/api/trial/${id}/photos`, { method: 'POST', token, body: form }) },
   remove: (id: string, token: string) => trialFetch<{ deleted: boolean }>(`/api/trial/${id}`, { method: 'DELETE', token }),
   order: (id: string, body: { items: Array<{ productId: string; quantity: number }>; customerName: string; note: string }) => trialFetch<{ code: string; total: number; whatsappUrl: string }>(`/api/trial/${id}/orders`, { method: 'POST', body: JSON.stringify(body) }),
