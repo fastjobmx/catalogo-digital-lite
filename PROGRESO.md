@@ -677,3 +677,28 @@ La reversión está en `docs/USUARIOS_CORREOS_DIAGNOSTICO_Y_PLAN.md` §5.
 - Servidor 307/307.
 - Staging `f73621f4`.
 - Producción: `2b02f6a7` → `5404beca-1c7d-4085-97f6-e6aaa020cd84`. Salud 200 y los 10 secretos intactos.
+
+### Mini tienda de prueba y conversión a cliente — 2026-11-05 (staging; producción pendiente de autorización)
+
+**Qué cambió**
+
+- La prueba sin registro ahora es una mini tienda de 7 días:
+  - Logo, colores y plantillas Clásica, Boutique y Stories.
+  - Hasta 7 productos con foto.
+  - Pedidos reales por WhatsApp al número del comercio.
+  - Autoguardado, tiempo restante y enlace de solo lectura.
+- Botón «QUIERO ACTIVAR MI TIENDA» con los planes reales y una solicitud con código `TIE-XXXXXX`.
+- Conversión idempotente a una tienda en borrador desde `/plataforma/pruebas`.
+- Métricas y ajustes del superadministrador.
+- Al vencer, la tienda conserva sus datos un tiempo y después se borra sola.
+
+**Archivos**
+
+- Migración aditiva `0015`.
+- Detalle en `docs/MINI_TIENDA_PRUEBA.md`.
+
+**Verificación**
+
+- Servidor 319/319 y panel 81/81.
+- Navegador contra staging 33/33.
+- Staging en `2bf5cd38`.

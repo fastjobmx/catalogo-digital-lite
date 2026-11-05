@@ -13,6 +13,8 @@ import { TemplateError } from '../email/templates'
 import { createTemplate, duplicateTemplate, emailHistory, emailStatus, listTemplates, previewTemplate, sendTestEmail, setTemplateActive, updateTemplate, variablesFor } from '../email/manage'
 import { regularizeOwner, storesWithoutVerifiedOwner } from '../services/ownerRegularization'
 import { CreditError, creditSummary, grantCredits, listCreditCosts, listCreditMovements, listCreditRequests, resolveCreditRequest, setCreditCost } from '../ai/credits'
+import { ConversionError, convertTrial, discardActivationRequest, listActivationRequests, trialMetrics } from '../services/trialConversion'
+import { getTrialSettings, setTrialSettings, SettingsError } from '../services/trialSettings'
 import { aiUsageAlerts, currentBillingPeriod, generateInvoices, listInvoices, setDomainStatus, setInvoiceStatus } from '../services/billing'
 
 const app = new Hono<Env>()
@@ -23,6 +25,8 @@ function actor(c: Context<Env>): string {
 }
 
 function fail(c: Context<Env>, error: unknown) {
+  if (error instanceof ConversionError) return c.json({ error: error.message, code: error.code }, error.status)
+  if (error instanceof SettingsError) return c.json({ error: error.message, code: error.code }, 400)
   if (error instanceof CreditError) return c.json({ error: error.message, code: error.code }, error.status)
   if (error instanceof TemplateError) return c.json({ error: error.message, code: error.code }, error.code.endsWith('NOT_FOUND') ? 404 : 400)
   if (error instanceof PlatformError || error instanceof ProvisioningError) {
@@ -212,6 +216,23 @@ app.post('/stores/:slug/owner-regularization', async (c) => {
   const body = await c.req.json().catch(() => null)
   if (!body) return c.json({ error: 'Invalid JSON body' }, 400)
   try { return c.json(await regularizeOwner(c.env.DB, c.env, c.req.param('slug'), body, actor(c))) } catch (error) { return fail(c, error) }
+})
+
+// Mini-store trials: real metrics, settings and activation requests (conversion is idempotent).
+app.get('/trials/summary', async (c) => c.json(await trialMetrics(c.env.DB)))
+app.get('/trials/settings', async (c) => c.json(await getTrialSettings(c.env.DB)))
+app.put('/trials/settings', async (c) => {
+  const body = await c.req.json().catch(() => null)
+  if (!body || typeof body !== 'object') return c.json({ error: 'Invalid JSON body' }, 400)
+  try { return c.json(await setTrialSettings(c.env.DB, body, actor(c))) } catch (error) { return fail(c, error) }
+})
+app.get('/trials/requests', async (c) => c.json({ items: await listActivationRequests(c.env.DB, { status: c.req.query('status') }) }))
+app.post('/trials/requests/:id/convert', async (c) => {
+  const body = await c.req.json().catch(() => ({})) as { planCode?: unknown }
+  try { return c.json(await convertTrial(c.env.DB, c.env, Number(c.req.param('id')), body || {}, actor(c))) } catch (error) { return fail(c, error) }
+})
+app.post('/trials/requests/:id/discard', async (c) => {
+  try { return c.json(await discardActivationRequest(c.env.DB, Number(c.req.param('id')), actor(c))) } catch (error) { return fail(c, error) }
 })
 
 app.get('/ai-alerts', async (c) => c.json({ items: await aiUsageAlerts(c.env.DB) }))

@@ -80,6 +80,7 @@ export default function PlatformPage() {
           </div>
           <div className="flex gap-2">
             <button type="button" className="btn-ghost" onClick={() => void load()}><RefreshCw size={16} /> Actualizar</button>
+            <Link to="/plataforma/pruebas" className="btn-ghost">Tiendas de prueba</Link>
             <Link to="/plataforma/correos" className="btn-ghost">Plantillas de correo</Link>
             <Link to="/admin" className="btn-ghost"><Store size={16} /> Panel de la tienda principal</Link>
           </div>

@@ -645,8 +645,21 @@ export const aiCatalogApi = {
 
 // ---- catalogue trial (no account) ------------------------------------------------------
 
-export interface TrialProduct { name: string; price: number | null; description: string; imageUrl: string | null }
-export interface TrialView { id: string; businessName: string; template: string; products: TrialProduct[]; expiresAt: string; temporary: true; published: false }
+export type TrialTemplate = 'clasica' | 'boutique' | 'stories'
+export type TrialState = 'activa' | 'vencida' | 'convertida' | 'eliminada'
+export interface TrialProduct { id: string; name: string; price: number | null; description: string; imageUrl: string | null }
+export interface TrialColors { primary: string; accent: string }
+export interface TrialView {
+  id: string; businessName: string; template: TrialTemplate; state: TrialState; owner: boolean
+  logoUrl: string | null; whatsapp: string | null; colors: TrialColors; products: TrialProduct[]
+  ordersOpen: boolean; ordersEnabled: boolean
+  expiresAt: string; deleteAfter: string; temporary: true; published: false
+  limits: { maxProducts: number; maxPhotoMb: number; templates: TrialTemplate[] }
+}
+export interface TrialConfig { enabled: boolean; durationHours: number; retentionHours: number; maxProducts: number; maxPhotoMb: number; templates: TrialTemplate[]; ordersEnabled: boolean; plans: Array<{ key: string; label: string }> }
+export interface TrialOrderLine { productId: string; name: string; price: number; quantity: number; subtotal: number }
+export interface TrialOrder { code: string; items: TrialOrderLine[]; total: number; customerName: string | null; note: string | null; createdAt: string }
+export interface TrialActivationRequest { code: string; status: 'pendiente' | 'convertida' | 'descartada'; planChoice: string; planLabel: string; createdAt: string }
 
 async function trialFetch<T>(path: string, init: RequestInit & { token?: string } = {}): Promise<T> {
   const headers = new Headers(init.headers)
@@ -659,11 +672,45 @@ async function trialFetch<T>(path: string, init: RequestInit & { token?: string 
 }
 
 export const trialApi = {
-  create: (businessName: string, template: string) => trialFetch<TrialView & { editToken: string }>('/api/trial', { method: 'POST', body: JSON.stringify({ businessName, template }) }),
-  get: (id: string) => trialFetch<TrialView>(`/api/trial/${id}`),
-  save: (id: string, token: string, payload: { businessName: string; template: string; products: TrialProduct[] }) => trialFetch<TrialView>(`/api/trial/${id}`, { method: 'PUT', token, body: JSON.stringify(payload) }),
+  config: () => trialFetch<TrialConfig>('/api/trial/config'),
+  create: (businessName: string, template: TrialTemplate) => trialFetch<TrialView & { editToken: string }>('/api/trial', { method: 'POST', body: JSON.stringify({ businessName, template }) }),
+  get: (id: string, token?: string | null) => trialFetch<TrialView>(`/api/trial/${id}`, { token: token || undefined }),
+  save: (id: string, token: string, payload: { businessName: string; template: TrialTemplate; logoUrl: string | null; whatsapp: string; colors: TrialColors; products: TrialProduct[] }) => trialFetch<TrialView>(`/api/trial/${id}`, { method: 'PUT', token, body: JSON.stringify(payload) }),
   photo: (id: string, token: string, file: File) => { const form = new FormData(); form.append('file', file); return trialFetch<{ url: string }>(`/api/trial/${id}/photos`, { method: 'POST', token, body: form }) },
   remove: (id: string, token: string) => trialFetch<{ deleted: boolean }>(`/api/trial/${id}`, { method: 'DELETE', token }),
+  order: (id: string, body: { items: Array<{ productId: string; quantity: number }>; customerName: string; note: string }) => trialFetch<{ code: string; total: number; whatsappUrl: string }>(`/api/trial/${id}/orders`, { method: 'POST', body: JSON.stringify(body) }),
+  orders: (id: string, token: string) => trialFetch<{ items: TrialOrder[] }>(`/api/trial/${id}/orders`, { token }),
+  activation: (id: string, token: string) => trialFetch<{ request: TrialActivationRequest | null }>(`/api/trial/${id}/activation`, { token }),
+  requestActivation: (id: string, token: string, body: { planChoice: string; name: string; email: string; phone: string; consent: boolean }) =>
+    trialFetch<{ request: TrialActivationRequest }>(`/api/trial/${id}/activation`, { method: 'POST', token, body: JSON.stringify(body) }),
+}
+
+// ---- trials (superadmin) --------------------------------------------------------------
+
+export interface TrialSettings { durationHours: number; retentionHours: number; maxProducts: number; maxPhotoMb: number; templates: TrialTemplate[]; dailyLimit: number; createPerIpHour: number; ordersEnabled: boolean }
+export interface TrialMetrics {
+  created: number; last7Days: number; active: number; expired: number; deleted: number; converted: number; avgProducts: number; withoutProducts: number; conversionRate: number
+  templates: Array<{ template: string; count: number }>; productCounts: Array<{ products: number; count: number }>
+  requests: { pending: number; converted: number; discarded: number; total: number }
+  orders: { count: number; trialsWithOrders: number; amount: number }
+}
+export interface TrialRequestItem {
+  id: number; code: string; status: 'pendiente' | 'convertida' | 'descartada'; planChoice: string; planLabel: string; suggestedPlanCode: string; planCode: string | null
+  contact: { name: string; email: string; phone: string | null }
+  trial: { id: string; businessName: string; template: string; productCount: number; status: string; expiresAt: string; deleteAfter: string }
+  store: { id: number; slug: string; name: string; status: string } | null
+  result: { imported: number; skipped: Array<{ name: string; reason: string }>; delivery: string; adminUrl?: string; publicUrl?: string } | null
+  createdAt: string
+}
+export interface TrialConversionResult { storeId: number; slug: string; name: string; adminUrl: string; publicUrl: string; imported: number; skipped: Array<{ name: string; reason: string }>; delivery: 'email' | 'manual' | 'existing'; activationUrl: string | null; telegramDeepLink: string | null; replayed: boolean }
+
+export const trialAdminApi = {
+  summary: (token: string) => fetchApi<TrialMetrics>('/api/platform/trials/summary', { headers: bearer(token) }),
+  settings: (token: string) => fetchApi<TrialSettings>('/api/platform/trials/settings', { headers: bearer(token) }),
+  saveSettings: (settings: Partial<TrialSettings>, token: string) => fetchApi<TrialSettings>('/api/platform/trials/settings', { method: 'PUT', headers: bearer(token), body: JSON.stringify(settings) }),
+  requests: (token: string, status?: string) => fetchApi<{ items: TrialRequestItem[] }>(`/api/platform/trials/requests${status ? `?status=${encodeURIComponent(status)}` : ''}`, { headers: bearer(token) }),
+  convert: (id: number, planCode: string, token: string) => fetchApi<TrialConversionResult>(`/api/platform/trials/requests/${id}/convert`, { method: 'POST', headers: bearer(token), body: JSON.stringify({ planCode }) }),
+  discard: (id: number, token: string) => fetchApi<{ discarded: boolean }>(`/api/platform/trials/requests/${id}/discard`, { method: 'POST', headers: bearer(token) }),
 }
 
 // ---- users and access (one store) --------------------------------------------------

@@ -35,6 +35,7 @@ const TrialPage = lazy(() => import('./pages/TrialPage'))
 const AdminUsers = lazy(() => import('./admin/pages/Users'))
 const VerifyEmailPage = lazy(() => import('./admin/VerifyEmailPage'))
 const PlatformEmailPage = lazy(() => import('./admin/PlatformEmailPage'))
+const PlatformTrialsPage = lazy(() => import('./admin/PlatformTrialsPage'))
 const ResetPasswordPage = lazy(() => import('./admin/ResetPasswordPage'))
 const PlatformPage = lazy(() => import('./admin/PlatformPage'))
 
@@ -95,6 +96,7 @@ export default function App() {
                   {/* Platform panel (superadmin; the API enforces the role) */}
                   <Route path="/plataforma" element={<Suspense fallback={null}><PlatformPage /></Suspense>} />
                   <Route path="/plataforma/correos" element={<Suspense fallback={null}><PlatformEmailPage /></Suspense>} />
+                  <Route path="/plataforma/pruebas" element={<Suspense fallback={null}><PlatformTrialsPage /></Suspense>} />
 
                   {/* Admin routes (protected) */}
                   <Route
