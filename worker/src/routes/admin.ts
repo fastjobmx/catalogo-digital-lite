@@ -11,6 +11,7 @@ import { INVITABLE_ROLES, listUserMemberships, ROLE_LABELS, type StoreRole } fro
 import { PRIMARY_STORE_ID, adminStoreUrl } from '../tenancy/stores'
 import { createAccessToken, ensureUser, findUserByEmail, normalizeEmail, upsertMembership } from '../services/platformUsers'
 import { getStoreAiUsage } from '../ai/usage'
+import { CreditError, createCreditRequest, creditSummary, listCreditCosts, listCreditMovements, listCreditRequests } from '../ai/credits'
 import type { Context } from 'hono'
 
 const app = new Hono<Env>()
@@ -288,6 +289,32 @@ app.get('/audit', adminAuth, requireRole('admin'), async (c) => {
 
 app.get('/ai-usage', adminAuth, requireRole('admin'), async (c) => {
  return c.json(await getStoreAiUsage(c.env.DB, c.get('storeId')!))
+})
+
+// AI credits of the current store: read-only balance and history, plus recharge requests.
+// Merchants can never add or change credits; that happens only in /api/platform.
+app.get('/credits', adminAuth, requireRole('admin'), async (c) => {
+ const storeId = c.get('storeId')!
+ const store = await c.env.DB.prepare('SELECT ai_enabled FROM stores WHERE id = ?').bind(storeId).first<{ ai_enabled: number }>()
+ const costs = (await listCreditCosts(c.env.DB)).map(({ feature, label, configured, credits, enabled }) => ({ feature, label, configured, credits, enabled }))
+ return c.json({
+  aiEnabled: Boolean(store?.ai_enabled) && Boolean(c.env.GEMINI_API_KEY),
+  ...(await creditSummary(c.env.DB, storeId)),
+  costs,
+  movements: (await listCreditMovements(c.env.DB, storeId, 30)).map((row: any) => ({ ...row, actor: row.actor === 'system' ? 'system' : String(row.actor).startsWith('platform:') ? 'platform' : 'store' })),
+  requests: (await listCreditRequests(c.env.DB, { storeId, limit: 10 })).map((row: any) => ({ id: row.id, credits: row.credits, note: row.note, status: row.status, approvedCredits: row.approvedCredits, resolutionNote: row.resolutionNote, createdAt: row.createdAt, resolvedAt: row.resolvedAt })),
+ })
+})
+
+app.post('/credits/requests', adminAuth, requireRole('admin'), async (c) => {
+ const body = await c.req.json().catch(() => null) as { credits?: unknown; note?: unknown } | null
+ if (!body) return c.json({ error: 'Invalid JSON body' }, 400)
+ try {
+  return c.json(await createCreditRequest(c.env.DB, c.get('storeId')!, body, c.get('adminEmail') || 'unknown'), 201)
+ } catch (error) {
+  if (error instanceof CreditError) return c.json({ error: error.message, code: error.code }, error.status)
+  throw error
+ }
 })
 
 // ============================================

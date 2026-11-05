@@ -586,3 +586,26 @@ export const platformApi = {
   setPlan: (slug: string, planCode: string, token: string) => fetchApi(`/api/platform/stores/${slug}/plan`, { method: 'PUT', headers: auth(token), body: JSON.stringify({ planCode }) }),
   regenerateAccess: (slug: string, token: string) => fetchApi<{ activationUrl: string | null; telegramLinkCode: string | null; telegramDeepLink: string | null }>(`/api/platform/stores/${slug}/access`, { method: 'POST', headers: auth(token) }),
 }
+
+// ---- AI credits ----------------------------------------------------------------
+
+export type CreditKind = 'recarga' | 'ajuste' | 'reserva' | 'consumo' | 'liberacion'
+export interface CreditMovement { id: number; kind: CreditKind; amount: number; feature: string | null; reservationId: number | null; actor: string; reason: string | null; createdAt: string }
+export interface CreditCost { feature: string; label: string; configured: boolean; credits: number | null; enabled: boolean; updatedBy?: string | null; updatedAt?: string | null }
+export interface CreditRequest { id: number; credits: number; note: string | null; status: 'pendiente' | 'aprobada' | 'rechazada'; approvedCredits: number | null; resolutionNote: string | null; createdAt: string; resolvedAt: string | null; storeId?: number; slug?: string; storeName?: string; requestedBy?: string }
+export interface CreditTotals { balance: number; reserved: number; recharged: number; consumed: number }
+export interface StoreCredits extends CreditTotals { aiEnabled: boolean; costs: CreditCost[]; movements: CreditMovement[]; requests: CreditRequest[] }
+
+export const creditsApi = {
+  get: (token: string) => fetchApi<StoreCredits>('/api/admin/credits', { headers: { Authorization: `Bearer ${token}` } }),
+  request: (credits: number, note: string, token: string) => fetchApi<CreditRequest>('/api/admin/credits/requests', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify({ credits, note }) }),
+}
+
+export const platformCreditsApi = {
+  costs: (token: string) => fetchApi<{ items: CreditCost[] }>('/api/platform/credits/costs', { headers: auth(token) }),
+  setCost: (feature: string, credits: number, enabled: boolean, token: string) => fetchApi<CreditCost>(`/api/platform/credits/costs/${feature}`, { method: 'PUT', headers: auth(token), body: JSON.stringify({ credits, enabled }) }),
+  requests: (token: string, status?: string) => fetchApi<{ items: CreditRequest[] }>(`/api/platform/credits/requests${status ? `?status=${status}` : ''}`, { headers: auth(token) }),
+  resolve: (id: number, decision: 'aprobada' | 'rechazada', token: string, extra: { credits?: number; note?: string } = {}) => fetchApi<CreditRequest>(`/api/platform/credits/requests/${id}/resolve`, { method: 'POST', headers: auth(token), body: JSON.stringify({ decision, ...extra }) }),
+  store: (slug: string, token: string) => fetchApi<CreditTotals & { movements: CreditMovement[]; requests: CreditRequest[] }>(`/api/platform/stores/${slug}/credits`, { headers: auth(token) }),
+  grant: (slug: string, payload: { kind: 'recarga' | 'ajuste'; amount: number; reason: string }, idempotencyKey: string, token: string) => fetchApi<CreditTotals & { replayed: boolean }>(`/api/platform/stores/${slug}/credits`, { method: 'POST', headers: { ...auth(token), 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(payload) }),
+}

@@ -272,7 +272,7 @@ export async function purgeStore(db: D1Database, bucket: R2Bucket | undefined, s
     db.prepare('DELETE FROM product_variants WHERE product_id IN (SELECT id FROM products WHERE store_id = ?)').bind(id),
     db.prepare('DELETE FROM products WHERE store_id = ?').bind(id),
     db.prepare('DELETE FROM categories WHERE store_id = ?').bind(id),
-    ...['coupons', 'customer_contacts', 'campaigns', 'store_invoices', 'inventory_movements', 'store_onboardings', 'store_activation_requests', 'store_onboarding_legacy_stores', 'ai_usage_events', 'ai_usage_monthly', 'assistant_messages', 'telegram_operations', 'platform_events', 'audit_log', 'store_domains', 'store_services', 'user_access_tokens', 'provisioning_jobs', 'store_memberships']
+    ...['coupons', 'customer_contacts', 'campaigns', 'store_invoices', 'inventory_movements', 'store_onboardings', 'store_activation_requests', 'store_onboarding_legacy_stores', 'ai_credit_requests', 'ai_credit_ledger', 'ai_usage_events', 'ai_usage_monthly', 'assistant_messages', 'telegram_operations', 'platform_events', 'audit_log', 'store_domains', 'store_services', 'user_access_tokens', 'provisioning_jobs', 'store_memberships']
       .map((table) => db.prepare(`DELETE FROM ${table} WHERE store_id = ?`).bind(id)),
     db.prepare(`DELETE FROM user_access_tokens WHERE user_id IN ${users}`).bind(...orphanUsers),
     db.prepare(`DELETE FROM platform_users WHERE id IN ${users}`).bind(...orphanUsers),

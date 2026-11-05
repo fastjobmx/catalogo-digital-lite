@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
 import { AlertTriangle, CheckCircle2, Copy, Loader2, Pause, Play, Plus, RefreshCw, Store, XCircle } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import PlatformCredits from './PlatformCredits'
 import { platformApi, type CreateStorePayload, type PlatformStore, type PlatformSummary, type ProvisionResponse } from '../services/api'
 
 const STATUS: Record<string, { label: string; tone: string }> = {
@@ -150,6 +151,8 @@ export default function PlatformPage() {
             </tbody>
           </table>
         </section>
+
+        {token && role === 'superadmin' && <PlatformCredits token={token} stores={stores} />}
 
         {access && <AccessCard title={`Nuevos accesos · ${access.slug}`} access={access} onClose={() => setAccess(null)} />}
 

@@ -8,6 +8,8 @@ import {
   renameStoreSlug, requestCustomDomain, setStoreAiBudget, setStorePlan, setStoreStatus, storesHealth,
 } from '../services/platform'
 import type { StoreStatus } from '../tenancy/stores'
+import { getStoreBySlug } from '../tenancy/stores'
+import { CreditError, creditSummary, grantCredits, listCreditCosts, listCreditMovements, listCreditRequests, resolveCreditRequest, setCreditCost } from '../ai/credits'
 import { aiUsageAlerts, currentBillingPeriod, generateInvoices, listInvoices, setDomainStatus, setInvoiceStatus } from '../services/billing'
 
 const app = new Hono<Env>()
@@ -18,6 +20,7 @@ function actor(c: Context<Env>): string {
 }
 
 function fail(c: Context<Env>, error: unknown) {
+  if (error instanceof CreditError) return c.json({ error: error.message, code: error.code }, error.status)
   if (error instanceof PlatformError || error instanceof ProvisioningError) {
     const status = error.code.endsWith('NOT_FOUND') ? 404 : ['SLUG_TAKEN', 'DOMAIN_TAKEN', 'INVALID_TRANSITION', 'TELEGRAM_IN_USE', 'STORE_ACTIVE'].includes(error.code) ? 409 : 400
     return c.json({ error: error.message, code: error.code }, status)
@@ -120,6 +123,40 @@ app.post('/domains/:domain/status', async (c) => {
   const body = await c.req.json().catch(() => null) as { status?: string } | null
   if (!body?.status || !['verificado', 'activo', 'retirado'].includes(body.status)) return c.json({ error: 'Invalid status' }, 400)
   try { return c.json(await setDomainStatus(c.env.DB, c.req.param('domain'), body.status as 'verificado' | 'activo' | 'retirado', actor(c))) } catch (error) { return fail(c, error) }
+})
+
+// AI credits: costs per action, balances, recharges/adjustments and merchant recharge requests.
+// Only the platform superadmin reaches these routes; merchants can only read and request.
+app.get('/credits/costs', async (c) => c.json({ items: await listCreditCosts(c.env.DB) }))
+app.put('/credits/costs/:feature', async (c) => {
+  const body = await c.req.json().catch(() => null) as { credits?: unknown; enabled?: unknown } | null
+  if (!body) return c.json({ error: 'Invalid JSON body' }, 400)
+  try { return c.json(await setCreditCost(c.env.DB, c.req.param('feature'), body, actor(c))) } catch (error) { return fail(c, error) }
+})
+app.get('/credits/requests', async (c) => c.json({ items: await listCreditRequests(c.env.DB, { status: c.req.query('status'), limit: Number(c.req.query('limit') || 50) }) }))
+app.post('/credits/requests/:id/resolve', async (c) => {
+  const body = await c.req.json().catch(() => null) as { decision?: unknown; credits?: unknown; note?: unknown } | null
+  if (!body) return c.json({ error: 'Invalid JSON body' }, 400)
+  try { return c.json(await resolveCreditRequest(c.env.DB, Number(c.req.param('id')), body, actor(c))) } catch (error) { return fail(c, error) }
+})
+app.get('/stores/:slug/credits', async (c) => {
+  const store = await getStoreBySlug(c.env.DB, c.req.param('slug'))
+  if (!store) return c.json({ error: 'Store not found', code: 'STORE_NOT_FOUND' }, 404)
+  return c.json({
+    ...(await creditSummary(c.env.DB, store.id)),
+    movements: await listCreditMovements(c.env.DB, store.id, Number(c.req.query('limit') || 50)),
+    requests: await listCreditRequests(c.env.DB, { storeId: store.id, limit: 20 }),
+  })
+})
+app.post('/stores/:slug/credits', async (c) => {
+  const store = await getStoreBySlug(c.env.DB, c.req.param('slug'))
+  if (!store) return c.json({ error: 'Store not found', code: 'STORE_NOT_FOUND' }, 404)
+  const body = await c.req.json().catch(() => null) as { kind?: unknown; amount?: unknown; reason?: unknown } | null
+  if (!body) return c.json({ error: 'Invalid JSON body' }, 400)
+  try {
+    const result = await grantCredits(c.env.DB, store.id, body, (c.req.header('Idempotency-Key') || '').trim(), actor(c))
+    return c.json(result, result.replayed ? 200 : 201)
+  } catch (error) { return fail(c, error) }
 })
 
 app.get('/ai-alerts', async (c) => c.json({ items: await aiUsageAlerts(c.env.DB) }))

@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { CatalogProvider } from './contexts/CatalogContext'
 import AdminOnboarding from './admin/pages/Onboarding'
 import AdminSimulator from './admin/pages/Simulator'
+import AdminCredits from './admin/pages/Credits'
 import AdminStorePreview from './admin/pages/StorePreview'
 import AdminOrders from './admin/pages/Orders'
 import StoreLayout from './components/layout/StoreLayout'
@@ -100,6 +101,7 @@ export default function App() {
                     <Route path="settings" element={<AdminSettings />} />
                     <Route path="onboarding" element={<AdminOnboarding />} />
                     <Route path="simulator" element={<AdminSimulator />} />
+                    <Route path="creditos" element={<AdminCredits />} />
                     <Route path="orders" element={<AdminOrders />} />
                   </Route>
                 </>

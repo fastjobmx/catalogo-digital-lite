@@ -462,3 +462,32 @@ Publicado con autorización: frontend `3f0bdfa0` → `b467399d-9ebd-415c-9457-93
 Tienda Luz Mágica (`/t/luz-magica`, tienda 4, plan Profesional): creada desde el bot maestro. Se cargaron por API 115 productos, 273 fotos, 10 categorías, la plantilla Boutique rosa, el logo, la portada y los textos.
 
 Botón «Plataforma · todas las tiendas» en el panel (solo superadministrador) y `scripts/set-superadmin.mjs` (restablece ADMIN_EMAIL/ADMIN_PASSWORD_HASH sin exponer la clave). Publicado con autorización: frontend `b467399d` → `7ced8c3b-f8ab-4e04-a6f4-45c6f36f090e`.
+
+### Módulos IA de MOSTRALO PUES! — Fase 1 (diagnóstico) y Fase 2 (créditos) — 2026-11-05
+
+El diagnóstico y el plan por fases están en `docs/MODULOS_IA_DIAGNOSTICO_Y_PLAN.md`. Decisiones aprobadas:
+
+- Empezar la Fase 2 en local y staging.
+- Usar `read-excel-file` y `pdfjs-dist` en la Fase 3.
+- Para la prueba sin registro, solo límite por IP (sin Turnstile).
+
+**Fase 2 — créditos de IA por tienda**
+
+- **Migración aditiva `0011_ai_credits.sql`.** Crea tres tablas:
+  - Libro de movimientos de solo inserción, con reservas que vencen a los 15 minutos, un único cierre por reserva y claves de idempotencia.
+  - Costos por acción. Arranca vacía: no se fijan valores comerciales.
+  - Solicitudes de recarga, sin cobro en línea.
+- **Permisos.** Solo el superadministrador recarga o ajusta créditos, y un ajuste nunca deja el saldo negativo. El comercio solo ve su saldo y pide recargas.
+- **`runWithCredits`.** Une el interruptor de IA de la tienda, el presupuesto mensual y la reserva de créditos. Si la IA falla, devuelve los créditos.
+- **Interfaz.** Página «Créditos IA» en el panel y sección «Créditos de IA» en Plataforma.
+
+**Verificación**
+
+- Worker 265/265: 15 pruebas nuevas cubren doble envío, carrera por los últimos créditos, reserva vencida, autorrecarga prohibida, aislamiento entre tiendas y borrado de la tienda.
+- Frontend 69/69, con `build` correcto.
+- Staging: `0011` aplicada y Worker `9b3af30b-e602-46ce-a392-96597e9ab6f9`. Prueba de punta a punta 14/14 con una tienda temporal, que se eliminó al final.
+
+**Pendiente**
+
+- Producción: no se ha tocado.
+- Las pantallas no se revisaron con datos reales en el navegador.
