@@ -26,6 +26,7 @@ import { handleDocument, isSupportedDocument } from './assistant/documents'
 import { answerWithStoreFacts, draftProductDescription, interpretRequest } from './assistant/ai'
 import { detectIntent } from './assistant/intents'
 import { handleTeamCallback, showTeam } from './assistant/team'
+import { sendPanelPasswordReset } from './assistant/panelAccess'
 import { acceptCampaignText, createCampaign, detectCouponDraft, detectMarketingIntent, handleMarketingCallback, proposeCoupon, showCampaigns, showCoupons, showFollowUps, unsubscribe } from './assistant/marketing'
 import { detectMovementsQuery, detectStockMovement, proposeStockMovement, showStockMovements } from './assistant/inventory'
 import { acceptTrackingText, detectOrderIntent, handleOrderCallback, handleOrderIntent, showOrders } from './assistant/orders'
@@ -240,6 +241,7 @@ async function handleMenu(ctx: AssistantContext, key: string): Promise<void> {
     case 'm:access': await say(ctx, ACCESS_HELP_TEXT, { inline_keyboard: [[{ text: '🔄 Ver mis tiendas', callback_data: 'm:switch_store' }], [{ text: '↩ Menú principal', callback_data: 'm:menu' }]] }); return
     case 'm:new_product': await beginProductDraft(ctx); return
     case 'm:help': await say(ctx, HELP_TEXT, backToMenu()); return
+    case 'm:panel_password': await sendPanelPasswordReset(ctx); return
     case 'm:inventory': await readAndReply(ctx, 'get_inventory', {}, inventoryKeyboard()); return
     case 'm:low_stock': await readAndReply(ctx, 'get_low_stock', { threshold: 5 }, inventoryKeyboard()); return
     case 'm:out_of_stock': {
@@ -371,6 +373,9 @@ async function handleCommand(ctx: AssistantContext, text: string): Promise<boole
     }
     case '/continuar': await continueOnboarding(ctx); return true
     case '/equipo': await showTeam(ctx); return true
+    case '/clave':
+    case '/contrasena':
+    case '/contraseña': await sendPanelPasswordReset(ctx); return true
     case '/cupones': await showCoupons(ctx); return true
     case '/campanas':
     case '/campañas': await showCampaigns(ctx); return true

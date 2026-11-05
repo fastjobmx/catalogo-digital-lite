@@ -658,3 +658,22 @@ El detalle está en `docs/USUARIOS_CORREOS_DIAGNOSTICO_Y_PLAN.md` §4.
 - Proveedor de correo y dominio propio.
 
 La reversión está en `docs/USUARIOS_CORREOS_DIAGNOSTICO_Y_PLAN.md` §5.
+
+### Asistente de Telegram: «🔐 Contraseña del panel» — 2026-11-05 (autorizado, en producción)
+
+**Qué hace**
+
+- El botón está en el menú de la tienda y en el menú principal; también funcionan `/clave` y `/contraseña`.
+- Envía el enlace de restablecimiento de la cuenta del panel vinculada a ese Telegram, al mismo chat. Si el correo de la cuenta está verificado, lo envía por correo.
+- El enlace va solo dentro del botón y sirve una sola vez.
+- No envía otro enlace antes de 2 minutos.
+
+**Archivos**
+
+- `worker/src/services/assistant/panelAccess.ts` y su prueba.
+
+**Verificación**
+
+- Servidor 307/307.
+- Staging `f73621f4`.
+- Producción: `2b02f6a7` → `5404beca-1c7d-4085-97f6-e6aaa020cd84`. Salud 200 y los 10 secretos intactos.

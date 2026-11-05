@@ -60,7 +60,7 @@ describe('one Telegram account, several stores', () => {
     expect(telegram.messages().at(-1)).toContain('🏪 Tienda actual: <b>Tienda A</b>')
     await send(callbackUpdate(OWNER, `s:select:${tiendaB}`))
     expect(telegram.messages().at(-1)).toContain('¡Perfecto! Ahora estás administrando <b>Tienda B</b>')
-    expect(buttons(telegram).map((b) => b.text)).toEqual(['➕ Agregar producto', '📦 Inventario', '🛒 Pedidos', '🎨 Mi tienda', '🔄 Cambiar tienda', '✨ Asistente IA'])
+    expect(buttons(telegram).map((b) => b.text)).toEqual(['➕ Agregar producto', '📦 Inventario', '🛒 Pedidos', '🎨 Mi tienda', '🔄 Cambiar tienda', '✨ Asistente IA', '🔐 Contraseña del panel'])
     await send(textUpdate(OWNER, '/menu'))
     expect(telegram.messages().at(-1)).toContain('🏪 Tienda actual: <b>Tienda B</b>')
     await send(textUpdate(OWNER, '/inventario'))

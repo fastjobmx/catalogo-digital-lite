@@ -9,7 +9,7 @@ export function mainMenuKeyboard(_multiStore = false): InlineKeyboard {
     [{ text: '🛒 Consultar pedidos', callback_data: 'm:orders' }, { text: '⚙️ Configurar mi tienda', callback_data: 'm:appearance' }],
     [{ text: '✨ Preguntar a la IA', callback_data: 'm:ask_ai' }, { text: '📊 Reportes', callback_data: 'm:reports' }],
     [{ text: '🏷️ Categorías', callback_data: 'm:categories' }, { text: '❔ Ayuda', callback_data: 'm:help' }],
-    [{ text: '🔄 Cambiar de tienda', callback_data: 'm:switch_store' }],
+    [{ text: '🔄 Cambiar de tienda', callback_data: 'm:switch_store' }, { text: '🔐 Contraseña del panel', callback_data: 'm:panel_password' }],
   ] }
 }
 
@@ -19,6 +19,7 @@ export function switchedStoreKeyboard(): InlineKeyboard {
     [{ text: '➕ Agregar producto', callback_data: 'm:new_product' }, { text: '📦 Inventario', callback_data: 'm:inventory' }],
     [{ text: '🛒 Pedidos', callback_data: 'm:orders' }, { text: '🎨 Mi tienda', callback_data: 'm:appearance' }],
     [{ text: '🔄 Cambiar tienda', callback_data: 'm:switch_store' }, { text: '✨ Asistente IA', callback_data: 'm:ask_ai' }],
+    [{ text: '🔐 Contraseña del panel', callback_data: 'm:panel_password' }],
   ] }
 }
 
