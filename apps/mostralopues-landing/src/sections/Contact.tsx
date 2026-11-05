@@ -81,6 +81,7 @@ export function Contact() {
         <div>
           <h2 id="contacto-title" className="display text-[clamp(2.8rem,8vw,7rem)]">Solicitá <span className="block text-lime">tu tienda.</span></h2>
           <p className="mt-6 max-w-lg text-lg text-mist md:text-xl">Contanos de tu negocio y armamos tu tienda con vos. Te respondemos por WhatsApp.</p>
+          <p className="mt-4 max-w-lg text-mist">¿Primero querés ver cómo queda? <a href={site.trialUrl} target="_blank" rel="noopener noreferrer" className="font-bold text-lime underline underline-offset-4 hover:text-ivory">Armá una vista previa gratis con tus fotos<span className="sr-only"> (se abre en una pestaña nueva)</span></a>. Es temporal y no se publica.</p>
           <div className="mt-10 space-y-4">
             <a href={whatsappLink()} target="_blank" rel="noopener noreferrer" className="group flex w-fit items-center gap-4 rounded-full py-1 pr-2 text-lg font-semibold hover:text-lime">
               <span className="grid size-12 place-items-center rounded-full bg-lime text-forest"><Icon name="whatsapp" size={22} /></span>

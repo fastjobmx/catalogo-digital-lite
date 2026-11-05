@@ -6,6 +6,7 @@ test.describe.configure({ mode: 'serial' })
 const MUST_WORK = [
   'https://catalogo-digital-ia.catalogo-lite-worker.workers.dev/',
   'https://catalogo-digital-ia.catalogo-lite-worker.workers.dev/admin/login',
+  'https://catalogo-digital-ia.catalogo-lite-worker.workers.dev/prueba',
 ]
 // Social networks often answer bots with redirects to a login page or 4xx: reported, not asserted.
 const REPORT_ONLY = [

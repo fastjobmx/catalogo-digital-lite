@@ -29,6 +29,7 @@ export function Footer() {
               <p className="font-display text-sm font-bold text-mist">Para comercios</p>
               <ul className="mt-4 space-y-1">
                 <li><a href={site.adminLoginUrl} target="_blank" rel="noopener noreferrer" className="inline-block py-1.5 font-semibold hover:text-lime">Ingresar a mi tienda<span className="sr-only"> (se abre en una pestaña nueva)</span></a></li>
+                <li><a href={site.trialUrl} target="_blank" rel="noopener noreferrer" className="inline-block py-1.5 font-semibold hover:text-lime">Prueba gratis<span className="sr-only"> (se abre en una pestaña nueva)</span></a></li>
                 <li><a href={site.demoStoreUrl} target="_blank" rel="noopener noreferrer" className="inline-block py-1.5 font-semibold hover:text-lime">Tienda demo<span className="sr-only"> (se abre en una pestaña nueva)</span></a></li>
                 <li><a href={`https://wa.me/${site.whatsapp.number}`} target="_blank" rel="noopener noreferrer" className="inline-block py-1.5 font-semibold hover:text-lime">WhatsApp {site.whatsapp.display}<span className="sr-only"> (se abre en una pestaña nueva)</span></a></li>
               </ul>

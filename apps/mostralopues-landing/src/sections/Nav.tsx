@@ -50,17 +50,26 @@ export function Nav() {
           <nav aria-label="Principal" className="hidden xl:block">
             <ul className="flex items-center gap-1">
               {nav.slice(1).map((item) => (
-                <li key={item.href}>
-                  <a href={item.href} className="rounded-full px-3 py-2 text-[0.88rem] font-semibold text-forest/80 transition-colors hover:bg-forest/6 hover:text-forest">{item.label}</a>
+                // "Contacto" is the same destination as "Quiero mi tienda": shown only when there is room.
+                <li key={item.href} className={item.href === '#contacto' ? 'hidden 2xl:block' : undefined}>
+                  <a href={item.href} className="whitespace-nowrap rounded-full px-2.5 py-2 text-[0.86rem] font-semibold text-forest/80 transition-colors hover:bg-forest/6 hover:text-forest 2xl:px-3 2xl:text-[0.88rem]">{item.label}</a>
                 </li>
               ))}
+              <li>
+                <a href={site.trialUrl} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-lime/35 px-3 py-2 text-[0.86rem] font-bold text-forest ring-1 ring-forest/10 transition-colors hover:bg-lime">
+                  Prueba gratis<span className="sr-only"> (se abre en una pestaña nueva)</span>
+                </a>
+              </li>
             </ul>
           </nav>
           <div className="flex items-center gap-2">
-            <a href={site.adminLoginUrl} target="_blank" rel="noopener noreferrer" className="hidden rounded-full px-4 py-2.5 text-[0.85rem] font-bold uppercase tracking-wide text-forest hover:bg-forest/6 md:inline-flex">
-              Ingresar a mi tienda<span className="sr-only"> (se abre en una pestaña nueva)</span>
+            <a href={site.trialUrl} target="_blank" rel="noopener noreferrer" className="inline-flex whitespace-nowrap rounded-full px-3 py-2.5 text-[0.78rem] font-bold uppercase tracking-wide text-forest ring-1 ring-forest/15 hover:bg-lime/40 md:text-[0.85rem] xl:hidden">
+              Prueba gratis<span className="sr-only"> (se abre en una pestaña nueva)</span>
             </a>
-            <span className="hidden min-[440px]:block"><Button href="#contacto" variant="lime">Quiero mi tienda</Button></span>
+            <a href={site.adminLoginUrl} target="_blank" rel="noopener noreferrer" className="hidden whitespace-nowrap rounded-full px-4 py-2.5 text-[0.85rem] font-bold uppercase tracking-wide text-forest hover:bg-forest/6 md:inline-flex">
+              Ingresar<span className="xl:hidden 2xl:inline">&nbsp;a mi tienda</span><span className="sr-only"> (se abre en una pestaña nueva)</span>
+            </a>
+            <span className="hidden min-[600px]:block"><Button href="#contacto" variant="lime">Quiero mi tienda</Button></span>
             <button
               ref={toggle}
               type="button"
@@ -95,6 +104,7 @@ export function Nav() {
         </nav>
         <div className="mt-6 grid gap-3 sm:grid-cols-2">
           <Button href="#contacto" variant="lime" size="lg" icon="arrowRight" onClick={close}>Quiero mi tienda</Button>
+          <Button href={site.trialUrl} variant="ivory" size="lg" icon="arrowUpRight" external>Prueba gratis, sin registro</Button>
           <Button href={site.adminLoginUrl} variant="outline-light" size="lg" icon="arrowUpRight" external>Ingresar a mi tienda</Button>
         </div>
       </div>

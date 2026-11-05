@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 
 const DEMO = 'https://catalogo-digital-ia.catalogo-lite-worker.workers.dev/'
 const ADMIN = 'https://catalogo-digital-ia.catalogo-lite-worker.workers.dev/admin/login'
+const TRIAL = 'https://catalogo-digital-ia.catalogo-lite-worker.workers.dev/prueba'
 
 test.describe('page', () => {
   test('loads without console errors, with one h1 and prerendered content', async ({ page, request }) => {
@@ -47,6 +48,7 @@ test.describe('page', () => {
     const hrefs = external.map((l) => l.href)
     expect(hrefs).toContain(DEMO)
     expect(hrefs).toContain(ADMIN)
+    expect(hrefs).toContain(TRIAL)
     expect(hrefs.some((h) => h.startsWith('https://wa.me/573506912734'))).toBe(true)
     for (const social of ['https://www.facebook.com/mostralopues/', 'https://www.instagram.com/mostralopues/', 'https://www.tiktok.com/@mostralopues']) expect(hrefs).toContain(social)
   })

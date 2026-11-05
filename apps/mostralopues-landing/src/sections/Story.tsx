@@ -47,6 +47,9 @@ function HeroCopy() {
           <Button href="#contacto" variant="forest" size="lg" icon="arrowRight">Quiero mi tienda</Button>
           <Button href={site.demoStoreUrl} variant="outline-dark" size="lg" icon="arrowUpRight" external>Ver una tienda real</Button>
         </div>
+        <p className="intro-3 mt-4 text-[0.95rem] text-ink-soft">
+          ¿Querés verlo con tus productos? <a href={site.trialUrl} target="_blank" rel="noopener noreferrer" className="font-bold text-forest underline decoration-lime decoration-[3px] underline-offset-4 hover:decoration-forest">Probalo gratis, sin registrarte<span className="sr-only"> (se abre en una pestaña nueva)</span></a>
+        </p>
       </div>
     </div>
   )

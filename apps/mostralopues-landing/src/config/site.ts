@@ -11,6 +11,8 @@ export const site = {
   demoStoreUrl: 'https://catalogo-digital-ia.catalogo-lite-worker.workers.dev/',
   /** Store owners' panel login. Accounts with several stores choose the store after signing in. */
   adminLoginUrl: 'https://catalogo-digital-ia.catalogo-lite-worker.workers.dev/admin/login',
+  /** Free trial without sign-up: a temporary, unpublished preview of the visitor's catalogue (48 hours). */
+  trialUrl: 'https://catalogo-digital-ia.catalogo-lite-worker.workers.dev/prueba',
 
   whatsapp: {
     /** International format, digits only. */
