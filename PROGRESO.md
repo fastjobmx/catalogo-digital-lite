@@ -460,3 +460,5 @@ Verificación: frontend 69/69. Prueba de punta a punta con Playwright 9/9, en lo
 Publicado con autorización: frontend `3f0bdfa0` → `b467399d-9ebd-415c-9457-93879940c5ae`. Para revertir: `cd frontend; node ../worker/node_modules/wrangler/bin/wrangler.js rollback 3f0bdfa0-ceae-4b58-b3c6-c27dc2c4d3d2`.
 
 Tienda Luz Mágica (`/t/luz-magica`, tienda 4, plan Profesional): creada desde el bot maestro. Se cargaron por API 115 productos, 273 fotos, 10 categorías, la plantilla Boutique rosa, el logo, la portada y los textos.
+
+Botón «Plataforma · todas las tiendas» en el panel (solo superadministrador) y `scripts/set-superadmin.mjs` (restablece ADMIN_EMAIL/ADMIN_PASSWORD_HASH sin exponer la clave). Publicado con autorización: frontend `b467399d` → `7ced8c3b-f8ab-4e04-a6f4-45c6f36f090e`.

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Package, Boxes, Tag, Settings, LogOut, Bot, Sparkles, ClipboardList,
-  Palette, Menu, X, ExternalLink, ChevronRight, CircleUserRound,
+  Palette, Menu, X, ExternalLink, ChevronRight, CircleUserRound, Building2,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
@@ -69,7 +69,7 @@ export function isAdminLinkActive(pathname: string, hash: string, item: AdminNav
 export default function AdminLayout() {
   const location = useLocation()
   const navigate = useNavigate()
-  const { email, logout, isDemoSession } = useAuth()
+  const { email, logout, isDemoSession, role } = useAuth()
   const { store, backendAvailable } = useStore()
   const [mobileOpen, setMobileOpen] = useState(false)
   const menuTriggerRef = useRef<HTMLButtonElement>(null)
@@ -169,6 +169,16 @@ export default function AdminLayout() {
           <p className="text-xs font-semibold text-ink truncate" title={email || ''}>{email || 'Usuario administrador'}</p>
         </div>
       </div>
+      {role === 'superadmin' && (
+        <Link
+          to="/plataforma"
+          onClick={onNavigate}
+          className="flex items-center gap-3 px-3 py-2.5 rounded-btn text-sm font-semibold text-brand bg-brand/10 hover:bg-brand/15 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+        >
+          <Building2 size={18} />
+          Plataforma · todas las tiendas
+        </Link>
+      )}
       <Link
         to="/"
         target="_blank"
