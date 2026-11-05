@@ -678,7 +678,7 @@ La reversión está en `docs/USUARIOS_CORREOS_DIAGNOSTICO_Y_PLAN.md` §5.
 - Staging `f73621f4`.
 - Producción: `2b02f6a7` → `5404beca-1c7d-4085-97f6-e6aaa020cd84`. Salud 200 y los 10 secretos intactos.
 
-### Mini tienda de prueba y conversión a cliente — 2026-11-05 (staging; producción pendiente de autorización)
+### Mini tienda de prueba y conversión a cliente — 2026-11-05 (autorizado, en producción)
 
 **Qué cambió**
 
@@ -702,3 +702,4 @@ La reversión está en `docs/USUARIOS_CORREOS_DIAGNOSTICO_Y_PLAN.md` §5.
 - Servidor 319/319 y panel 81/81.
 - Navegador contra staging 33/33.
 - Staging en `2bf5cd38`.
+- Producción: `0015` aplicada (respaldo `.tmp/production-0015/`). Servidor `13561c72` → `dcb2c207`. Panel `8a155ad5`. Verificación en vivo correcta; los conteos quedaron iguales.

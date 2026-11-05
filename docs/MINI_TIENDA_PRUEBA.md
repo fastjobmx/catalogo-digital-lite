@@ -58,7 +58,18 @@ Las métricas son reales: pruebas creadas, vigentes, vencidas, borradas y conver
 - Panel: 81/81 pruebas.
 - Navegador contra staging, con la migración 0015 aplicada y el servidor en `2bf5cd38`: 33/33 comprobaciones, incluido un pedido real de un comprador que llega al WhatsApp del comercio con el total calculado por el servidor. Recorre todo el flujo, de crear la tienda sin registro a la conversión sin duplicados, el vencimiento y las tiendas existentes intactas. La tienda creada por la prueba se borró al terminar.
 
-## Pasos para producción (requieren autorización)
+## En producción (2026-11-05, autorizado)
+
+| Paso | Resultado |
+|---|---|
+| Respaldo | `.tmp/production-0015/production-pre-0015.sql`. Time Travel `0000018e-00000000-0000511a-6fccf280cb01e3d9dc533378a674cae2`. |
+| Migración | `0015` aplicada en `catalogo-lite-production-db`. |
+| Servidor | `catalogo-lite-api` pasó de `13561c72` a `dcb2c207-dff8-4a07-8681-e78234c7a106`. |
+| Panel | `catalogo-digital-ia` en `8a155ad5-8521-479e-9a84-e70450c3880f`. |
+| Verificación en vivo | Salud 200 y los 10 secretos intactos. Los ajustes quedan en 7 días, 7 productos y pedidos activos. Se creó una prueba, se le hizo un pedido (código `PRB-…`, total del servidor 36.000, sin acceso público a los pedidos), se rechazó un octavo producto y luego se borró la prueba. Las rutas de plataforma piden sesión. Siguen iguales 4 tiendas, 161 productos, 14 pedidos y 3 usuarios, sin pedidos de prueba guardados. `/prueba` carga sin errores. |
+| Commit | `4a9a126` en `main`. |
+
+## Pasos para producción (referencia)
 
 1. Respaldar D1.
 2. Aplicar `0015`.
