@@ -257,3 +257,62 @@ Todas las fases se hacen en local y staging. Producción solo con tu autorizaci�
   - Panel 78/78, con `build` correcto.
   - Staging (`0013` aplicada, Worker `d81e1207`): navegador 11/11 en celular y computador. Se comprobó que no se crea ninguna tienda (1 → 1) y que, al borrar la prueba, desaparece junto con sus fotos.
 - **Sin hacer.** El sitio comercial de MOSTRALO PUES! no enlaza todavía a `/prueba`: no lo toqué, porque modificarlo no era necesario. Se puede agregar con tu autorización.
+
+## 6. Fase 8 — Validación y despliegue a producción (2026-11-05, autorizado)
+
+### Estado de los cinco módulos
+
+| Módulo | Estado | Dónde | Verificación |
+|---|---|---|---|
+| 1. Catálogo desde fotos + Estudio IA | **En producción** | Panel → «Desde fotos» y «Estudio IA»; `POST /api/admin/ai/photo-product`, `POST /api/admin/ai/studio` | Gemini real en staging (foto 10/10, Estudio 6/6, navegador 13/13 y 6/6) |
+| 2. Importación PDF / Excel / CSV | **En producción** | Panel → «Importar» (6 pasos, «Leer con IA» para PDF escaneados); `/api/admin/imports/*`, `POST /api/admin/ai/catalog-page` | Navegador en staging: 18/18 y 13/13 |
+| 3. Plantilla vertical Stories | **En producción** | Plantilla `stories` en Apariencia, Plataforma y bots | Navegador en producción 10/10, solo lectura y con el pedido simulado |
+| 4. Prueba sin registro | **En producción** | `/prueba` y `/prueba/:id`; `/api/trial/*` | Navegador en producción 10/10; la prueba se borró al terminar |
+| 5. IA ON/OFF y créditos | **En producción** | Panel → «Créditos IA»; Plataforma → «Créditos de IA»; `/api/admin/credits*`, `/api/platform/credits*` | Staging de punta a punta 14/14; servidor 289/289 |
+
+### Lo que se publicó
+
+- **Base de datos** `catalogo-lite-production-db`: migraciones aditivas `0011`, `0012` y `0013`, que crean 7 tablas nuevas y no tocan datos existentes.
+  - Respaldo: `.tmp/production-0013/production-pre-0011.sql` (1.567 registros).
+  - Punto de restauración (Time Travel): `00000147-00000000-0000511a-32b418fdbc1b596831cd1e86f43e4c64`.
+- **Servidor** `catalogo-lite-api`: `315d0057` → `5fe8c831-fc47-42dd-8168-d4c238ae5f68`.
+  - Variables nuevas: `GEMINI_IMAGE_MODEL = gemini-3.1-flash-image` y `GEMINI_IMAGE_PRICE_OUTPUT_MICROS_PER_MTOK = 60000000`.
+  - Los 10 secretos siguen intactos (solo se verificaron sus nombres).
+  - Webhooks de los bots sin cambios. El del bot maestro responde 403 sin su secreto.
+- **Panel** `catalogo-digital-ia`: `7ced8c3b` → `10a464ba` → `b8ca7677-f274-426e-8237-9c118bf3f2d7`. La última versión corrige 3 px de alto en Stories cuando las fuentes terminan de cargar.
+
+### Comprobaciones en producción
+
+- **API:** 13/13. Incluye salud del servidor, las 4 tiendas con los mismos productos, que créditos, importación, Estudio y Plataforma exigen sesión, crear y borrar una prueba con `noindex`, y que las fotos de pruebas no salen por la ruta general.
+- **Pedido por WhatsApp:** 9/9, con pedidos simulados.
+- **Stories:** 10/10.
+- **Prueba sin registro:** 10/10.
+- **Conteos** antes y después iguales: 4 tiendas, 146 productos, 14 pedidos, 3 usuarios y 0 pruebas sobrantes.
+- **Sin probar en producción con sesión:** créditos, importación, fotos y Estudio. Probarlo ahí habría creado datos o gastado IA en tiendas reales; se probaron completos en staging.
+
+### Reversión (en este orden)
+
+1. **Panel:**
+
+   ```
+   cd frontend; node ../worker/node_modules/wrangler/bin/wrangler.js rollback 7ced8c3b-f8ab-4e04-a6f4-45c6f36f090e
+   ```
+
+2. **Servidor:**
+
+   ```
+   cd worker; npx wrangler rollback 315d0057-406c-46ba-bac1-e7c5ddc82316 --config wrangler.production.toml
+   ```
+
+   Conserva los secretos actuales. No se debe revertir a una versión anterior a `f9928a44`.
+3. **Solo si hace falta,** revertir las tablas con `database/rollback/0013…down.sql`, luego `0012` y luego `0011`, ejecutados con `wrangler d1 execute --file`.
+   - Borran el historial de créditos, importaciones y pruebas. Exporta antes.
+   - Las tablas nuevas no estorban al código anterior, así que normalmente basta con los pasos 1 y 2.
+
+### Pendiente y decisiones comerciales
+
+- **Precio en créditos de cada acción.** La tabla está vacía a propósito: mientras no se defina, las acciones de IA usan el límite mensual de cada plan. Costo real medido:
+  - foto o página: unos US$ 0.002–0.003;
+  - Estudio: unos US$ 0.07–0.09 por imagen.
+- **Enlace desde el sitio MOSTRALO PUES! a `/prueba`.** No se agregó.
+- **Ningún comercio tiene créditos asignados aún.** Se recargan desde Plataforma, después de recibir el pago por fuera.

@@ -19,6 +19,9 @@ ALLOWED_ORIGIN = "https://catalogo-digital-ia.catalogo-lite-worker.workers.dev,h
 COMMERCE_ENABLED = "true"
 # Plataforma 3.0: base pública para enlaces de tiendas (/t/<dirección>) y activaciones.
 PUBLIC_STORE_BASE_URL = "https://catalogo-digital-ia.catalogo-lite-worker.workers.dev"
+# Estudio IA: modelo que devuelve imágenes y su precio de salida (US$60 por millón de tokens de imagen)
+GEMINI_IMAGE_MODEL = "gemini-3.1-flash-image"
+GEMINI_IMAGE_PRICE_OUTPUT_MICROS_PER_MTOK = "60000000"
 # Secretos adicionales (wrangler secret put): MASTER_BOT_TOKEN, MASTER_WEBHOOK_SECRET,
 # MASTER_ADMIN_TELEGRAM_IDS. Opcional: TELEGRAM_BOT_USERNAME, PLATFORM_AI_MONTHLY_CAP_MICROS.
 

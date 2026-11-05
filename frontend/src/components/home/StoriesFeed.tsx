@@ -17,12 +17,17 @@ export default function StoriesFeed() {
   const feed = useRef<HTMLDivElement>(null)
   const [height, setHeight] = useState<number | null>(null)
 
-  // The feed fills the screen below the header (the header height depends on the store's banner).
+  // The feed fills the screen below the header. The header can grow after load (web fonts, banner
+  // text), so it is measured again whenever anything above the feed changes size.
   useEffect(() => {
-    const measure = () => { if (feed.current) setHeight(Math.max(420, window.innerHeight - Math.max(0, feed.current.getBoundingClientRect().top + window.scrollY))) }
+    const measure = () => { if (feed.current) setHeight(Math.max(420, Math.round(window.innerHeight - Math.max(0, feed.current.getBoundingClientRect().top + window.scrollY)))) }
     measure()
     window.addEventListener('resize', measure)
-    return () => window.removeEventListener('resize', measure)
+    void document.fonts?.ready.then(measure)
+    const header = document.querySelector('header')
+    const observer = header && 'ResizeObserver' in window ? new ResizeObserver(measure) : null
+    if (header) observer?.observe(header)
+    return () => { window.removeEventListener('resize', measure); observer?.disconnect() }
   }, [])
 
   const ordered = useMemo(() => {

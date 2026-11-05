@@ -586,3 +586,31 @@ Asistente de 6 pasos en `/admin/importar`: Archivo → Lectura → Columnas → 
 
 - Servidor 289/289 y panel 78/78.
 - Staging (Worker `d81e1207-23bc-4434-81e6-b2a39719a1e2`): navegador 11/11.
+
+### Módulos IA — Fase 8: despliegue a producción — 2026-11-05 (autorizado: «implementar todas las fases a producción»)
+
+**Base de datos**
+
+- Migraciones `0011`, `0012` y `0013` aplicadas en `catalogo-lite-production-db`.
+- Respaldo en `.tmp/production-0013/production-pre-0011.sql`.
+- Punto de restauración (Time Travel): `00000147-00000000-0000511a-32b418fdbc1b596831cd1e86f43e4c64`.
+
+**Servidor**
+
+- `catalogo-lite-api`: `315d0057` → `5fe8c831-fc47-42dd-8168-d4c238ae5f68`, con `GEMINI_IMAGE_MODEL` y su precio.
+
+**Panel**
+
+- `catalogo-digital-ia`: `7ced8c3b` → `b8ca7677-f274-426e-8237-9c118bf3f2d7`.
+
+**Verificación en producción**
+
+- API 13/13.
+- Pedido por WhatsApp 9/9.
+- Stories 10/10.
+- Prueba sin registro 10/10.
+- Conteos iguales antes y después: 4 tiendas, 146 productos, 14 pedidos y 3 usuarios.
+
+**Reversión y estado**
+
+- Los pasos de reversión y la tabla de estado de los cinco módulos están en `docs/MODULOS_IA_DIAGNOSTICO_Y_PLAN.md` §6.
