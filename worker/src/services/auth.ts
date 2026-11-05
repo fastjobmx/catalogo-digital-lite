@@ -108,7 +108,7 @@ async function verifyAdminPassword(password: string, encoded: string): Promise<b
  } catch { return false }
 }
 
-export async function createAdminToken(email: string, secret: string, claims: { sub?: string; sa?: boolean } = { sa: true }): Promise<string> {
+export async function createAdminToken(email: string, secret: string, claims: { sub?: string; sa?: boolean } = { sa: true }, issuedAt?: number): Promise<string> {
  const secretKey = new TextEncoder().encode(secret)
 
  const payload: Record<string, unknown> = { email }
@@ -117,7 +117,7 @@ export async function createAdminToken(email: string, secret: string, claims: { 
  if (claims.sub) builder.setSubject(claims.sub)
  const jwt = await builder
  .setProtectedHeader({ alg: 'HS256' })
- .setIssuedAt()
+ .setIssuedAt(issuedAt)
  .setExpirationTime('24h')
  .sign(secretKey)
 
@@ -163,7 +163,7 @@ export function getJwtSecret(env: Env['Bindings']): string | null {
 export function principalFromToken(token: AdminToken, env: Env['Bindings']): Principal | null {
  if (token.sub !== undefined) {
   const userId = Number(token.sub)
-  return Number.isSafeInteger(userId) && userId > 0 ? { kind: 'user', userId, email: token.email } : null
+  return Number.isSafeInteger(userId) && userId > 0 ? { kind: 'user', userId, email: token.email, issuedAt: token.iat } : null
  }
  const adminEmail = String(env.ADMIN_EMAIL || '').trim().toLowerCase()
  if (adminEmail && token.email.trim().toLowerCase() === adminEmail) return { kind: 'superadmin', email: token.email }

@@ -37,6 +37,11 @@ export const adminAuth = createMiddleware<Env>(async (c, next) => {
 
   const store = await resolveStore(c.env.DB, storeSelectorFromRequest(c.req))
   if (!store) return c.json({ error: 'Store not found', code: 'STORE_NOT_FOUND' }, 404)
+  // Sessions issued before a password change (or a forced sign-out) stop working.
+  if (principal.kind === 'user') {
+    const user = await c.env.DB.prepare('SELECT credentials_changed_at AS changedAt FROM platform_users WHERE id = ?').bind(principal.userId).first<{ changedAt: number | null }>()
+    if (user?.changedAt && (principal.issuedAt ?? 0) <= user.changedAt) return c.json({ error: 'Your session ended. Sign in again.', code: 'SESSION_EXPIRED' }, 401)
+  }
   const role = await resolveStoreRole(c.env.DB, principal, store)
   if (!role) {
     const suspended = store.status === 'suspended' || store.status === 'cancelled'

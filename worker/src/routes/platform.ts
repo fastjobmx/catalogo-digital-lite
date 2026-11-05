@@ -9,6 +9,9 @@ import {
 } from '../services/platform'
 import type { StoreStatus } from '../tenancy/stores'
 import { getStoreBySlug } from '../tenancy/stores'
+import { TemplateError } from '../email/templates'
+import { createTemplate, duplicateTemplate, emailHistory, emailStatus, listTemplates, previewTemplate, sendTestEmail, setTemplateActive, updateTemplate, variablesFor } from '../email/manage'
+import { regularizeOwner, storesWithoutVerifiedOwner } from '../services/ownerRegularization'
 import { CreditError, creditSummary, grantCredits, listCreditCosts, listCreditMovements, listCreditRequests, resolveCreditRequest, setCreditCost } from '../ai/credits'
 import { aiUsageAlerts, currentBillingPeriod, generateInvoices, listInvoices, setDomainStatus, setInvoiceStatus } from '../services/billing'
 
@@ -21,6 +24,7 @@ function actor(c: Context<Env>): string {
 
 function fail(c: Context<Env>, error: unknown) {
   if (error instanceof CreditError) return c.json({ error: error.message, code: error.code }, error.status)
+  if (error instanceof TemplateError) return c.json({ error: error.message, code: error.code }, error.code.endsWith('NOT_FOUND') ? 404 : 400)
   if (error instanceof PlatformError || error instanceof ProvisioningError) {
     const status = error.code.endsWith('NOT_FOUND') ? 404 : ['SLUG_TAKEN', 'DOMAIN_TAKEN', 'INVALID_TRANSITION', 'TELEGRAM_IN_USE', 'STORE_ACTIVE'].includes(error.code) ? 409 : 400
     return c.json({ error: error.message, code: error.code }, status)
@@ -169,6 +173,45 @@ app.get('/ai/models', async (c) => {
     .filter((model) => model.supportedGenerationMethods?.includes('generateContent'))
     .map((model) => ({ name: String(model.name || '').replace(/^models\//, ''), displayName: model.displayName || '' }))
   return c.json({ configured: true, textModel: c.env.GEMINI_MODEL || null, imageModel: c.env.GEMINI_IMAGE_MODEL || null, items })
+})
+
+// Email templates and send history (superadmin). Links are produced only by the system flows.
+app.get('/email/status', (c) => c.json(emailStatus(c.env)))
+app.get('/email/templates', async (c) => c.json({ items: (await listTemplates(c.env.DB)).map((template) => ({ ...template, variables: variablesFor(template.systemKey) })) }))
+app.post('/email/templates', async (c) => {
+  const body = await c.req.json().catch(() => null)
+  if (!body) return c.json({ error: 'Invalid JSON body' }, 400)
+  try { return c.json(await createTemplate(c.env.DB, body, actor(c)), 201) } catch (error) { return fail(c, error) }
+})
+app.put('/email/templates/:id', async (c) => {
+  const body = await c.req.json().catch(() => null)
+  if (!body) return c.json({ error: 'Invalid JSON body' }, 400)
+  try { return c.json(await updateTemplate(c.env.DB, Number(c.req.param('id')), body, actor(c))) } catch (error) { return fail(c, error) }
+})
+app.post('/email/templates/:id/duplicate', async (c) => {
+  try { return c.json(await duplicateTemplate(c.env.DB, Number(c.req.param('id')), actor(c)), 201) } catch (error) { return fail(c, error) }
+})
+app.post('/email/templates/:id/status', async (c) => {
+  const body = await c.req.json().catch(() => null) as { active?: unknown } | null
+  if (typeof body?.active !== 'boolean') return c.json({ error: 'active must be true or false' }, 400)
+  try { return c.json(await setTemplateActive(c.env.DB, Number(c.req.param('id')), body.active, actor(c))) } catch (error) { return fail(c, error) }
+})
+app.post('/email/templates/:id/preview', async (c) => {
+  const body = await c.req.json().catch(() => ({})) as { draft?: Record<string, unknown> }
+  try { return c.json(await previewTemplate(c.env.DB, Number(c.req.param('id')), body.draft)) } catch (error) { return fail(c, error) }
+})
+app.post('/email/templates/:id/test', async (c) => {
+  const body = await c.req.json().catch(() => null) as { to?: unknown } | null
+  try { return c.json(await sendTestEmail(c.env.DB, c.env, Number(c.req.param('id')), body?.to, (c.req.header('Idempotency-Key') || '').trim(), actor(c))) } catch (error) { return fail(c, error) }
+})
+app.get('/email/messages', async (c) => c.json({ items: await emailHistory(c.env.DB, { status: c.req.query('status'), purpose: c.req.query('purpose'), limit: Number(c.req.query('limit') || 100) }) }))
+
+// Stores without an owner whose email is verified, and their supervised regularization.
+app.get('/owners/unverified', async (c) => c.json({ items: await storesWithoutVerifiedOwner(c.env.DB) }))
+app.post('/stores/:slug/owner-regularization', async (c) => {
+  const body = await c.req.json().catch(() => null)
+  if (!body) return c.json({ error: 'Invalid JSON body' }, 400)
+  try { return c.json(await regularizeOwner(c.env.DB, c.env, c.req.param('slug'), body, actor(c))) } catch (error) { return fail(c, error) }
 })
 
 app.get('/ai-alerts', async (c) => c.json({ items: await aiUsageAlerts(c.env.DB) }))

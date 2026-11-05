@@ -49,6 +49,12 @@ export type Env = {
  GEMINI_IMAGE_MODEL?: string
  /** Catalogue trial without sign-up: 'false' turns it off. */
  TRIALS_ENABLED?: string
+ /** Email: provider name ('resend'), sender address and API key (secret). Unset = emails are recorded as not configured. */
+ EMAIL_PROVIDER?: string
+ EMAIL_FROM?: string
+ RESEND_API_KEY?: string
+ /** Extra addresses allowed to receive template test emails (comma separated). The superadmin email is always allowed. */
+ EMAIL_TEST_RECIPIENTS?: string
  /** Maximum trials created per day across the platform (default 300). */
  TRIALS_DAILY_LIMIT?: string
  /** Output price per million tokens for that image model, in micro-dollars (for the monthly budget). */

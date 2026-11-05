@@ -8,10 +8,12 @@ import { findForeignAssetUrl } from '../lib/assets'
 import { TEMPLATE_KEYS } from '../services/templates'
 import { clearAdminLoginFailures, isAdminLoginBlocked, recordAdminLoginFailure } from '../services/loginRateLimit'
 import { INVITABLE_ROLES, listUserMemberships, ROLE_LABELS, type StoreRole } from '../tenancy/access'
-import { PRIMARY_STORE_ID, adminStoreUrl } from '../tenancy/stores'
+import { PRIMARY_STORE_ID } from '../tenancy/stores'
 import { createAccessToken, ensureUser, findUserByEmail, normalizeEmail, upsertMembership } from '../services/platformUsers'
 import { getStoreAiUsage } from '../ai/usage'
 import { studioModel } from '../ai/imageStudio'
+import { AccessError, listStoreMembers, requestEmailVerification, resendInvitation, resetMemberPassword, sendInvitation, setMemberAccess } from '../services/userAccess'
+import { roleAllows } from '../tenancy/access'
 import { AiCatalogError, photoToProduct, readCatalogPage, studioEdit } from '../services/aiCatalog'
 import { ImportError, applyImportBatch, createImportJob, finishImportJob, listImportJobs, previewImport } from '../services/catalogImport'
 import { CreditError, createCreditRequest, creditSummary, listCreditCosts, listCreditMovements, listCreditRequests } from '../ai/credits'
@@ -250,16 +252,20 @@ app.post('/team', adminAuth, requireRole('owner'), async (c) => {
  const existingOwner = await c.env.DB.prepare("SELECT role FROM store_memberships WHERE store_id = ? AND user_id = ? AND role = 'owner'").bind(storeId, userId).first()
  if (existingOwner) return c.json({ error: 'The owner role cannot be changed here' }, 409)
  await upsertMembership(c.env.DB, { storeId, userId, role, createdBy: actor })
- const user = await c.env.DB.prepare('SELECT status, password_hash FROM platform_users WHERE id = ?').bind(userId).first<{ status: string; password_hash: string | null }>()
+ const user = await c.env.DB.prepare('SELECT status, password_hash, display_name FROM platform_users WHERE id = ?').bind(userId).first<{ status: string; password_hash: string | null; display_name: string }>()
  let activationUrl: string | null = null
+ let delivery: 'email' | 'manual' | null = null
  if (!user?.password_hash) {
-  const token = await createAccessToken(c.env.DB, { userId, storeId, purpose: 'activation', ttlSeconds: 72 * 60 * 60, createdBy: actor })
-  activationUrl = `${adminStoreUrl(c.env.PUBLIC_STORE_BASE_URL, c.get('store')!)}/activar?token=${encodeURIComponent(token)}`
+  // Invitation by email when configured; otherwise the one-time link is shown to share privately (as before).
+  const store = c.get('store')!
+  const invitation = await sendInvitation(c.env.DB, c.env, { userId, email, displayName: user?.display_name || '', storeId, slug: store.slug, storeName: store.name }, actor)
+  activationUrl = invitation.activationUrl
+  delivery = invitation.delivery
  }
  await c.env.DB.prepare(
   `INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source, store_id) VALUES ('team_member_added', 'user', ?, ?, ?, 'admin', ?)`,
  ).bind(String(userId), JSON.stringify({ role }), actor, storeId).run()
- return c.json({ success: true, userId, role, activationUrl }, 201)
+ return c.json({ success: true, userId, role, activationUrl, delivery }, 201)
 })
 
 app.delete('/team/:userId', adminAuth, requireRole('owner'), async (c) => {
@@ -360,6 +366,35 @@ async function aiAction(c: Context<Env>, action: (key: string, body: Record<stri
 app.post('/ai/photo-product', adminAuth, requireRole('admin'), (c) => aiAction(c, (key, body) => photoToProduct(c.env, c.get('storeId')!, c.get('adminEmail') || 'unknown', key, body)))
 app.post('/ai/catalog-page', adminAuth, requireRole('admin'), (c) => aiAction(c, (key, body) => readCatalogPage(c.env, c.get('storeId')!, c.get('adminEmail') || 'unknown', key, body)))
 app.post('/ai/studio', adminAuth, requireRole('admin'), (c) => aiAction(c, (key, body) => studioEdit(c.env, c.get('storeId')!, c.get('adminEmail') || 'unknown', key, body)))
+
+// ============================================
+// Usuarios y accesos (one store; the backend scopes every action to the resolved store)
+// ============================================
+function accessFail(c: Context<Env>, error: unknown) {
+ if (error instanceof AccessError) return c.json({ error: error.message, code: error.code }, error.status)
+ throw error
+}
+const memberId = (c: Context<Env>) => { const id = Number(c.req.param('id')); return Number.isSafeInteger(id) && id > 0 ? id : 0 }
+const actorUserId = (c: Context<Env>) => { const principal = c.get('principal'); return principal?.kind === 'user' ? principal.userId : null }
+
+app.get('/users', adminAuth, requireRole('admin'), async (c) => c.json({ items: await listStoreMembers(c.env.DB, c.get('storeId')!) }))
+app.post('/users/:id/password-reset', adminAuth, requireRole('owner'), async (c) => {
+ try { return c.json(await resetMemberPassword(c.env.DB, c.env, c.get('storeId')!, memberId(c), c.get('adminEmail') || 'unknown')) } catch (error) { return accessFail(c, error) }
+})
+app.post('/users/:id/invitation', adminAuth, requireRole('owner'), async (c) => {
+ try { return c.json(await resendInvitation(c.env.DB, c.env, c.get('storeId')!, memberId(c), c.get('adminEmail') || 'unknown')) } catch (error) { return accessFail(c, error) }
+})
+// The owner can ask for any member's verification; everyone can ask for their own.
+app.post('/users/:id/verify-email', adminAuth, async (c) => {
+ const id = memberId(c)
+ if (actorUserId(c) !== id && !roleAllows(c.get('role'), 'owner')) return c.json({ error: 'Your role does not allow this action', code: 'ROLE_FORBIDDEN' }, 403)
+ try { return c.json(await requestEmailVerification(c.env.DB, c.env, c.get('storeId')!, id, c.get('adminEmail') || 'unknown')) } catch (error) { return accessFail(c, error) }
+})
+app.post('/users/:id/access', adminAuth, requireRole('owner'), async (c) => {
+ const body = await c.req.json().catch(() => null) as { active?: unknown } | null
+ if (typeof body?.active !== 'boolean') return c.json({ error: 'active must be true or false' }, 400)
+ try { return c.json(await setMemberAccess(c.env.DB, c.get('storeId')!, memberId(c), body.active, c.get('adminEmail') || 'unknown', actorUserId(c))) } catch (error) { return accessFail(c, error) }
+})
 
 // ============================================
 // CRUD Productos (protegido)

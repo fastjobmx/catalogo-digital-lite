@@ -614,3 +614,28 @@ Asistente de 6 pasos en `/admin/importar`: Archivo → Lectura → Columnas → 
 **Reversión y estado**
 
 - Los pasos de reversión y la tabla de estado de los cinco módulos están en `docs/MODULOS_IA_DIAGNOSTICO_Y_PLAN.md` §6.
+
+### Usuarios y accesos, recuperación por correo y plantillas de correo — 2026-11-05 (staging, sin producción)
+
+El detalle está en `docs/USUARIOS_CORREOS_DIAGNOSTICO_Y_PLAN.md` §4.
+
+**Qué se agregó**
+
+- Migración aditiva `0014`.
+- Envío de correos desacoplado del proveedor. Sin proveedor, cada envío queda registrado como «no configurado».
+- 5 plantillas del sistema con la identidad de MOSTRALO PUES!.
+- «Usuarios y accesos» en el panel de cada tienda.
+- Página `/plataforma/correos`: plantillas, vista previa, pruebas, historial y regularización de propietarios.
+- La recuperación de contraseña llega por correo si la dirección está verificada, o si no por Telegram.
+- Al cambiar la contraseña se cierran las sesiones anteriores.
+- Nadie ve enlaces ni tokens, tampoco el bot maestro.
+
+**Verificación**
+
+- Servidor 305/305 y panel 78/78.
+- Staging (Worker `27a090bb-e214-46c9-9052-2b165cf248ac`): navegador 18/18.
+
+**Pendiente**
+
+- Proveedor de correo y dominio.
+- Producción: sin autorización todavía.

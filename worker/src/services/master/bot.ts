@@ -471,9 +471,12 @@ async function confirmOperation(ctx: MasterContext, operationId: string): Promis
       case 'password_reset': {
         const result = await adminPasswordReset(ctx.db, ctx.env, params.email, ctx.actor)
         if (!result) { message = 'No encontré una cuenta activa del panel con ese correo. No se generó nada.'; break }
-        message = result.delivery === 'telegram'
-          ? `🔐 Enlace enviado al Telegram vinculado de ${escapeHtml(maskEmail(result.email))}. Vence en 60 minutos.`
-          : `🔐 ${escapeHtml(maskEmail(result.email))} no tiene Telegram vinculado. Envíale este enlace en privado (vence en 60 minutos, sirve una vez):\n${escapeHtml(result.link || '')}`
+        // The link is never shown here: it goes only to the person's verified email or linked Telegram.
+        message = result.delivery === 'email'
+          ? `🔐 Enlace enviado al correo verificado ${escapeHtml(maskEmail(result.email))}. Vence en 60 minutos.`
+          : result.delivery === 'telegram'
+            ? `🔐 Enlace enviado al Telegram vinculado de ${escapeHtml(maskEmail(result.email))}. Vence en 60 minutos.`
+            : `🔐 ${escapeHtml(maskEmail(result.email))} no tiene un correo verificado ni Telegram vinculado, así que no se envió nada. Regulariza su acceso desde el panel: Usuarios y accesos → Verificar correo, o pídele que vincule Telegram.`
         break
       }
       case 'domain_status': {

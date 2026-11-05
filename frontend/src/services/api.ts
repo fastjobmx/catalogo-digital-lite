@@ -665,3 +665,52 @@ export const trialApi = {
   photo: (id: string, token: string, file: File) => { const form = new FormData(); form.append('file', file); return trialFetch<{ url: string }>(`/api/trial/${id}/photos`, { method: 'POST', token, body: form }) },
   remove: (id: string, token: string) => trialFetch<{ deleted: boolean }>(`/api/trial/${id}`, { method: 'DELETE', token }),
 }
+
+// ---- users and access (one store) --------------------------------------------------
+
+export interface StoreMember {
+  id: number; email: string | null; displayName: string; role: string
+  status: 'activo' | 'invitado' | 'inactivo' | 'deshabilitado'
+  emailVerified: boolean; emailVerifiedAt: string | null; lastLoginAt: string | null; telegramLinked: boolean; createdAt: string
+  lastPasswordReset: { at: string; channel: string | null } | null
+  emails: Array<{ purpose: string; status: string; createdAt: string }>
+}
+
+export const usersApi = {
+  list: (token: string) => fetchApi<{ items: StoreMember[] }>('/api/admin/users', { headers: bearer(token) }),
+  passwordReset: (id: number, token: string) => fetchApi<{ delivery: 'email' | 'telegram' | 'none'; sentAt: string }>(`/api/admin/users/${id}/password-reset`, { method: 'POST', headers: bearer(token) }),
+  invitation: (id: number, token: string) => fetchApi<{ delivery: 'email' | 'manual'; sentAt: string; activationUrl: string | null }>(`/api/admin/users/${id}/invitation`, { method: 'POST', headers: bearer(token) }),
+  verifyEmail: (id: number, token: string) => fetchApi<{ status: string; sentAt: string }>(`/api/admin/users/${id}/verify-email`, { method: 'POST', headers: bearer(token) }),
+  access: (id: number, active: boolean, token: string) => fetchApi<{ active: boolean }>(`/api/admin/users/${id}/access`, { method: 'POST', headers: bearer(token), body: JSON.stringify({ active }) }),
+  invite: (payload: { email: string; role: string; displayName: string }, token: string) => fetchApi<{ userId: number; activationUrl: string | null; delivery: 'email' | 'manual' | null }>('/api/admin/team', { method: 'POST', headers: bearer(token), body: JSON.stringify(payload) }),
+}
+
+export async function confirmEmailVerification(token: string): Promise<{ verified: boolean }> {
+  return fetchApi('/api/auth/verify-email', { method: 'POST', body: JSON.stringify({ token }) })
+}
+
+// ---- email templates (superadmin) ---------------------------------------------------
+
+export interface EmailTemplate {
+  id: number; systemKey: string | null; name: string; subject: string; html: string; text: string; active: boolean; system: boolean
+  updatedBy: string; updatedAt: string; variables: Array<{ key: string; label: string; systemLink: boolean }>
+}
+export interface EmailMessage { id: number; purpose: string; toEmail: string; subject: string; status: string; provider: string; errorCode: string | null; requestedBy: string; createdAt: string; storeName: string | null; templateName: string | null }
+export interface EmailStatusInfo { configured: boolean; provider: string; from: string | null; testRecipients: string[] }
+export interface UnverifiedOwnerStore { id: number; slug: string; name: string; status: string; ownerEmail: string | null; ownerAssigned: boolean }
+
+export const emailApi = {
+  status: (token: string) => fetchApi<EmailStatusInfo>('/api/platform/email/status', { headers: bearer(token) }),
+  templates: (token: string) => fetchApi<{ items: EmailTemplate[] }>('/api/platform/email/templates', { headers: bearer(token) }),
+  create: (payload: { name: string; subject: string; html: string; text: string }, token: string) => fetchApi<EmailTemplate>('/api/platform/email/templates', { method: 'POST', headers: bearer(token), body: JSON.stringify(payload) }),
+  update: (id: number, payload: { name: string; subject: string; html: string; text: string }, token: string) => fetchApi<EmailTemplate>(`/api/platform/email/templates/${id}`, { method: 'PUT', headers: bearer(token), body: JSON.stringify(payload) }),
+  duplicate: (id: number, token: string) => fetchApi<EmailTemplate>(`/api/platform/email/templates/${id}/duplicate`, { method: 'POST', headers: bearer(token) }),
+  setActive: (id: number, active: boolean, token: string) => fetchApi<EmailTemplate>(`/api/platform/email/templates/${id}/status`, { method: 'POST', headers: bearer(token), body: JSON.stringify({ active }) }),
+  preview: (id: number, draft: { name: string; subject: string; html: string; text: string } | null, token: string) => fetchApi<{ subject: string; html: string; text: string }>(`/api/platform/email/templates/${id}/preview`, { method: 'POST', headers: bearer(token), body: JSON.stringify(draft ? { draft } : {}) }),
+  test: (id: number, to: string, key: string, token: string) => fetchApi<{ status: string; replayed: boolean }>(`/api/platform/email/templates/${id}/test`, { method: 'POST', headers: { ...bearer(token), 'Idempotency-Key': key }, body: JSON.stringify({ to }) }),
+  messages: (token: string, status?: string) => fetchApi<{ items: EmailMessage[] }>(`/api/platform/email/messages${status ? `?status=${status}` : ''}`, { headers: bearer(token) }),
+  unverifiedOwners: (token: string) => fetchApi<{ items: UnverifiedOwnerStore[] }>('/api/platform/owners/unverified', { headers: bearer(token) }),
+  regularize: (slug: string, payload: { email: string; name: string; identityMethod: string; evidence: string; confirm: boolean }, token: string) =>
+    fetchApi<{ invitation: { delivery: 'email' | 'manual'; activationUrl: string | null } | null; note: string }>(`/api/platform/stores/${slug}/owner-regularization`, { method: 'POST', headers: bearer(token), body: JSON.stringify(payload) }),
+}
+

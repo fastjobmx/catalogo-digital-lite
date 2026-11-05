@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Package, Boxes, Tag, Settings, LogOut, Bot, Sparkles, ClipboardList,
-  Palette, Menu, X, ExternalLink, ChevronRight, CircleUserRound, Building2, Coins, FileUp, Camera, Wand2,
+  Palette, Menu, X, ExternalLink, ChevronRight, CircleUserRound, Building2, Coins, FileUp, Camera, Wand2, UserCog,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
@@ -47,6 +47,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
     items: [
       { to: '/admin/appearance', icon: Palette, label: 'Apariencia' },
       { to: '/admin/settings', icon: Settings, label: 'Configuración' },
+      { to: '/admin/usuarios', icon: UserCog, label: 'Usuarios y accesos' },
     ],
   },
   {

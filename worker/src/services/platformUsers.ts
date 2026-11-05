@@ -47,15 +47,20 @@ export async function createAccessToken(
 }
 
 /** Marks a token as used exactly once and returns its owner. */
-export async function consumeAccessToken(db: D1Database, token: string, purpose: AccessTokenPurpose): Promise<{ userId: number; storeId: number } | null> {
+export async function consumeAccessToken(db: D1Database, token: string, purpose: AccessTokenPurpose): Promise<{ userId: number; storeId: number; deliveredVia: string | null } | null> {
   const key = purpose === 'telegram_link' ? normalizeLinkCode(token) : token.trim()
   if (key.length < 8 || key.length > 200) return null
   const row = await db.prepare(
     `UPDATE user_access_tokens SET used_at = unixepoch()
      WHERE token_hash = ? AND purpose = ? AND used_at IS NULL AND expires_at > unixepoch()
-     RETURNING user_id AS userId, store_id AS storeId`,
-  ).bind(await sha256Hex(`${purpose}:${key}`), purpose).first<{ userId: number; storeId: number }>()
+     RETURNING user_id AS userId, store_id AS storeId, delivered_via AS deliveredVia`,
+  ).bind(await sha256Hex(`${purpose}:${key}`), purpose).first<{ userId: number; storeId: number; deliveredVia: string | null }>()
   return row ?? null
+}
+
+/** Records how a link was delivered ('email', 'telegram' or 'manual'). Opening an emailed link proves the address. */
+export async function markTokenDelivery(db: D1Database, token: string, purpose: AccessTokenPurpose, via: 'email' | 'telegram' | 'manual'): Promise<void> {
+  await db.prepare('UPDATE user_access_tokens SET delivered_via = ? WHERE token_hash = ?').bind(via, await sha256Hex(`${purpose}:${token.trim()}`)).run()
 }
 
 /** Reads a token without consuming it (used to show the activation form). */

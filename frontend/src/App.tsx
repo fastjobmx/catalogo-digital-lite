@@ -32,6 +32,9 @@ const AdminImport = lazy(() => import('./admin/pages/Import'))
 const AdminPhotoProducts = lazy(() => import('./admin/pages/PhotoProducts'))
 const AdminStudio = lazy(() => import('./admin/pages/Studio'))
 const TrialPage = lazy(() => import('./pages/TrialPage'))
+const AdminUsers = lazy(() => import('./admin/pages/Users'))
+const VerifyEmailPage = lazy(() => import('./admin/VerifyEmailPage'))
+const PlatformEmailPage = lazy(() => import('./admin/PlatformEmailPage'))
 const ResetPasswordPage = lazy(() => import('./admin/ResetPasswordPage'))
 const PlatformPage = lazy(() => import('./admin/PlatformPage'))
 
@@ -87,9 +90,11 @@ export default function App() {
                   <Route path="/admin/login" element={<LoginPage />} />
                   <Route path="/admin/activar" element={<Suspense fallback={null}><ActivationPage /></Suspense>} />
                   <Route path="/admin/restablecer" element={<Suspense fallback={null}><ResetPasswordPage /></Suspense>} />
+                  <Route path="/admin/verificar-correo" element={<Suspense fallback={null}><VerifyEmailPage /></Suspense>} />
                   <Route path="/admin/store-preview" element={<ProtectedAdminRoute><AdminStorePreview /></ProtectedAdminRoute>} />
                   {/* Platform panel (superadmin; the API enforces the role) */}
                   <Route path="/plataforma" element={<Suspense fallback={null}><PlatformPage /></Suspense>} />
+                  <Route path="/plataforma/correos" element={<Suspense fallback={null}><PlatformEmailPage /></Suspense>} />
 
                   {/* Admin routes (protected) */}
                   <Route
@@ -111,6 +116,7 @@ export default function App() {
                     <Route path="onboarding" element={<AdminOnboarding />} />
                     <Route path="simulator" element={<AdminSimulator />} />
                     <Route path="creditos" element={<AdminCredits />} />
+                    <Route path="usuarios" element={<Suspense fallback={null}><AdminUsers /></Suspense>} />
                     <Route path="estudio" element={<Suspense fallback={null}><AdminStudio /></Suspense>} />
                     <Route path="orders" element={<AdminOrders />} />
                   </Route>

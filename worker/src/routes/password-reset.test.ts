@@ -69,7 +69,7 @@ describe('password reset', () => {
     expect((await h.request(`/api/auth/password-reset?token=${encodeURIComponent(newToken)}`)).status).toBe(200)
   })
 
-  it('records an undeliverable request when the account has no Telegram, and the superadmin can get the link', async () => {
+  it('records an undeliverable request when the account has no channel, and never hands the link to the superadmin', async () => {
     await createStoreUser(h.db, { email: 'sin-telegram@clave.test', password: 'ClaveVieja123', storeId, role: 'admin' })
     const telegram = stubTelegram()
     expect((await request('sin-telegram@clave.test')).status).toBe(200)
@@ -77,7 +77,10 @@ describe('password reset', () => {
     expect(h.db.query("SELECT action FROM audit_log WHERE action = 'password_reset_undeliverable'")).toEqual([{ action: 'password_reset_undeliverable' }])
     const issued = await adminPasswordReset(h.db, h.env, 'sin-telegram@clave.test', 'superadmin')
     expect(issued?.delivery).toBe('none')
-    expect(issued?.link).toContain('https://tiendas.test/t/moda-clave/admin/restablecer?token=')
+    expect(issued).not.toHaveProperty('link')
+    expect(JSON.stringify(issued)).not.toContain('restablecer')
+    // An undeliverable link is cancelled at once: nothing usable is left behind.
+    expect(h.db.query("SELECT COUNT(*) AS n FROM user_access_tokens WHERE purpose = 'password_reset' AND used_at IS NULL")).toEqual([{ n: 0 }])
     expect(await adminPasswordReset(h.db, h.env, 'nadie@clave.test', 'superadmin')).toBeNull()
   })
 

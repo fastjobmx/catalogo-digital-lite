@@ -5,7 +5,7 @@ export type StoreRole = 'owner' | 'admin' | 'operator' | 'seller' | 'inventory'
 /** Who is acting. The platform superadmin is defined only by Worker secrets. */
 export type Principal =
   | { kind: 'superadmin'; email: string }
-  | { kind: 'user'; userId: number; email: string }
+  | { kind: 'user'; userId: number; email: string; issuedAt?: number }
 
 // seller and inventory sit at the operator level for the hierarchy (they never reach
 // catalog or store settings) and are narrowed further by capabilities below.

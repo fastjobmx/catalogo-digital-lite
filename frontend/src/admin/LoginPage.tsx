@@ -24,7 +24,7 @@ export default function LoginPage() {
   const forgotPassword = async () => {
     if (!email.trim()) { setResetMessage('Escribe primero tu correo registrado.'); return }
     try { await requestPasswordReset(email.trim()) } catch { /* same answer either way */ }
-    setResetMessage('Si el correo está registrado, te enviamos un enlace al Telegram vinculado a tu cuenta (vence en 60 minutos). Si no tienes Telegram vinculado, pide el enlace al administrador de la plataforma.')
+    setResetMessage('Si el correo está registrado, te enviamos un enlace para crear una contraseña nueva: llega a tu correo verificado o al Telegram vinculado a tu cuenta. Vence en 60 minutos. Si no te llega, pide ayuda al administrador de tu tienda.')
   }
   const offlineDemoAuth = isOfflineDemoAuthEnabled(import.meta.env.DEV, import.meta.env.VITE_ALLOW_DEMO_AUTH)
 
