@@ -159,6 +159,18 @@ app.post('/stores/:slug/credits', async (c) => {
   } catch (error) { return fail(c, error) }
 })
 
+// Diagnostic: which Gemini models this platform key can use (names only, never the key).
+app.get('/ai/models', async (c) => {
+  if (!c.env.GEMINI_API_KEY) return c.json({ configured: false, items: [] })
+  const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', { headers: { 'x-goog-api-key': c.env.GEMINI_API_KEY } })
+  if (!response.ok) return c.json({ configured: true, error: `HTTP ${response.status}`, items: [] }, 502)
+  const body = await response.json() as { models?: Array<{ name?: string; displayName?: string; supportedGenerationMethods?: string[] }> }
+  const items = (body.models || [])
+    .filter((model) => model.supportedGenerationMethods?.includes('generateContent'))
+    .map((model) => ({ name: String(model.name || '').replace(/^models\//, ''), displayName: model.displayName || '' }))
+  return c.json({ configured: true, textModel: c.env.GEMINI_MODEL || null, imageModel: c.env.GEMINI_IMAGE_MODEL || null, items })
+})
+
 app.get('/ai-alerts', async (c) => c.json({ items: await aiUsageAlerts(c.env.DB) }))
 
 app.get('/jobs/:id', async (c) => {

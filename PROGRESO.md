@@ -534,3 +534,26 @@ Asistente de 6 pasos en `/admin/importar`: Archivo → Lectura → Columnas → 
 **Pendiente**
 
 - Producción no se ha tocado.
+
+### Módulos IA — Fase 5 (Estudio IA) — 2026-11-05
+
+**Funciones nuevas**
+
+- «Estudio IA» (`/admin/estudio`) ofrece 3 estilos fijos: fondo blanco, fondo de estudio y mejorar luz.
+- El modelo es `gemini-3.1-flash-image`, verificado con la API real en staging.
+- El producto no debe cambiar. El resultado se agrega como una foto más solo si la tienda lo acepta.
+- Ruta `POST /api/admin/ai/studio`, con créditos e idempotencia.
+- Diagnóstico de modelos en `GET /api/platform/ai/models`.
+
+**Corrección**
+
+- El catálogo del panel ahora se recarga al iniciar sesión. Antes quedaba vacío en tiendas en borrador.
+
+**Verificación**
+
+- Servidor 283/283 y panel 78/78.
+- Staging: Worker `ce21809c-29ba-4819-9812-a3809a4d2f35`, con API 6/6 y navegador 6/6.
+
+**Para producción**
+
+- Hay que agregar `GEMINI_IMAGE_MODEL` y `GEMINI_IMAGE_PRICE_OUTPUT_MICROS_PER_MTOK` a `wrangler.production.toml`, con autorización.

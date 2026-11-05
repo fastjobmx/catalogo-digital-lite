@@ -144,9 +144,10 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  // Reload after signing in or out too: a draft store's catalogue is only visible with the team's session.
   useEffect(() => {
     void refresh()
-  }, [backendAvailable])
+  }, [backendAvailable, token])
 
   const value = useMemo<CatalogContextValue>(() => ({
     products,

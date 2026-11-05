@@ -30,6 +30,7 @@ import { lazy, Suspense } from 'react'
 const ActivationPage = lazy(() => import('./admin/ActivationPage'))
 const AdminImport = lazy(() => import('./admin/pages/Import'))
 const AdminPhotoProducts = lazy(() => import('./admin/pages/PhotoProducts'))
+const AdminStudio = lazy(() => import('./admin/pages/Studio'))
 const ResetPasswordPage = lazy(() => import('./admin/ResetPasswordPage'))
 const PlatformPage = lazy(() => import('./admin/PlatformPage'))
 
@@ -106,6 +107,7 @@ export default function App() {
                     <Route path="onboarding" element={<AdminOnboarding />} />
                     <Route path="simulator" element={<AdminSimulator />} />
                     <Route path="creditos" element={<AdminCredits />} />
+                    <Route path="estudio" element={<Suspense fallback={null}><AdminStudio /></Suspense>} />
                     <Route path="orders" element={<AdminOrders />} />
                   </Route>
                 </>

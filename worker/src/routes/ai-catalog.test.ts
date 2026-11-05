@@ -102,3 +102,45 @@ describe('scanned catalogue page → rows', () => {
     expect(gemini).not.toHaveBeenCalled()
   })
 })
+
+describe('AI Studio', () => {
+  const studio = (body: Record<string, unknown>, token = owner) => h.request('/api/admin/ai/studio', { method: 'POST', token, store: 'tienda-a', headers: { 'Idempotency-Key': `estudio-${Math.random().toString(36).slice(2, 12)}` }, body })
+  const imageReply = () => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: 'iVBORw0KGgo=' } }] } }], usageMetadata: { promptTokenCount: 600, candidatesTokenCount: 1290 } }))
+
+  it('is not offered when no image model is configured', async () => {
+    expect((await json(await h.request('/api/admin/credits', { token: owner, store: 'tienda-a' }))).studioAvailable).toBe(false)
+    const response = await studio({ imageUrl: `/api/assets/stores/${storeA}/products/tocador.png`, preset: 'fondo_blanco' })
+    expect(response.status).toBe(409)
+    expect((await json(response)).code).toBe('AI_STUDIO_UNAVAILABLE')
+    expect(gemini).not.toHaveBeenCalled()
+  })
+
+  it('returns an improved copy without saving it, keeps the product unchanged by instruction and charges credits', async () => {
+    h.env.GEMINI_IMAGE_MODEL = 'gemini-image-test'
+    h.env.GEMINI_IMAGE_PRICE_OUTPUT_MICROS_PER_MTOK = '30000000'
+    gemini.mockImplementation(async () => imageReply())
+    await fund(6, 3, 'estudio_imagen')
+    expect((await json(await h.request('/api/admin/credits', { token: owner, store: 'tienda-a' }))).studioAvailable).toBe(true)
+    const objectsBefore = h.assets.objects.size
+    const body = await json(await studio({ imageUrl: `/api/assets/stores/${storeA}/products/tocador.png`, preset: 'fondo_blanco' }))
+    expect(body).toMatchObject({ preset: 'fondo_blanco', charged: 3, image: { mimeType: 'image/png', data: 'iVBORw0KGgo=' } })
+    expect(h.assets.objects.size).toBe(objectsBefore)
+    const [url, init] = gemini.mock.calls[0]!
+    expect(url).toContain('/models/gemini-image-test:generateContent')
+    const sent = JSON.parse(init.body)
+    expect(sent.generationConfig.responseModalities).toEqual(['IMAGE'])
+    expect(sent.systemInstruction.parts[0].text).toMatch(/No cambies el producto/)
+    expect(await creditSummary(h.db, storeA)).toMatchObject({ balance: 3 })
+    // Image output is priced with its own rate: 1290 tokens × US$30/M ≈ 38,700 micros (+ input).
+    expect(h.db.query<any>("SELECT estimated_cost_micros AS cost FROM ai_usage_events WHERE feature = 'estudio_imagen'")[0].cost).toBeGreaterThan(38000)
+  })
+
+  it('refuses unknown styles and gives the credits back when no image comes back', async () => {
+    h.env.GEMINI_IMAGE_MODEL = 'gemini-image-test'
+    await fund(5, 2, 'estudio_imagen')
+    expect((await studio({ imageUrl: `/api/assets/stores/${storeA}/products/tocador.png`, preset: 'cambia el logo' })).status).toBe(400)
+    gemini.mockImplementation(async () => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: 'No puedo' }] }, finishReason: 'SAFETY' }] })))
+    expect((await studio({ imageUrl: `/api/assets/stores/${storeA}/products/tocador.png`, preset: 'mejorar_luz' })).status).toBe(502)
+    expect(await creditSummary(h.db, storeA)).toMatchObject({ balance: 5, reserved: 0 })
+  })
+})

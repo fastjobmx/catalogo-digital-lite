@@ -11,7 +11,8 @@ import { INVITABLE_ROLES, listUserMemberships, ROLE_LABELS, type StoreRole } fro
 import { PRIMARY_STORE_ID, adminStoreUrl } from '../tenancy/stores'
 import { createAccessToken, ensureUser, findUserByEmail, normalizeEmail, upsertMembership } from '../services/platformUsers'
 import { getStoreAiUsage } from '../ai/usage'
-import { AiCatalogError, photoToProduct, readCatalogPage } from '../services/aiCatalog'
+import { studioModel } from '../ai/imageStudio'
+import { AiCatalogError, photoToProduct, readCatalogPage, studioEdit } from '../services/aiCatalog'
 import { ImportError, applyImportBatch, createImportJob, finishImportJob, listImportJobs, previewImport } from '../services/catalogImport'
 import { CreditError, createCreditRequest, creditSummary, listCreditCosts, listCreditMovements, listCreditRequests } from '../ai/credits'
 import type { Context } from 'hono'
@@ -301,6 +302,7 @@ app.get('/credits', adminAuth, requireRole('admin'), async (c) => {
  const costs = (await listCreditCosts(c.env.DB)).map(({ feature, label, configured, credits, enabled }) => ({ feature, label, configured, credits, enabled }))
  return c.json({
   aiEnabled: Boolean(store?.ai_enabled) && Boolean(c.env.GEMINI_API_KEY),
+ studioAvailable: Boolean(store?.ai_enabled) && Boolean(c.env.GEMINI_API_KEY) && Boolean(studioModel(c.env)),
   ...(await creditSummary(c.env.DB, storeId)),
   costs,
   movements: (await listCreditMovements(c.env.DB, storeId, 30)).map((row: any) => ({ ...row, actor: row.actor === 'system' ? 'system' : String(row.actor).startsWith('platform:') ? 'platform' : 'store' })),
@@ -357,6 +359,7 @@ async function aiAction(c: Context<Env>, action: (key: string, body: Record<stri
 }
 app.post('/ai/photo-product', adminAuth, requireRole('admin'), (c) => aiAction(c, (key, body) => photoToProduct(c.env, c.get('storeId')!, c.get('adminEmail') || 'unknown', key, body)))
 app.post('/ai/catalog-page', adminAuth, requireRole('admin'), (c) => aiAction(c, (key, body) => readCatalogPage(c.env, c.get('storeId')!, c.get('adminEmail') || 'unknown', key, body)))
+app.post('/ai/studio', adminAuth, requireRole('admin'), (c) => aiAction(c, (key, body) => studioEdit(c.env, c.get('storeId')!, c.get('adminEmail') || 'unknown', key, body)))
 
 // ============================================
 // CRUD Productos (protegido)

@@ -2,6 +2,7 @@
 import type { Env } from '../index'
 import { runWithCredits, validIdempotencyKey, type CreditRun } from '../ai/credits'
 import { geminiFailureCode } from '../ai/geminiClient'
+import { editProductPhoto, isStudioPreset, studioModel } from '../ai/imageStudio'
 import { extractCatalogPage, suggestProductFromPhotos, type InlineImage } from '../ai/productVision'
 
 export const AI_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const
@@ -60,4 +61,18 @@ export async function readCatalogPage(env: Env['Bindings'], storeId: number, act
   if (data.length * 0.75 > MAX_IMAGE_BYTES) throw new AiCatalogError('IMAGE_TOO_LARGE', 'La página pesa más de 5 MB')
   const run = gate(await runWithCredits(env.DB, env, { storeId, feature: 'importar_pdf_pagina', key, actor }, () => extractCatalogPage(env, fetch, { mimeType, data })))
   return { rows: run.value.rows, readable: run.value.readable, charged: run.charged }
+}
+
+/** AI Studio: returns an improved copy of one of the store's photos. Nothing is saved until the store
+ * accepts it (then it is uploaded as an additional photo, the original stays). */
+export async function studioEdit(env: Env['Bindings'], storeId: number, actor: string, key: string, body: { imageUrl?: unknown; preset?: unknown }) {
+  if (!validIdempotencyKey(key)) throw new AiCatalogError('INVALID_IDEMPOTENCY_KEY', 'Falta el encabezado Idempotency-Key')
+  if (!studioModel(env)) throw new AiCatalogError('AI_STUDIO_UNAVAILABLE', 'El Estudio IA no está disponible en esta plataforma', 409)
+  if (!isStudioPreset(body.preset)) throw new AiCatalogError('INVALID_PRESET', 'Elige un estilo válido')
+  const image = await storePhoto(env.ASSETS, storeId, body.imageUrl)
+  // The image model is priced differently from the text model: use its own output price when configured.
+  const pricing = { ...env, GEMINI_PRICE_OUTPUT_MICROS_PER_MTOK: env.GEMINI_IMAGE_PRICE_OUTPUT_MICROS_PER_MTOK || env.GEMINI_PRICE_OUTPUT_MICROS_PER_MTOK }
+  const preset = body.preset
+  const run = gate(await runWithCredits(env.DB, pricing, { storeId, feature: 'estudio_imagen', key, actor }, () => editProductPhoto(env, fetch, image, preset)))
+  return { image: run.value.image, preset, charged: run.charged }
 }

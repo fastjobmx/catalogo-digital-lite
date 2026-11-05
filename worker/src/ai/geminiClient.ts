@@ -73,7 +73,7 @@ export function geminiFailureCode(error: unknown): string {
   return error instanceof Error && /schema/i.test(error.message) ? 'GEMINI_INVALID_SHAPE' : 'GEMINI_REQUEST'
 }
 
-async function classifyGeminiError(response: Response): Promise<GeminiRequestError> {
+export async function classifyGeminiError(response: Response): Promise<GeminiRequestError> {
   const status = response.status
   const errorBody = await response.json().catch(() => null) as { error?: { status?: string; message?: string } } | null
   const diagnostic = `${errorBody?.error?.status || ''} ${errorBody?.error?.message || ''}`.toLowerCase()

@@ -594,7 +594,7 @@ export interface CreditMovement { id: number; kind: CreditKind; amount: number; 
 export interface CreditCost { feature: string; label: string; configured: boolean; credits: number | null; enabled: boolean; updatedBy?: string | null; updatedAt?: string | null }
 export interface CreditRequest { id: number; credits: number; note: string | null; status: 'pendiente' | 'aprobada' | 'rechazada'; approvedCredits: number | null; resolutionNote: string | null; createdAt: string; resolvedAt: string | null; storeId?: number; slug?: string; storeName?: string; requestedBy?: string }
 export interface CreditTotals { balance: number; reserved: number; recharged: number; consumed: number }
-export interface StoreCredits extends CreditTotals { aiEnabled: boolean; costs: CreditCost[]; movements: CreditMovement[]; requests: CreditRequest[] }
+export interface StoreCredits extends CreditTotals { aiEnabled: boolean; studioAvailable?: boolean; costs: CreditCost[]; movements: CreditMovement[]; requests: CreditRequest[] }
 
 export const creditsApi = {
   get: (token: string) => fetchApi<StoreCredits>('/api/admin/credits', { headers: { Authorization: `Bearer ${token}` } }),
@@ -634,9 +634,11 @@ export const importApi = {
 // ---- AI for the catalogue ---------------------------------------------------------
 
 export interface PhotoSuggestion { name: string; description: string; category: string; colors: string[]; features: string[]; visibleBrand: string; confidence: 'alta' | 'media' | 'baja'; isProductPhoto: boolean }
+export type StudioPreset = 'fondo_blanco' | 'fondo_estudio' | 'mejorar_luz'
 export interface CatalogPageRow { sku: string; name: string; price: string; stock: string; category: string; color: string; size: string; description: string }
 
 export const aiCatalogApi = {
   photoToProduct: (imageUrl: string, idempotencyKey: string, token: string) => fetchApi<{ suggestion: PhotoSuggestion; charged: number }>('/api/admin/ai/photo-product', { method: 'POST', headers: { ...bearer(token), 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ imageUrl }) }),
+  studio: (imageUrl: string, preset: StudioPreset, idempotencyKey: string, token: string) => fetchApi<{ image: { mimeType: string; data: string }; preset: StudioPreset; charged: number }>('/api/admin/ai/studio', { method: 'POST', headers: { ...bearer(token), 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ imageUrl, preset }) }),
   readCatalogPage: (image: string, mimeType: string, idempotencyKey: string, token: string) => fetchApi<{ rows: CatalogPageRow[]; readable: boolean; charged: number }>('/api/admin/ai/catalog-page', { method: 'POST', headers: { ...bearer(token), 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ image, mimeType }) }),
 }

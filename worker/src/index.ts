@@ -43,6 +43,10 @@ export type Env = {
  PLATFORM_AI_MONTHLY_CAP_MICROS?: string
  GEMINI_API_KEY?: string
  GEMINI_MODEL?: string
+ /** Gemini model that returns images (AI Studio). Unset = the studio is not offered. */
+ GEMINI_IMAGE_MODEL?: string
+ /** Output price per million tokens for that image model, in micro-dollars (for the monthly budget). */
+ GEMINI_IMAGE_PRICE_OUTPUT_MICROS_PER_MTOK?: string
  /** Estimated USD micros per million tokens (configurable; used for budgets). */
  GEMINI_PRICE_INPUT_MICROS_PER_MTOK?: string
  GEMINI_PRICE_OUTPUT_MICROS_PER_MTOK?: string

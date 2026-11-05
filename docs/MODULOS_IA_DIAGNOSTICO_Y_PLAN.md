@@ -181,3 +181,26 @@ Todas las fases se hacen en local y staging. Producción solo con tu autorizaci�
 - **Pendiente.**
   - Costo real medido: unos US$ 0.002 a 0.003 por foto o página (estimado por tokens). El precio en créditos lo defines tú.
   - Estudio IA (Fase 5) necesita un modelo que genere imágenes; falta verificarlo.
+
+**Fase 5 — Estudio IA: hecha en local y staging (2026-11-05).**
+
+- **Modelos disponibles.** La cuenta de Gemini tiene modelos de imagen; se consultan con el diagnóstico de superadministrador `GET /api/platform/ai/models`, que muestra solo los nombres, nunca la clave. Se eligió `gemini-3.1-flash-image`, la versión estable.
+  - Variables nuevas: `GEMINI_IMAGE_MODEL` y `GEMINI_IMAGE_PRICE_OUTPUT_MICROS_PER_MTOK`.
+  - Precio oficial de salida de imagen: US$60 por millón de tokens, unos US$0.067 por imagen de 1K ([precios de Gemini](https://ai.google.dev/gemini-api/docs/pricing)).
+  - Por ahora solo están configuradas en `wrangler.remote-staging.toml`. Sin `GEMINI_IMAGE_MODEL`, el panel no ofrece el Estudio.
+- **Servidor.**
+  - `worker/src/ai/imageStudio.ts` ofrece 3 estilos fijos: fondo blanco, fondo de estudio y mejorar luz. No hay texto libre.
+  - Las instrucciones prohíben cambiar el producto y agregar o quitar objetos, textos o marcas.
+  - Ruta `POST /api/admin/ai/studio`, con créditos (`estudio_imagen`) e idempotencia.
+  - El resultado se devuelve sin guardarse; el costo se estima con el precio propio de imagen.
+- **Panel.**
+  - «Estudio IA» (`/admin/estudio`) muestra la original y la editada lado a lado y pide compararlas.
+  - Botones: «Agregar al producto», «Agregar como principal» y «Descartar». La original nunca se borra, y si se descarta no queda ningún archivo en el almacenamiento.
+- **Corrección de paso.** El catálogo del panel se cargaba antes de iniciar sesión, así que en tiendas en borrador quedaba vacío hasta recargar. Ahora se recarga al iniciar o cerrar sesión (`CatalogContext`).
+- **Pruebas.**
+  - Servidor 283/283, con 3 nuevas: no disponible sin modelo, devolución de créditos si no llega imagen, estilo inválido y costo con precio de imagen.
+  - Panel 78/78, con `build` correcto.
+  - Staging (Worker `ce21809c`):
+    - API real 6/6: 2 imágenes en unos 9 s cada una, y una comparación visual en la que el producto se conserva.
+    - Navegador 6/6.
+- **Límite.** El costo estimado incluye los tokens de razonamiento al precio de imagen, así que puede quedar hasta un 30 % por encima de lo real. Es una estimación conservadora.
