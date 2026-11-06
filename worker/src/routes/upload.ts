@@ -55,8 +55,9 @@ app.post('/image', adminAuth, async (c) => {
 app.get('/:key{.+}', async (c) => {
  const key = c.req.param('key')
 
- // Draft uploads are private pending data and must never be exposed by the public asset route.
- if (key.startsWith('telegram-drafts/') || key.startsWith('trials/')) return c.json({ error: 'Asset not found' }, 404)
+ // Draft uploads and order documents (shipping guides with personal data) are private and never
+ // exposed by the public asset route.
+ if (key.startsWith('telegram-drafts/') || key.startsWith('trials/') || key.startsWith('order-docs/') || key.includes('..')) return c.json({ error: 'Asset not found' }, 404)
 
  if (!c.env.ASSETS) {
  return c.json({ error: 'Assets storage not configured' }, 503)

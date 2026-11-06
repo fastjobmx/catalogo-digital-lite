@@ -169,6 +169,7 @@ export async function askWhatToDoWithPhoto(ctx: AssistantContext, fileId: string
   await say(ctx, '¡Linda foto! ¿Qué hago con ella?', { inline_keyboard: [
     [{ text: '➕ Crear un producto', callback_data: 'ph:product' }],
     [{ text: '🖼️ Usar como banner', callback_data: 'ph:banner' }, { text: '🔖 Usar como logo', callback_data: 'ph:logo' }],
+    [{ text: '🚚 Es una guía de envío', callback_data: 'ph:guide' }],
     [{ text: '✖ Nada', callback_data: 'ph:none' }],
   ] })
 }

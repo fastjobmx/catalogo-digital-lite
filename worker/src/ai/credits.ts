@@ -15,6 +15,7 @@ export const AI_CREDIT_FEATURES = {
   foto_a_producto: 'Crear un producto desde una foto',
   estudio_imagen: 'Estudio IA: mejorar una foto',
   importar_pdf_pagina: 'Leer una página de PDF con IA',
+  leer_guia_envio: 'Leer una guía de envío con IA (Telegram)',
 } as const
 export type AiCreditFeature = keyof typeof AI_CREDIT_FEATURES
 export const isAiCreditFeature = (value: unknown): value is AiCreditFeature => typeof value === 'string' && Object.hasOwn(AI_CREDIT_FEATURES, value)

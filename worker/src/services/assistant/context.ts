@@ -31,11 +31,15 @@ export interface AssistantContext {
 
 export type SessionState = {
   lastSkus?: string[]
-  awaiting?: 'ask_ai' | 'banner_photo' | 'logo_photo' | 'product_photos_for_sku' | 'document_import' | 'order_tracking' | 'campaign_text'
+  awaiting?: 'ask_ai' | 'banner_photo' | 'logo_photo' | 'product_photos_for_sku' | 'document_import' | 'order_tracking' | 'campaign_text' | 'shipping_guide'
   pendingCoupon?: { code: string; kind: 'porcentaje' | 'valor'; value: number; minSubtotal: number; endsAt: string | null; maxUses: number | null }
   targetCampaign?: number
   targetOrder?: { id: number; revision: number }
-  pendingDelivery?: { orderId: number; carrier?: string; trackingNumber?: string }
+  pendingDelivery?: { orderId: number; carrier?: string; trackingNumber?: string; method?: 'transportadora' | 'entrega_personal' | 'retiro_en_tienda' | 'mensajero' | 'otro' }
+  /** Order the conversation is about (last order shown or updated). */
+  focusOrder?: number
+  /** Shipping guide being registered from a photo. */
+  guide?: import('./shippingGuide').GuideState
   targetSku?: string
   pendingPhotoFileId?: string
   /** Product the conversation is about (set only when one product was resolved unequivocally). */

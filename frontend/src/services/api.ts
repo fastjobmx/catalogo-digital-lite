@@ -457,6 +457,11 @@ export interface OrderApi {
   trackingNumber?: string | null
   shippedAt?: string | null
   deliveredAt?: string | null
+  shippingStatus?: string | null
+  effectiveShippingStatus?: string | null
+  trackingUrl?: string | null
+  shippingNotes?: string | null
+  delivery?: { method: string | null; receiver: string | null; notes: string | null; reference: string | null }
   paymentMethod: string | null
   customerNotes: string | null
   customerCity: string | null
@@ -466,7 +471,7 @@ export interface OrderApi {
 
 export interface OrderPageApi { items: OrderApi[]; page: number; pageSize: number; total: number }
 
-export async function getOrders(token: string, params: { page?: number; pageSize?: number; status?: string; from?: string; to?: string; q?: string } = {}): Promise<OrderPageApi> {
+export async function getOrders(token: string, params: { page?: number; pageSize?: number; status?: string; shipping?: string; from?: string; to?: string; q?: string } = {}): Promise<OrderPageApi> {
   const query = new URLSearchParams()
   Object.entries(params).forEach(([key, value]) => { if (value !== undefined && value !== '') query.set(key, String(value)) })
   return fetchApi<OrderPageApi>(`/api/orders${query.size ? `?${query.toString()}` : ''}`, {
@@ -474,23 +479,53 @@ export async function getOrders(token: string, params: { page?: number; pageSize
   })
 }
 
-export interface OrderEventApi { eventType: string; fromValue: string | null; toValue: string | null; note: string | null; performedBy: string; createdAt: string }
+export interface OrderEventApi { id: number; eventType: string; fromValue: string | null; toValue: string | null; note: string | null; performedBy: string; createdAt: string }
+export interface OrderDocumentApi { id: number; kind: string; contentType: string; byteSize: number; source: string; createdBy: string; createdAt: string; hasTelegramCopy: boolean }
+export interface OrderStatsApi { pendiente: number; confirmado: number; preparando: number; entregado_transportadora: number; en_transito: number; incidencia: number; entregado: number; cancelado: number; total: number }
 export interface OrderDetailApi extends OrderApi {
   customerEmail: string | null
   internalNotes: string
   deliveryAddress: string | null
   deliveryMethod: string | null
   events: OrderEventApi[]
+  documents: OrderDocumentApi[]
+  customerNotice: string | null
 }
 
 export async function getOrder(id: number, token: string): Promise<OrderDetailApi> {
   return fetchApi<OrderDetailApi>(`/api/orders/${id}`, { headers: { Authorization: `Bearer ${token}` } })
 }
 
-export async function updateOrder(id: number, patch: { status?: string; paymentStatus?: string; internalNotes?: string; shippingCost?: number | null; carrier?: string | null; trackingNumber?: string | null; expectedRevision: number }, token: string): Promise<{ success: boolean; revision: number }> {
-  return fetchApi<{ success: boolean; revision: number }>(`/api/orders/${id}`, {
+export type OrderPatch = {
+  status?: string; paymentStatus?: string; shippingStatus?: string | null; internalNotes?: string; shippingCost?: number | null
+  carrier?: string | null; trackingNumber?: string | null; trackingUrl?: string | null; shippedAt?: string | null; shippingNotes?: string | null
+  delivery?: { deliveredAt?: string | null; method?: string | null; receiver?: string | null; notes?: string | null; reference?: string | null }
+  reason?: string | null; expectedRevision: number
+}
+export async function updateOrder(id: number, patch: OrderPatch, token: string): Promise<{ success: boolean; revision: number; changed?: number }> {
+  return fetchApi<{ success: boolean; revision: number; changed?: number }>(`/api/orders/${id}`, {
     method: 'PATCH', headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(patch),
   })
+}
+
+export async function getOrderStats(token: string): Promise<OrderStatsApi> {
+  return fetchApi<OrderStatsApi>('/api/orders/stats', { headers: { Authorization: `Bearer ${token}` } })
+}
+
+/** Private guide photo: fetched with the session and shown as a local blob (never a public URL). */
+export async function getOrderDocument(orderId: number, documentId: number, token: string, download = false): Promise<Blob> {
+  const response = await fetch(`${API_BASE}/api/orders/${orderId}/documents/${documentId}${download ? '?download=1' : ''}`, { headers: { Authorization: `Bearer ${token}`, ...tenantHeaders() } })
+  if (!response.ok) throw new Error('No se pudo abrir la guía')
+  return response.blob()
+}
+
+export async function uploadOrderDocument(orderId: number, file: File, token: string): Promise<{ id: number; duplicate: boolean }> {
+  const form = new FormData()
+  form.append('file', file)
+  const response = await fetch(`${API_BASE}/api/orders/${orderId}/documents`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, ...tenantHeaders() }, body: form })
+  const body = await response.json().catch(() => ({})) as { id?: number; duplicate?: boolean; error?: string }
+  if (!response.ok) throw new Error(body.error || 'No se pudo subir la guía')
+  return { id: Number(body.id), duplicate: Boolean(body.duplicate) }
 }
 
 // ============================================

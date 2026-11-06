@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
-import { canTransition } from '../services/orders'
+import { customerNotice, DELIVERY_METHODS, effectiveShippingStatus, orderStatusCounts, SHIPPING_STATUSES, TRANSITION_MESSAGES, transitionOrder } from '../services/orders'
+import { DocumentError, listOrderDocuments, ORDER_DOCUMENT_MAX_BYTES, readOrderDocument, storeOrderDocument } from '../services/orderDocuments'
 import { checkCoupon, claimCouponUse, normalizePhone, recordMarketingConsent } from '../services/marketing'
 import { notifyNewOrder } from '../services/assistant/orders'
 import { z } from 'zod'
@@ -100,6 +101,8 @@ function mapOrder(o: Record<string, any>) {
     paymentStatus: String(o.payment_status || 'pendiente'), internalNotes: o.internal_notes ?? '',
     revision: Number(o.revision || 1), createdAt: String(o.created_at || ''), updatedAt: String(o.updated_at || ''),
     carrier: o.carrier ?? null, trackingNumber: o.tracking_number ?? null, shippedAt: o.shipped_at ?? null, deliveredAt: o.delivered_at ?? null,
+    shippingStatus: o.shipping_status ?? null, effectiveShippingStatus: effectiveShippingStatus(o as never), trackingUrl: o.tracking_url ?? null, shippingNotes: o.shipping_notes ?? null,
+    delivery: { method: o.delivery_confirmation_method ?? null, receiver: o.delivery_receiver ?? null, notes: o.delivery_notes ?? null, reference: o.delivery_reference ?? null },
   }
 }
 
@@ -205,6 +208,9 @@ app.post('/coupon', publicStore, async (c) => {
   return c.json({ valid: true, code: check.coupon.code, discount: check.discount, kind: check.coupon.kind, value: check.coupon.value })
 })
 
+// Current-status counters (each order counted once).
+app.get('/stats', adminAuth, async (c) => c.json(await orderStatusCounts(c.env.DB, c.get('storeId')!)))
+
 // Protected list and details keep buyer information out of public endpoints.
 app.get('/', adminAuth, async (c) => {
   const page = Math.max(1, Number(c.req.query('page') || 1))
@@ -213,6 +219,8 @@ app.get('/', adminAuth, async (c) => {
   const from = c.req.query('from'), to = c.req.query('to'), query = (c.req.query('q') || '').trim().slice(0, 120)
   const conditions: string[] = ['store_id = ?'], values: unknown[] = [c.get('storeId')]
   if (status && status !== 'todos' && ALLOWED_STATUSES.includes(status as typeof ALLOWED_STATUSES[number])) { conditions.push('status = ?'); values.push(status) }
+  const shipping = c.req.query('shipping')
+  if (shipping && (SHIPPING_STATUSES as readonly string[]).includes(shipping)) { conditions.push('shipping_status = ?'); values.push(shipping) }
   if (from) { conditions.push("date(created_at) >= date(?)"); values.push(from) }
   if (to) { conditions.push("date(created_at) <= date(?)"); values.push(to) }
   if (query) { conditions.push("(display_id LIKE ? OR customer_name LIKE ? OR customer_phone LIKE ? OR items_json LIKE ?)"); const like = `%${query}%`; values.push(like, like, like, like) }
@@ -228,60 +236,74 @@ app.get('/:id', adminAuth, async (c) => {
   if (!Number.isSafeInteger(id) || id < 1) return c.json({ error: 'Invalid order id' }, 400)
   const row = await c.env.DB.prepare('SELECT * FROM orders WHERE id = ? AND store_id = ?').bind(id, c.get('storeId')).first<Record<string, any>>()
   if (!row) return c.json({ error: 'Order not found' }, 404)
-  const { results } = await c.env.DB.prepare('SELECT event_type eventType, from_value fromValue, to_value toValue, note, performed_by performedBy, created_at createdAt FROM order_events WHERE order_id = ? ORDER BY created_at DESC, id DESC').bind(id).all()
-  return c.json({ ...mapOrder(row), events: results || [] })
+  const { results } = await c.env.DB.prepare('SELECT id, event_type eventType, from_value fromValue, to_value toValue, note, performed_by performedBy, created_at createdAt FROM order_events WHERE order_id = ? ORDER BY created_at DESC, id DESC').bind(id).all()
+  const store = c.get('store')!
+  const storeName = (await c.env.DB.prepare('SELECT name FROM stores WHERE id = ?').bind(store.id).first<{ name: string }>())?.name || ''
+  return c.json({ ...mapOrder(row), events: results || [], documents: await listOrderDocuments(c.env.DB, store.id, id), customerNotice: customerNotice(row as never, storeName) })
 })
 
 app.patch('/:id', adminAuth, requireCapability('orders.manage'), async (c) => {
   const id = Number(c.req.param('id'))
   const body = await c.req.json().catch(() => null) as Record<string, unknown> | null
   if (!Number.isSafeInteger(id) || id < 1 || !body) return c.json({ error: 'Invalid request' }, 400)
+  const optionalText = (max: number) => z.string().trim().max(max).nullable().optional()
   const patchSchema = z.object({
     status: z.enum(ALLOWED_STATUSES).optional(), paymentStatus: z.enum(ALLOWED_PAYMENT_STATUSES).optional(),
+    shippingStatus: z.enum(SHIPPING_STATUSES).nullable().optional(),
     internalNotes: z.string().max(4000).optional(), shippingCost: z.number().int().nonnegative().max(100000000).nullable().optional(),
-    carrier: z.string().trim().max(60).nullable().optional(), trackingNumber: z.string().trim().max(80).nullable().optional(),
+    carrier: optionalText(60), trackingNumber: optionalText(80), trackingUrl: optionalText(300), shippedAt: optionalText(40), shippingNotes: optionalText(500),
+    delivery: z.object({ deliveredAt: optionalText(40), method: z.enum(DELIVERY_METHODS).nullable().optional(), receiver: optionalText(120), notes: optionalText(500), reference: optionalText(120) }).strict().optional(),
+    reason: optionalText(300),
     expectedRevision: z.number().int().positive(),
   }).strict()
   const parsed = patchSchema.safeParse(body)
   if (!parsed.success || !Object.keys(parsed.data).some((key) => key !== 'expectedRevision')) return c.json({ error: 'Invalid order update' }, 400)
-  const storeId = c.get('storeId')!
-  const current = await c.env.DB.prepare('SELECT status, payment_status, internal_notes, shipping_cost, carrier, tracking_number, revision FROM orders WHERE id = ? AND store_id = ?').bind(id, storeId).first<Record<string, any>>()
-  if (!current) return c.json({ error: 'Order not found' }, 404)
-  if (parsed.data.expectedRevision !== undefined && Number(current.revision) !== parsed.data.expectedRevision) return c.json({ error: 'Order was changed by another admin. Reload and retry.' }, 409)
-  if (parsed.data.status && parsed.data.status !== current.status) {
-    if (!canTransition(String(current.status), parsed.data.status)) return c.json({ error: 'Invalid order status transition' }, 409)
-  }
-
-  const updates: string[] = [], values: unknown[] = [], events: Array<{ type: string; from: string | null; to: string | null }> = []
   const p = parsed.data
-  if (p.status !== undefined && p.status !== current.status) {
-    updates.push('status = ?'); values.push(p.status); events.push({ type: 'status', from: String(current.status), to: p.status })
-    if (p.status === 'enviado') updates.push("shipped_at = datetime('now')")
-    if (p.status === 'entregado') updates.push("delivered_at = datetime('now')")
+  const role = c.get('role')
+  const result = await transitionOrder(c.env.DB, {
+    storeId: c.get('storeId')!, orderId: id, expectedRevision: p.expectedRevision, actor: c.get('adminEmail') || 'unknown', source: 'admin',
+    canRevert: role === 'owner' || role === 'admin',
+    ...(p.status ? { status: p.status } : {}), ...(p.paymentStatus ? { paymentStatus: p.paymentStatus } : {}),
+    ...(p.shippingStatus !== undefined ? { shippingStatus: p.shippingStatus } : {}),
+    ...(p.internalNotes !== undefined ? { internalNotes: p.internalNotes } : {}),
+    shipment: {
+      ...(p.carrier !== undefined ? { carrier: p.carrier } : {}), ...(p.trackingNumber !== undefined ? { trackingNumber: p.trackingNumber } : {}),
+      ...(p.trackingUrl !== undefined ? { trackingUrl: p.trackingUrl } : {}), ...(p.shippedAt !== undefined ? { shippedAt: p.shippedAt } : {}),
+      ...(p.shippingCost !== undefined ? { shippingCost: p.shippingCost } : {}), ...(p.shippingNotes !== undefined ? { shippingNotes: p.shippingNotes } : {}),
+    },
+    ...(p.delivery ? { delivery: p.delivery } : {}), ...(p.reason !== undefined ? { reason: p.reason } : {}),
+  })
+  if (!result.ok) {
+    if (result.code === 'NOTHING_TO_CHANGE') {
+      const row = await c.env.DB.prepare('SELECT revision FROM orders WHERE id = ? AND store_id = ?').bind(id, c.get('storeId')).first<{ revision: number }>()
+      return c.json({ success: true, id, revision: Number(row?.revision || p.expectedRevision), changed: 0 })
+    }
+    const status = result.code === 'NOT_FOUND' ? 404 : result.code === 'REVERT_FORBIDDEN' ? 403 : ['STALE', 'INVALID_TRANSITION', 'INSUFFICIENT_STOCK', 'SHIPPING_CONFLICT'].includes(result.code) ? 409 : 400
+    return c.json({ error: result.message || TRANSITION_MESSAGES[result.code], code: result.code }, status)
   }
-  if (p.carrier !== undefined && (p.carrier || null) !== (current.carrier ?? null)) { updates.push('carrier = ?'); values.push(p.carrier || null); events.push({ type: 'carrier', from: current.carrier ?? null, to: p.carrier || null }) }
-  if (p.trackingNumber !== undefined && (p.trackingNumber || null) !== (current.tracking_number ?? null)) { updates.push('tracking_number = ?'); values.push(p.trackingNumber || null); events.push({ type: 'tracking_number', from: current.tracking_number ?? null, to: p.trackingNumber || null }) }
-  if (p.paymentStatus !== undefined && p.paymentStatus !== current.payment_status) { updates.push('payment_status = ?'); values.push(p.paymentStatus); events.push({ type: 'payment_status', from: String(current.payment_status), to: p.paymentStatus }) }
-  if (p.internalNotes !== undefined && p.internalNotes !== current.internal_notes) { updates.push('internal_notes = ?'); values.push(p.internalNotes); events.push({ type: 'internal_note', from: null, to: 'updated' }) }
-  if (p.shippingCost !== undefined && p.shippingCost !== current.shipping_cost) { updates.push('shipping_cost = ?'); values.push(p.shippingCost); events.push({ type: 'shipping_cost', from: current.shipping_cost == null ? null : String(current.shipping_cost), to: p.shippingCost == null ? null : String(p.shippingCost) }) }
-  if (!updates.length) return c.json({ success: true, id, revision: Number(current.revision) })
-  updates.push("revision = revision + 1", "updated_at = datetime('now')")
-  values.push(id, storeId)
-  let update = `UPDATE orders SET ${updates.join(', ')} WHERE id = ? AND store_id = ?`
-  if (p.expectedRevision !== undefined) { update += ' AND revision = ?'; values.push(p.expectedRevision) }
-  const statements = [c.env.DB.prepare(update).bind(...values)]
-  const adminEmail = c.get('adminEmail') || 'unknown'
-  for (const event of events) statements.push(c.env.DB.prepare('INSERT INTO order_events (order_id, event_type, from_value, to_value, performed_by) VALUES (?, ?, ?, ?, ?)').bind(id, event.type, event.from, event.to, adminEmail))
-  statements.push(c.env.DB.prepare(`INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source, store_id) VALUES ('order_updated', 'order', ?, ?, ?, 'admin', ?)`)
-    .bind(String(id), JSON.stringify(events.map(({ type, from, to }) => ({ type, from, to }))), adminEmail, storeId))
-  let results
-  try { results = await c.env.DB.batch(statements) }
-  catch (error) {
-    if (String(error).toLowerCase().includes('insufficient order inventory')) return c.json({ error: 'Stock changed before confirmation. Review available inventory.' }, 409)
+  return c.json({ success: true, id, revision: Number(result.order.revision), changed: result.events })
+})
+
+// Shipping-guide photos: private, only for users of the same store.
+app.get('/:id/documents/:documentId', adminAuth, async (c) => {
+  const id = Number(c.req.param('id')), documentId = Number(c.req.param('documentId'))
+  if (!Number.isSafeInteger(id) || !Number.isSafeInteger(documentId)) return c.json({ error: 'Invalid request' }, 400)
+  try { return await readOrderDocument(c.env.DB, c.env.ASSETS, c.get('storeId')!, id, documentId, c.req.query('download') === '1') }
+  catch { return c.json({ error: 'Documento no encontrado' }, 404) }
+})
+app.post('/:id/documents', adminAuth, requireCapability('orders.manage'), async (c) => {
+  const id = Number(c.req.param('id'))
+  const form = await c.req.formData().catch(() => null)
+  const file = form?.get('file')
+  if (!Number.isSafeInteger(id) || !(file instanceof File)) return c.json({ error: 'Adjunta la foto de la guía' }, 400)
+  if (file.size > ORDER_DOCUMENT_MAX_BYTES) return c.json({ error: 'La foto pesa más de 10 MB', code: 'TOO_LARGE' }, 413)
+  try {
+    const stored = await storeOrderDocument(c.env.DB, c.env.ASSETS, { storeId: c.get('storeId')!, orderId: id, bytes: new Uint8Array(await file.arrayBuffer()), source: 'panel', actor: c.get('adminEmail') || 'unknown' })
+    return c.json({ id: stored.id, duplicate: stored.duplicate }, stored.duplicate ? 200 : 201)
+  } catch (error) {
+    if (error instanceof DocumentError) return c.json({ error: error.message, code: error.code }, error.code === 'NOT_FOUND' ? 404 : error.code === 'STORAGE_UNAVAILABLE' || error.code === 'STORAGE_FAILED' ? 503 : 400)
     throw error
   }
-  if (results[0]?.meta?.changes === 0) return c.json({ error: 'Order was changed by another admin. Reload and retry.' }, 409)
-  return c.json({ success: true, id, revision: Number(current.revision) + 1 })
 })
 
 export default app

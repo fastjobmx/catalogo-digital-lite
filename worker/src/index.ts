@@ -18,6 +18,7 @@ import { cleanupExpiredTelegramProductAssets } from './services/telegramProductI
 import { releaseExpiredReservations } from './ai/credits'
 import trialRoutes from './routes/trial'
 import { cleanupExpiredTrials } from './services/trials'
+import { cleanupOrderDocuments } from './services/orderDocuments'
 import type { Principal, EffectiveRole } from './tenancy/access'
 import type { StoreRecord } from './tenancy/stores'
 
@@ -144,6 +145,7 @@ const worker = {
  fetch: (request: Request, env: Env['Bindings'], context: ExecutionContext) => app.fetch(request, env, context),
  scheduled: (_controller: ScheduledController, env: Env['Bindings'], context: ExecutionContext) => {
   if (env.ASSETS) context.waitUntil(cleanupExpiredTelegramProductAssets(env.DB, env.ASSETS))
+  context.waitUntil(cleanupOrderDocuments(env.DB, env.ASSETS).catch((error) => console.error('Order documents cleanup failed:', error instanceof Error ? error.message : 'unknown')))
   context.waitUntil(cleanupExpiredTrials(env.DB, env.ASSETS).catch((error) => console.error('Trial cleanup failed:', error instanceof Error ? error.message : 'unknown')))
   context.waitUntil(releaseExpiredReservations(env.DB).catch((error) => console.error('AI credit reservation cleanup failed:', error instanceof Error ? error.message : 'unknown')))
   context.waitUntil(cleanupAssistantMemory(env.DB).catch((error) => console.error('Assistant memory cleanup failed:', error instanceof Error ? error.message : 'unknown')))

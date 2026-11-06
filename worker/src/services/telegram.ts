@@ -33,6 +33,9 @@ import { acceptTrackingText, detectOrderIntent, handleOrderCallback, handleOrder
 import { catalogFacts, deterministicAdvice, escapeHtml } from './assistant/tools'
 import { handleCommerceCallback, handleCommerceText, isNewCommerceRequest, storeSummary } from './assistant/commerce/engine'
 import { parseCommerce } from './assistant/commerce/parse'
+import { handleGuideCallback, handleGuideText, mentionsGuide, showGuide, startGuideFromPhoto, startGuideFromText } from './assistant/shippingGuide'
+import { detectOrderViewIntent, showOrderView } from './assistant/orders'
+import { findOrder } from './orders'
 import {
   advanceAfterConfirmedBanner, advanceAfterConfirmedLogo, continueOnboarding,
   handleOnboardingCallback, handleOnboardingText, renderOnboarding, showOnboardingForStart,
@@ -204,6 +207,7 @@ async function handleCallback(ctx: AssistantContext, data: string): Promise<void
     return
   }
   if (key.startsWith('cm:') && await handleCommerceCallback(ctx, key)) return
+  if (key.startsWith('gd:') && await handleGuideCallback(ctx, key)) return
   if (key.startsWith('ord:') && await handleOrderCallback(ctx, key)) return
   if (key.startsWith('team:') && await handleTeamCallback(ctx, key)) return
   if (key.startsWith('mk:') && await handleMarketingCallback(ctx, key)) return
@@ -221,11 +225,12 @@ async function handleCallback(ctx: AssistantContext, data: string): Promise<void
     await handleTemplateCallback(ctx, templateChoice[2] as 'pick' | 'apply', templateChoice[3]!)
     return
   }
-  const photo = key.match(/^ph:(product|banner|logo|none)$/)
+  const photo = key.match(/^ph:(product|banner|logo|none|guide)$/)
   if (photo) {
     const fileId = await pendingPhotoFromSession(ctx)
     await updateSessionState(ctx, { pendingPhotoFileId: undefined })
     if (photo[1] === 'none' || !fileId) { await say(ctx, 'De acuerdo, no hice nada con la foto.'); return }
+    if (photo[1] === 'guide') { await startGuideFromPhoto(ctx, fileId); return }
     if (photo[1] === 'banner' || photo[1] === 'logo') { await proposeStoreImage(ctx, photo[1], fileId); return }
     await beginProductDraft(ctx)
     const active = await getPendingProductDraft(ctx)
@@ -325,6 +330,15 @@ async function handlePhoto(ctx: AssistantContext, message: TelegramMessage): Pro
   if (draft) { await receiveProductPhoto(ctx, draft, message); return }
   if (await getPendingAttach(ctx)) { await receiveAttachPhoto(ctx, fileId); return }
   const session = await readSession(ctx.db, ctx.telegramUserId)
+  // Shipping guide: awaited after "Registrar guía", a guide already in progress, or a caption about it.
+  const guideCaption = (message.caption || '').trim()
+  if (session.state.awaiting === 'shipping_guide' || session.state.guide || mentionsGuide(guideCaption)) {
+    const order = guideCaption ? (detectOrderIntent(guideCaption)?.reference ?? null) : null
+    const orderId = order ? (await findOrder(ctx.db, ctx.store.id, order))?.id : session.state.awaiting === 'shipping_guide' ? session.state.focusOrder : undefined
+    await updateSessionState(ctx, { awaiting: undefined })
+    await startGuideFromPhoto(ctx, fileId, guideCaption, orderId)
+    return
+  }
   if (session.state.awaiting === 'banner_photo' || session.state.awaiting === 'logo_photo') {
     await proposeStoreImage(ctx, session.state.awaiting === 'banner_photo' ? 'banner' : 'logo', fileId)
     return
@@ -464,7 +478,10 @@ async function handleText(ctx: AssistantContext, text: string): Promise<void> {
     await say(ctx, `Envíame las fotos para ${escapeHtml(attach.draft.name)} o toca “Listo”.`)
     return
   }
+  // A shipping guide in progress takes its answers and corrections first.
+  if (await handleGuideText(ctx, text)) return
   const pending = await getPendingOperation(ctx)
+  if (pending?.action === 'register_shipment' && CONFIRM_WORDS.test(text)) { await handleGuideCallback(ctx, `gd:${ctx.store.id}:ok:${pending.operation_id}`); return }
   if (pending && CONFIRM_WORDS.test(text)) { await confirmOperation(ctx, pending); return }
   if (pending && CANCEL_WORDS.test(text)) {
     await cancelOperation(ctx, pending.operation_id)
@@ -495,7 +512,29 @@ async function handleText(ctx: AssistantContext, text: string): Promise<void> {
     else await showFollowUps(ctx)
     return
   }
+  const orderView = detectOrderViewIntent(text)
+  if (orderView) { await showOrderView(ctx, orderView); return }
+  if (session.state.awaiting === 'shipping_guide') {
+    await updateSessionState(ctx, { awaiting: undefined })
+    if (await startGuideFromText(ctx, text, session.state.focusOrder)) return
+  }
   const orderIntent = detectOrderIntent(text)
+  // Guides by text: "muéstrame la guía del pedido 123", "registra la guía del pedido 123".
+  if (/gu[ií]a/i.test(text) && (orderIntent || session.state.focusOrder) && !orderIntent?.to) {
+    const order = await findOrder(ctx.db, ctx.store.id, orderIntent?.reference ?? session.state.focusOrder!)
+    if (order && /(?:mu[eé]strame|ver|ens[eé][nñ]ame|m[aá]ndame|p[aá]same|env[ií]ame)\b/i.test(text)) { await showGuide(ctx, order); return }
+    if (order && /(?:registra|agrega|sube|anota|corrige|cambia)\w*/i.test(text)) {
+      if (await startGuideFromText(ctx, text.replace(/\bpedido\s*#?\s*[A-Z0-9-]+/i, ''), order.id)) return
+      await updateSessionState(ctx, { awaiting: 'shipping_guide', focusOrder: order.id })
+      await say(ctx, `📷 Envíame la foto de la guía del pedido o escribe los datos, por ejemplo <code>Servientrega 700012345678</code>.`)
+      return
+    }
+  }
+  if (/corrig|cambi/i.test(text) && /transportadora|gu[ií]a/i.test(text) && !orderIntent && session.state.focusOrder) {
+    await updateSessionState(ctx, { awaiting: 'shipping_guide' })
+    await say(ctx, 'Escribe la transportadora correcta y el número de guía, por ejemplo <code>Coordinadora 12345678</code>. Te muestro el cambio antes de guardarlo.')
+    return
+  }
   if (orderIntent) { await handleOrderIntent(ctx, orderIntent); return }
   if (/\b(mi equipo|mis empleados|invitar a (un|una|alguien)|agregar (un|una) (vendedor|vendedora|empleado|empleada|colaborador|colaboradora)|dar acceso a (un|una|mi))\b/i.test(text)) { await showTeam(ctx); return }
   const movementsQuery = detectMovementsQuery(text)

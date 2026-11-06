@@ -134,7 +134,7 @@ export async function salesSummaryTool(db: D1Database, storeId: number, currency
   const confirmed = rows.filter((row) => ['confirmado', 'preparando', 'enviado', 'entregado'].includes(row.status))
   const confirmedAmount = confirmed.reduce((sum, row) => sum + Number(row.amount), 0)
   const confirmedOrders = confirmed.reduce((sum, row) => sum + Number(row.orders), 0)
-  const labels: Record<string, string> = { pendiente: 'Recibido (sin confirmar)', confirmado: 'Confirmado', preparando: 'En preparación', enviado: 'Despachado', entregado: 'Entregado', cancelado: 'Cancelado' }
+  const labels: Record<string, string> = { pendiente: 'Pendiente (sin confirmar)', confirmado: 'Confirmado', preparando: 'En preparación', enviado: 'Entregado a transportadora', entregado: 'Entregado', cancelado: 'Cancelado' }
   const lines = rows.map((row) => `• ${escapeHtml(labels[row.status] || row.status)}: ${row.orders} · ${formatMoney(row.amount, currency)}`)
   return {
     text: `📈 <b>Resumen de pedidos · últimos ${days} días</b>\n${lines.join('\n')}\n\nConfirmados: <b>${confirmedOrders}</b> pedidos por <b>${formatMoney(confirmedAmount, currency)}</b> (subtotal de productos, sin envío).\nLos pagos se verifican en el panel; un pedido por WhatsApp no equivale a un pago.`,

@@ -268,6 +268,7 @@ export async function purgeStore(db: D1Database, bucket: R2Bucket | undefined, s
   await db.batch([
     db.prepare(`DELETE FROM order_inventory_operations WHERE order_id IN (${storeOrders}) OR variant_id IN (${storeVariants})`).bind(id, id),
     db.prepare(`DELETE FROM order_events WHERE order_id IN (${storeOrders})`).bind(id),
+    db.prepare('DELETE FROM order_documents WHERE store_id = ?').bind(id),
     db.prepare('DELETE FROM orders WHERE store_id = ?').bind(id),
     db.prepare('DELETE FROM product_variants WHERE product_id IN (SELECT id FROM products WHERE store_id = ?)').bind(id),
     db.prepare('DELETE FROM products WHERE store_id = ?').bind(id),
@@ -288,6 +289,12 @@ export async function purgeStore(db: D1Database, bucket: R2Bucket | undefined, s
     let cursor: string | undefined
     do {
       const page = await bucket.list({ prefix: storeAssetPrefix(id), limit: 1000, ...(cursor ? { cursor } : {}) })
+      for (const object of page.objects) { await bucket.delete(object.key); assetsRemoved++ }
+      cursor = page.truncated ? page.cursor : undefined
+    } while (cursor)
+    // Private order documents (shipping guides) of this store.
+    do {
+      const page = await bucket.list({ prefix: `order-docs/${id}/`, limit: 1000, ...(cursor ? { cursor } : {}) })
       for (const object of page.objects) { await bucket.delete(object.key); assetsRemoved++ }
       cursor = page.truncated ? page.cursor : undefined
     } while (cursor)

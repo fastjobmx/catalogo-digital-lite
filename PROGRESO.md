@@ -729,3 +729,27 @@ La reversión está en `docs/USUARIOS_CORREOS_DIAGNOSTICO_Y_PLAN.md` §5.
 
 Detalle en `docs/ASISTENTE_TIENDIA.md`.
 - Producción: servidor `501b02d3` → `87e31055`, sin migración. Verificado: salud 200, 10 secretos y webhooks protegidos (403 sin secreto). Los conteos quedaron iguales.
+
+### Pedidos: seguimiento, envío y guías por foto — 2026-11-05 (staging; producción pendiente de autorización)
+
+**Qué cambió**
+
+- Estados del pedido:
+  - `enviado` se muestra como «Entregado a transportadora».
+  - La entrega local ya no exige transportadora.
+  - Volver a un estado anterior exige rol y motivo.
+- Estado de envío independiente.
+- Datos de la transportadora y confirmación de entrega.
+- Historial en línea de tiempo.
+- Panel reorganizado en secciones A–H, con estadísticas sin doble conteo.
+- TiendIA entiende los estados y registra guías por foto: tarjeta de confirmación, créditos de IA y almacenamiento privado en R2.
+
+**Archivos**
+
+- Migración aditiva `0016`.
+- Detalle en `docs/PEDIDOS_SEGUIMIENTO_Y_GUIAS.md`.
+
+**Verificación**
+
+- Servidor 363/363 y panel 81/81.
+- Staging de punta a punta 24/24 (servidor `2cc7fe68`), con una tienda ficticia que se eliminó al final.
