@@ -81,7 +81,15 @@ Se agregaron dos acciones al catálogo cerrado. Las prepara solo el servidor, no
 
 Cuando Telegram falla al entregar un aviso intermedio («corrijo la propuesta», «vamos a registrarlo»), la operación ya no se interrumpe. Este fallo apareció en la prueba de staging y quedó corregido.
 
-## 4. Pendiente de autorización
+## 4. En producción (2026-11-05, autorizado)
 
-- **Publicar en producción.** Es solo desplegar el servidor `catalogo-lite-api`: no hay migración y el panel no cambia. Para revertir, se vuelve a la versión anterior del servidor (`501b02d3`).
+| Paso | Resultado |
+|---|---|
+| Servidor | `catalogo-lite-api`: `501b02d3` → `87e31055-c570-4906-abd3-e8f3e7dc3a25`. Sin migración. El panel no cambió. |
+| Verificación | La salud responde 200. Los 10 secretos siguen intactos. Ambos webhooks rechazan con 403 si no llevan su secreto. Los datos no cambiaron: 4 tiendas, 161 productos, 690 variantes, 14 pedidos y 3 usuarios. No hubo errores nuevos. No se enviaron mensajes de prueba a tiendas reales. |
+| Commit | `ef01034` |
+| Reversión | Volver a la versión `501b02d3` del servidor. |
+
+## 5. Pendiente de autorización
+
 - **Nombre y descripción visibles del bot en Telegram** (`setMyName`, `setMyDescription`, `setMyCommands`). Cambian la configuración del bot y requieren tu autorización. Hoy el asistente ya se presenta como Asistente TiendIA dentro de sus mensajes.
