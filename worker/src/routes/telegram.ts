@@ -59,7 +59,7 @@ app.post('/webhook', async (c) => {
     // Unlinked users only get onboarding instructions; no store data is exposed.
     if (/^\/start\b/.test(text) && await markProcessed(c.env.DB, update.update_id)) {
       await sendTelegramMessage(botToken, message.chat.id,
-        '👋 ¡Hola! Soy el asistente para administrar tiendas de Catálogo Digital.\n\nPara empezar, vincula tu cuenta: entra al panel de tu tienda → Configuración → Telegram, genera tu código y envíamelo así:\n<code>/link TU-CODIGO</code>')
+        '👋 ¡Hola! Soy el Asistente TiendIA, un asistente con IA para administrar tiendas de Tienda IA Express.\n\nPara empezar, vincula tu cuenta: entra al panel de tu tienda → Configuración → Telegram, genera tu código y envíamelo así:\n<code>/link TU-CODIGO</code>')
     }
     // A 2xx acknowledges the delivery so Telegram does not redeliver it.
     return c.json({ ok: true, rejected: true })

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { ACTION_NAMES, READ_ONLY_ACTIONS, parseActionPayload, type ActionName } from '../validation/actions'
+import { AI_ACTION_NAMES, READ_ONLY_ACTIONS, parseActionPayload, type ActionName } from '../validation/actions'
 import type { Env } from '../index'
 import { callGeminiJson, UNTRUSTED_CONTENT_RULE } from './geminiClient'
 import type { TokenUsage } from './usage'
@@ -28,7 +28,7 @@ export { GeminiRequestError, type GeminiFailureCategory } from './geminiClient'
 const PROPOSAL_SCHEMA = {
   type: 'object',
   properties: {
-    action: { type: 'string', enum: [...ACTION_NAMES, 'ask'] },
+    action: { type: 'string', enum: [...AI_ACTION_NAMES, 'ask'] },
     params: {
       type: 'object',
       properties: {
@@ -110,7 +110,7 @@ export async function interpretWithGemini(
   const parsed = proposalShape.safeParse(parsedJson)
   if (!parsed.success) throw Object.assign(new Error('Gemini proposal does not match the response schema'), { usage })
   if (parsed.data.action === 'ask') return { ...parsed.data, ...meta, action: 'ask', needsConfirmation: false }
-  if (!ACTION_NAMES.includes(parsed.data.action as ActionName)) throw Object.assign(new Error('Gemini proposal does not match the response schema'), { usage })
+  if (!AI_ACTION_NAMES.includes(parsed.data.action as ActionName)) throw Object.assign(new Error('Gemini proposal does not match the response schema'), { usage })
 
   const actionName = parsed.data.action as ActionName
   let params = parsed.data.params

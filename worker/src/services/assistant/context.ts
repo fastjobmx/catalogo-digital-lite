@@ -38,7 +38,22 @@ export type SessionState = {
   pendingDelivery?: { orderId: number; carrier?: string; trackingNumber?: string }
   targetSku?: string
   pendingPhotoFileId?: string
+  /** Product the conversation is about (set only when one product was resolved unequivocally). */
+  focusSku?: string
+  /** Commerce request waiting for an answer, or the request behind a pending proposal (for corrections). */
+  commerce?: CommerceState
+  /** A new request received while a product draft was open, kept until the owner decides. */
+  deferredText?: string
   updatedAt?: number
+}
+
+export type CommerceState = {
+  intent: import('./commerce/intent').CommerceIntent
+  sku?: string
+  ask?: 'product' | 'product_name' | 'mode' | 'distribution' | 'color'
+  options?: number[]
+  missing?: number
+  operationId?: string
 }
 
 export async function legacyOwnerIds(db: D1Database, env: Env['Bindings']): Promise<string[]> {

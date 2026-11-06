@@ -1,6 +1,19 @@
 import type { InlineKeyboard } from './telegramApi'
 import type { Membership } from '../../tenancy/access'
 import { escapeHtml } from './tools'
+import { adminStoreUrl, publicStoreUrl } from '../../tenancy/stores'
+
+/** Visible name of the store assistant (technical bot names and usernames do not change). */
+export const ASSISTANT_NAME = 'Asistente TiendIA'
+
+/** Buttons after working on one product: its public page and the panel's product list. */
+export function productKeyboard(ctx: { env: { PUBLIC_STORE_BASE_URL?: string }; store: { id: number; slug: string } }, sku: string): InlineKeyboard {
+  const store = publicStoreUrl(ctx.env.PUBLIC_STORE_BASE_URL, ctx.store).replace(/\/$/, '')
+  return { inline_keyboard: [
+    [{ text: '🔗 Ver producto', url: `${store}/producto/${encodeURIComponent(sku)}` }, { text: '🛠 Abrir panel', url: `${adminStoreUrl(ctx.env.PUBLIC_STORE_BASE_URL, ctx.store)}/products` }],
+    [{ text: '↩ Menú principal', callback_data: 'm:menu' }],
+  ] }
+}
 
 /** Friendly main menu: the first thing an owner sees. */
 export function mainMenuKeyboard(_multiStore = false): InlineKeyboard {
@@ -98,17 +111,20 @@ export const ACCESS_HELP_TEXT = [
 export function greeting(firstName: string, storeName: string, isFirstTime = false): string {
   const name = firstName ? `, ${escapeHtml(firstName)}` : ''
   return isFirstTime
-    ? `¡Hola${name}! 👋 Soy el asistente de <b>${escapeHtml(storeName)}</b>.\nPuedo ayudarte a publicar productos, revisar tu inventario, consultar pedidos y cuidar la apariencia de tu tienda.\n\n¿Qué hacemos hoy?`
-    : `¡Hola${name}! 👋 Bienvenido a <b>${escapeHtml(storeName)}</b>.\n¿Qué hacemos hoy?`
+    ? `¡Hola${name}! 👋 Soy el <b>${ASSISTANT_NAME}</b>, un asistente con inteligencia artificial (no una persona) para <b>${escapeHtml(storeName)}</b>.\nTe ayudo a organizar productos, actualizar inventario, consultar pedidos y ventas, y descubrir oportunidades para tu negocio. Escríbeme como le hablarías a un colaborador.\n\n¿Qué hacemos hoy?`
+    : `¡Hola${name}! 👋 Soy el ${ASSISTANT_NAME} de <b>${escapeHtml(storeName)}</b>.\n¿Qué hacemos hoy?`
 }
 
 export const HELP_TEXT = [
   '📖 <b>Cómo te ayudo</b>',
   '',
-  'Escríbeme como le hablarías a un colaborador, o envíame una nota de voz. Por ejemplo:',
-  '• “Quiero agregar unos tenis negros” y luego envía las fotos',
+  'Soy el Asistente TiendIA, un asistente con IA. Escríbeme como le hablarías a un colaborador, o envíame una nota de voz. Por ejemplo:',
+  '• “Me llegaron 10 camisetas: 4 M, 3 L y 3 XL”',
+  '• “Las blancas ya no quedan”',
+  '• “Súbele 10 mil a las sandalias”',
+  '• “Créame unas sandalias negras talla 38 y 39 a 80 mil”',
+  '• “¿Cuántas sandalias me quedan?”',
   '• “Muéstrame los productos con menos de cinco unidades”',
-  '• “Cambia el precio de ABC123 a 180.000”',
   '• “Oculta los productos agotados”',
   '• “Escribe una descripción más atractiva para ABC123”',
   '• “¿Cuáles son los productos más vendidos este mes?”',
@@ -118,6 +134,6 @@ export const HELP_TEXT = [
   '📷 Fotos para crear un producto o cambiar el banner',
   '📄 Un archivo CSV para actualizar precios y stock',
   '',
-  'Antes de cambiar algo importante te muestro una vista previa y te pido confirmación.',
-  'Comandos: /menu · /tiendas · /cambiar_tienda · /productos · /pedidos · /configurar · /continuar · /cancelar · /ayuda',
+  'Antes de cambiar algo te muestro una vista previa y te pido confirmación. Si me equivoco, corrígeme: “las M son 5, no 3”.',
+  'Comandos: /resumen · /productos · /inventario · /pedidos · /tiendas · /configurar · /cancelar · /ayuda',
 ].join('\n')

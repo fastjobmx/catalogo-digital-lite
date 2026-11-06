@@ -704,3 +704,27 @@ La reversión está en `docs/USUARIOS_CORREOS_DIAGNOSTICO_Y_PLAN.md` §5.
 - Staging en `2bf5cd38`.
 - Producción: `0015` aplicada (respaldo `.tmp/production-0015/`). Servidor `13561c72` → `dcb2c207`. Panel `8a155ad5`. Verificación en vivo correcta; los conteos quedaron iguales.
 - Corrección de fotos (commit `84e71d1`): las fotos subidas antes de escribir el nombre se borraban. Producción: servidor `dcb2c207` → `501b02d3`, panel `8a155ad5` → `f3011324`. Verificado en vivo.
+
+### Asistente TiendIA, fases 1 a 3 — 2026-11-05 (staging; producción pendiente de autorización)
+
+**Qué cambió**
+
+- El motor comercial en `worker/src/services/assistant/commerce/` entiende lenguaje natural:
+  - Existencias por talla y color.
+  - Precios como 80mil, 80k o «súbele 10 mil».
+  - «Las blancas ya no quedan».
+  - Correcciones como «las M son 5, no 3».
+  - Productos ambiguos (muestra opciones).
+  - Crear productos.
+  - Quitar fotos.
+  - Enlaces.
+  - Comando `/resumen`.
+- Dos acciones nuevas que solo prepara el servidor: `update_variant_stocks` y `update_product_images`.
+- Sin migración.
+
+**Verificación**
+
+- Servidor 340/340.
+- Staging de punta a punta 30/30 (`ca322129`), con una tienda ficticia que se eliminó al final.
+
+Detalle en `docs/ASISTENTE_TIENDIA.md`.

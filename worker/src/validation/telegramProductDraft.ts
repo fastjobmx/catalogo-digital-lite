@@ -37,6 +37,8 @@ export const telegramProductDraftSchema = z.object({
   primaryImageIndex: z.number().int().nonnegative(),
   awaiting: productDraftFieldSchema.optional(),
   editField: productDraftFieldSchema.optional(),
+  /** Field to ask first (for example the units per size when the owner already gave the sizes). */
+  askFirst: productDraftFieldSchema.optional(),
   /** Fields proposed by Gemini from the photos; shown as suggestions in the preview. */
   aiSuggested: z.array(z.string().max(30)).max(10).optional(),
   aiAnalyzed: z.boolean().optional(),
@@ -93,6 +95,8 @@ export function mergeGeminiProductFields(
   }
   if (variants.length) next.variants = variants
   if (color) next.defaultColor = color
+  const first = productDraftFieldSchema.safeParse(input.askFirst)
+  if (first.success) next.askFirst = first.data
   return next
 }
 
@@ -207,6 +211,16 @@ function parseVariantStockReply(text: string, previous: TelegramProductDraft['va
   const knownColor = () => {
     const colors = new Set(previous.map((variant) => variant.color).filter(Boolean))
     return (colors.size === 1 ? previous.find((variant) => variant.color)?.color : undefined) || defaultColor || 'Único'
+  }
+  // Sizes already known (from the owner's first message): "2 y 3" in order, or "2 de cada una".
+  const known = previous.filter((variant) => variant.size)
+  if (known.length > 1 && previous.every((variant) => variant.size && variant.stock === undefined)) {
+    const each = text.match(/^(\d{1,6})\s*(?:unidades?\s+|pares?\s+)?(?:de\s+cada\s+(?:una|uno|talla)|por\s+talla|cada\s+(?:una|uno|talla))$/i)
+    if (each) return { variants: known.map((variant) => ({ size: variant.size!, color: variant.color || knownColor(), stock: Number(each[1]) })) }
+    const numbers = text.split(/\s*(?:,|;|\s+y\s+|\s+)\s*/i).filter(Boolean)
+    if (numbers.length === known.length && numbers.every((value) => /^\d{1,6}$/.test(value))) {
+      return { variants: known.map((variant, index) => ({ size: variant.size!, color: variant.color || knownColor(), stock: Number(numbers[index]) })) }
+    }
   }
   // Single-size products: "10", "10 unidades", "talla única 10".
   const single = text.trim().match(/^(?:(?:talla\s+)?[uú]nica\s*[:=]?\s*)?(\d{1,6})\s*(?:unidades?|u\.?|pares?|piezas?)?$/i)

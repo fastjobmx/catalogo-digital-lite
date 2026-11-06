@@ -20,7 +20,7 @@ import {
 } from './assistant/context'
 import { ACCESS_HELP_TEXT, backToMenu, greeting, HELP_TEXT, inventoryKeyboard, mainMenuKeyboard, orderMenuKeyboard, storePickerKeyboard, storePickerText, switchedStoreKeyboard } from './assistant/menus'
 import { cancelOperation, confirmOperation, formatOperationPreview, getPendingOperation, isConfirmableAction, proposeChange } from './assistant/operations'
-import { acceptProductDraftText, beginProductDraft, cancelProductDraft, getPendingProductDraft, handleProductDraftCallback, receiveProductPhoto } from './assistant/productDraft'
+import { acceptProductDraftText, beginProductDraft, cancelProductDraft, getPendingProductDraft, handleProductDraftCallback, promptProductDraft, receiveProductPhoto } from './assistant/productDraft'
 import { askWhatToDoWithPhoto, beginAttachPhotos, getPendingAttach, handleAttachCallback, pendingPhotoFromSession, photoFileId, proposeStoreImage, receiveAttachPhoto } from './assistant/media'
 import { handleDocument, isSupportedDocument } from './assistant/documents'
 import { answerWithStoreFacts, draftProductDescription, interpretRequest } from './assistant/ai'
@@ -31,6 +31,8 @@ import { acceptCampaignText, createCampaign, detectCouponDraft, detectMarketingI
 import { detectMovementsQuery, detectStockMovement, proposeStockMovement, showStockMovements } from './assistant/inventory'
 import { acceptTrackingText, detectOrderIntent, handleOrderCallback, handleOrderIntent, showOrders } from './assistant/orders'
 import { catalogFacts, deterministicAdvice, escapeHtml } from './assistant/tools'
+import { handleCommerceCallback, handleCommerceText, isNewCommerceRequest, storeSummary } from './assistant/commerce/engine'
+import { parseCommerce } from './assistant/commerce/parse'
 import {
   advanceAfterConfirmedBanner, advanceAfterConfirmedLogo, continueOnboarding,
   handleOnboardingCallback, handleOnboardingText, renderOnboarding, showOnboardingForStart,
@@ -185,6 +187,23 @@ async function handleCallback(ctx: AssistantContext, data: string): Promise<void
     if (pending.action === 'update_store_banner') await advanceAfterConfirmedBanner(ctx)
     return
   }
+  const switchTopic = key.match(/^cm:(\d+):switch:(yes|no)$/)
+  if (switchTopic && Number(switchTopic[1]) === ctx.store.id) {
+    const session = await readSession(ctx.db, ctx.telegramUserId)
+    const deferred = session.state.deferredText
+    await updateSessionState(ctx, { deferredText: undefined })
+    const draft = await getPendingProductDraft(ctx)
+    if (switchTopic[2] === 'no' || !deferred) {
+      if (draft) await promptProductDraft(ctx, draft.operation, draft.draft)
+      else await say(ctx, '¿Qué hacemos ahora?', mainMenuKeyboard(ctx.memberships.length > 1))
+      return
+    }
+    if (draft) await cancelProductDraft(ctx, draft.operation.operation_id)
+    await say(ctx, 'Dejé el borrador del producto sin publicar. Sigo con lo que me pediste.').catch(() => undefined)
+    await handleText(ctx, deferred)
+    return
+  }
+  if (key.startsWith('cm:') && await handleCommerceCallback(ctx, key)) return
   if (key.startsWith('ord:') && await handleOrderCallback(ctx, key)) return
   if (key.startsWith('team:') && await handleTeamCallback(ctx, key)) return
   if (key.startsWith('mk:') && await handleMarketingCallback(ctx, key)) return
@@ -358,6 +377,8 @@ async function handleVoice(ctx: AssistantContext, message: TelegramMessage): Pro
   // Pending drafts take precedence: the transcript answers the current question.
   const draft = await getPendingProductDraft(ctx)
   if (draft) { await acceptProductDraftText(ctx, draft, transcript); return }
+  // The same commerce rules apply to what was said: product names, sizes, corrections, confirmation.
+  if (parseCommerce(transcript) && await handleCommerceText(ctx, transcript)) return
   await handleProposal(ctx, outcome.value, transcript)
 }
 
@@ -393,6 +414,7 @@ async function handleCommand(ctx: AssistantContext, text: string): Promise<boole
     case '/estadisticas': await readAndReply(ctx, 'get_inventory'); return true
     case '/productos': await readAndReply(ctx, 'get_products'); return true
     case '/inventario': await readAndReply(ctx, 'get_inventory', {}, inventoryKeyboard()); return true
+    case '/resumen': await storeSummary(ctx); return true
     case '/agotados': await readAndReply(ctx, 'get_out_of_stock'); return true
     case '/pedido':
     case '/pedidos': await showOrders(ctx); return true
@@ -425,6 +447,14 @@ async function handleText(ctx: AssistantContext, text: string): Promise<void> {
   if (draft) {
     if (CANCEL_WORDS.test(text)) { await cancelProductDraft(ctx, draft.operation.operation_id); await say(ctx, 'Cancelé el borrador del producto. No se publicó nada.', backToMenu()); return }
     if (CONFIRM_WORDS.test(text) && !draft.draft.awaiting) { await say(ctx, 'Para publicarlo, toca “Guardar producto” en la vista previa.'); return }
+    // A different request while the draft is open: ask before leaving it (nothing is lost silently).
+    if (isNewCommerceRequest(text) || detectOrderIntent(text)) {
+      await updateSessionState(ctx, { deferredText: text.slice(0, 400) })
+      await say(ctx, `Tienes el producto <b>${escapeHtml(draft.draft.fields.name || 'nuevo')}</b> a medio crear. ¿Lo dejo sin publicar y hago lo que me acabas de pedir?`, {
+        inline_keyboard: [[{ text: '✔ Sí, hacer esto', callback_data: `cm:${ctx.store.id}:switch:yes` }, { text: '↩ Seguir con el producto', callback_data: `cm:${ctx.store.id}:switch:no` }]],
+      })
+      return
+    }
     await acceptProductDraftText(ctx, draft, text)
     return
   }
@@ -477,6 +507,8 @@ async function handleText(ctx: AssistantContext, text: string): Promise<void> {
     await handleProposal(ctx, { action: 'ask_ai', params: { question: text }, missing: [], summary: '', needsConfirmation: false }, text)
     return
   }
+  // Products, stock and prices in the merchant's own words (names, sizes, colours, corrections).
+  if (await handleCommerceText(ctx, text)) return
 
   const intent = detectIntent(text, session.state.lastSkus)
   if (intent) {

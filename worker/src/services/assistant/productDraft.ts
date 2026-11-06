@@ -120,12 +120,13 @@ export async function beginProductDraft(ctx: AssistantContext, input?: Record<st
     }
     throw error
   }
-  await say(ctx, '¡Perfecto! Vamos a registrarlo. 🛍️')
+  await say(ctx, '¡Perfecto! Vamos a registrarlo. 🛍️').catch(() => undefined)
   await promptProductDraft(ctx, { operation_id: operationId, action: 'create_product', params_json: JSON.stringify(draft), before_json: '{}', after_json: '{}' }, draft)
 }
 
 function nextMissing(draft: TelegramProductDraft): ProductDraftMissingField | null {
   const missing = new Set(missingProductDraftFields(draft))
+  if (draft.askFirst && missing.has(draft.askFirst)) return draft.askFirst
   return FIELD_ORDER.find((field) => missing.has(field)) ?? null
 }
 
@@ -161,7 +162,9 @@ export async function promptProductDraft(ctx: AssistantContext, operation: Pendi
     description: 'Escribe una breve descripción del producto (qué es, materiales, para quién).',
     category: categories.length ? '¿En qué categoría lo publico? Elige una o escribe el nombre de una nueva.' : 'Escribe el nombre de la categoría para este producto (por ejemplo “Calzado”).',
     price: `¿Qué precio deseas colocar? Escríbelo en ${escapeHtml(ctx.store.currency)}, por ejemplo 180000 o 180.000.`,
-    variants: '¿Cuántas unidades tienes?\n• Si es talla única, escribe solo la cantidad. Ejemplo: <b>10</b>\n• Si tiene tallas o colores: <b>Negro talla 38:3, Negro talla 39:2</b>\nNo crearé existencias que no me indiques.',
+    variants: draft.variants.length > 1 && draft.variants.every((variant) => variant.size && variant.stock === undefined)
+      ? `¿Cuántas unidades tienes por talla (${escapeHtml(draft.variants.map((variant) => variant.size).join(', '))})?\nEjemplo: <b>${escapeHtml(draft.variants.map((variant, index) => `${variant.size}:${index + 2}`).join(', '))}</b>, o “2 de cada una”.\nNo crearé existencias que no me indiques.`
+      : '¿Cuántas unidades tienes?\n• Si es talla única, escribe solo la cantidad. Ejemplo: <b>10</b>\n• Si tiene tallas o colores: <b>Negro talla 38:3, Negro talla 39:2</b>\nNo crearé existencias que no me indiques.',
     sku: `Por último, ¿tiene un código o SKU? Si no, uso <b>${escapeHtml(draft.suggestedSku || '')}</b>.`,
   }
   const keyboard: Array<Array<{ text: string; callback_data: string }>> = []

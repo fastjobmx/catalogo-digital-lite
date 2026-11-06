@@ -7,6 +7,7 @@ import { operationKeyboard, backToMenu } from './menus'
 import { escapeHtml, formatMoney } from './tools'
 import { contrastRatio, isLegiblePalette } from './logoPalette'
 import { annotateStockMovement, lowStockWarning } from './inventory'
+import { productKeyboard } from './menus'
 
 export interface PendingOperation {
   operation_id: string
@@ -22,18 +23,20 @@ const STORE_ACTIONS = new Set([
   'update_store_name', 'update_store_colors', 'update_hero_title', 'update_whatsapp', 'update_business_hours',
   'update_business_info', 'update_social_links', 'update_store_banner', 'update_store_logo',
 ])
-const BULK_ACTIONS = new Set(['hide_out_of_stock', 'set_featured_products', 'move_products_to_category', 'archive_product', 'restore_product', 'create_category', 'import_catalog_updates'])
+const BULK_ACTIONS = new Set(['hide_out_of_stock', 'set_featured_products', 'move_products_to_category', 'archive_product', 'restore_product', 'create_category', 'import_catalog_updates', 'update_variant_stocks', 'update_product_images'])
 /** Actions prepared by trusted server code (photo and document flows) instead of the typed action catalog. */
 const INTERNAL_ACTIONS = new Set(['update_store_banner', 'update_store_logo', 'import_catalog_updates'])
 
 /** Minimum role needed to confirm each kind of change. */
 export function requiredRole(action: string): StoreRole {
-  if (action === 'update_stock') return 'operator'
+  if (action === 'update_stock' || action === 'update_variant_stocks') return 'operator'
   return 'admin'
 }
 
 /** Hierarchy plus capability: stock changes need inventory rights (a seller cannot change stock). */
-export function actionAllowed(role: AssistantContext['role'], action: string): boolean {
+export function actionAllowed(role: AssistantContext['role'], action: string, params?: Record<string, unknown>): boolean {
+  // New variants change the catalogue itself: they need catalogue rights, not only inventory rights.
+  if (action === 'update_variant_stocks') return can(role, 'inventory.manage') && (!Array.isArray(params?.create) || !params!.create.length || roleAllows(role, 'admin'))
   if (action === 'update_stock') return can(role, 'inventory.manage')
   return roleAllows(role, requiredRole(action))
 }
@@ -46,6 +49,11 @@ const PRODUCT_SNAPSHOT_SQL = `SELECT p.sku, p.name, p.price, p.description, p.br
   (SELECT json_group_array(json_object('id', ordered.id, 'sku', ordered.sku, 'size', ordered.size, 'stock', ordered.stock))
    FROM (SELECT v.id, v.sku, v.size, v.stock FROM product_variants v WHERE v.product_id = p.id ORDER BY v.id) ordered) AS variants
   FROM products p WHERE p.store_id = ? AND p.sku = ?`
+/** Same product snapshot with variant colours and photos (commerce actions). */
+const PRODUCT_DETAIL_SQL = `SELECT p.id, p.sku, p.name, p.price, p.is_active, p.is_archived, p.image_urls,
+  (SELECT json_group_array(json_object('id', ordered.id, 'sku', ordered.sku, 'size', ordered.size, 'color', ordered.color, 'stock', ordered.stock, 'active', ordered.is_active))
+   FROM (SELECT v.id, v.sku, v.size, v.color, v.stock, v.is_active FROM product_variants v WHERE v.product_id = p.id ORDER BY v.id) ordered) AS variants
+  FROM products p WHERE p.store_id = ? AND p.sku = ? AND p.is_archived = 0`
 
 async function outOfStockSkus(db: D1Database, storeId: number): Promise<string[]> {
   const result = await db.prepare(
@@ -68,6 +76,9 @@ export async function readActionState(ctx: AssistantContext, action: string, par
     case 'archive_product':
     case 'restore_product':
       return db.prepare(PRODUCT_SNAPSHOT_SQL).bind(storeId, sku).first()
+    case 'update_variant_stocks':
+    case 'update_product_images':
+      return db.prepare(PRODUCT_DETAIL_SQL).bind(storeId, sku).first()
     case 'update_store_name': return db.prepare('SELECT name FROM store_config WHERE id = ?').bind(storeId).first()
     case 'update_store_colors': return db.prepare('SELECT primary_color, secondary_color, accent_color, button_color, theme_config FROM store_config WHERE id = ?').bind(storeId).first()
     case 'update_hero_title': return db.prepare('SELECT theme_config FROM store_config WHERE id = ?').bind(storeId).first()
@@ -183,6 +194,15 @@ export function proposedActionState(before: Record<string, unknown>, action: str
     case 'move_products_to_category': return { category: (before.category as Record<string, unknown>), skus: (before.products as Array<{ sku: string }>).map((product) => product.sku) }
     case 'create_category': return { name: before.name, slug: before.slug }
     case 'import_catalog_updates': return { prices: params.prices, stocks: params.stocks }
+    case 'update_variant_stocks': {
+      const changes = params.changes as Array<{ variantId: number; stock: number }>
+      const next = parseVariants(before.variants).map((variant) => {
+        const change = changes.find((item) => item.variantId === variant.id)
+        return change ? { ...variant, stock: change.stock } : variant
+      })
+      return { ...before, variants: JSON.stringify(next), created: params.create }
+    }
+    case 'update_product_images': return { ...before, image_urls: JSON.stringify(params.imageUrls) }
     default: return null
   }
 }
@@ -210,7 +230,7 @@ async function readImportState(db: D1Database, storeId: number, params: Record<s
   return { prices, stocks }
 }
 
-export function parseVariants(value: unknown): Array<{ id: number; sku: string; size: string | null; stock: number }> {
+export function parseVariants(value: unknown): Array<{ id: number; sku: string; size: string | null; color?: string | null; stock: number; active?: number }> {
   try {
     const parsed = typeof value === 'string' ? JSON.parse(value) : value
     return Array.isArray(parsed) ? parsed : []
@@ -264,6 +284,22 @@ export function formatOperationPreview(operation: Pick<PendingOperation, 'action
       return `${category.id ? 'Mover a la categoría' : 'Crear la categoría'} <b>${escapeHtml(category.name)}</b>${category.id ? '' : ' y mover allí'} ${(after.skus as string[]).length} producto(s):\n${(after.skus as string[]).map((sku) => `• ${escapeHtml(sku)}`).join('\n')}`
     }
     case 'create_category': return `Crear la categoría <b>${escapeHtml(after.name)}</b>.`
+    case 'update_variant_stocks': {
+      const old = parseVariants(before.variants)
+      const label = (variant: { size?: string | null; color?: string | null }) => [variant.color && variant.color !== 'Único' ? variant.color : null, variant.size && variant.size !== 'Única' ? `talla ${variant.size}` : null].filter(Boolean).join(' · ') || 'única'
+      const changed = (params.changes as Array<{ variantId: number; stock: number }>).map((change) => {
+        const variant = old.find((item) => item.id === change.variantId)
+        const delta = change.stock - (variant?.stock ?? 0)
+        return `• ${escapeHtml(label(variant || {}))}: ${variant?.stock ?? '—'} → <b>${change.stock}</b> (${delta > 0 ? '+' : ''}${delta})`
+      })
+      const created = (params.create as Array<{ size: string; color: string; stock: number }>).map((item) => `• ${escapeHtml(label(item))}: <b>nueva variante</b> con ${item.stock} u.`)
+      return `Inventario de <b>${escapeHtml(before.name)}</b> (${escapeHtml(before.sku)}):\n${[...changed, ...created].join('\n')}\nMotivo: ${escapeHtml(params.movementReason)}`
+    }
+    case 'update_product_images': {
+      const old = parseImages(before.image_urls)
+      const removed = old.filter((url) => !(params.imageUrls as string[]).includes(url)).map((url) => old.indexOf(url) + 1)
+      return `Fotos de <b>${escapeHtml(before.name)}</b> (${escapeHtml(before.sku)}): ${old.length} → <b>${(params.imageUrls as string[]).length}</b>${removed.length ? `\nSe quita la foto ${removed.join(', ')}. La foto principal será la que quede primera.` : ''}`
+    }
     case 'import_catalog_updates': {
       const prices = (before.prices as Array<{ sku: string; price: number }>).map((item, index) => `• ${escapeHtml(item.sku)}: precio ${formatMoney(item.price, currency)} → <b>${formatMoney(after.prices[index].price, currency)}</b>`)
       const stocks = (before.stocks as Array<{ sku: string; size: string | null; stock: number }>).map((item, index) => `• ${escapeHtml(item.sku)}${item.size ? ` talla ${escapeHtml(item.size)}` : ''}: stock ${item.stock} → <b>${after.stocks[index].stock}</b>`)
@@ -277,7 +313,7 @@ export function formatOperationPreview(operation: Pick<PendingOperation, 'action
 
 /** Validates, snapshots and stores a pending change, then shows its preview. */
 export async function proposeChange(ctx: AssistantContext, action: ActionName, params: Record<string, unknown>, summary?: string, preview?: { photoFileId?: string; operationId?: string }): Promise<void> {
-  if (!actionAllowed(ctx.role, action)) {
+  if (!actionAllowed(ctx.role, action, params)) {
     await say(ctx, 'Tu rol en esta tienda no permite hacer este cambio. Pídeselo al propietario.')
     return
   }
@@ -325,7 +361,21 @@ export async function proposeChange(ctx: AssistantContext, action: ActionName, p
   else await say(ctx, text, operationKeyboard(operationId))
 }
 
+function parseImages(value: unknown): string[] {
+  try { const parsed = typeof value === 'string' ? JSON.parse(value) : value; return Array.isArray(parsed) ? parsed.filter((url) => typeof url === 'string') : [] } catch { return [] }
+}
+
 function validateProposal(action: string, before: Record<string, any>, params: Record<string, any>): string | null {
+  if (action === 'update_variant_stocks') {
+    const variants = parseVariants(before.variants)
+    if ((params.changes as Array<{ variantId: number }>).some((change) => !variants.some((variant) => variant.id === change.variantId))) return 'Una de las variantes ya no existe en ese producto. Pídemelo de nuevo.'
+    const duplicate = (params.create as Array<{ size: string; color: string }>).find((item) => variants.some((variant) => (variant.size || '').toLowerCase() === item.size.toLowerCase() && (variant.color || '').toLowerCase() === item.color.toLowerCase()))
+    if (duplicate) return `La variante ${escapeHtml(duplicate.color)} talla ${escapeHtml(duplicate.size)} ya existe.`
+  }
+  if (action === 'update_product_images') {
+    const current = parseImages(before.image_urls)
+    if ((params.imageUrls as string[]).some((url) => !current.includes(url))) return 'Solo puedo quitar o reordenar las fotos que ya tiene el producto.'
+  }
   if (CATALOG_ACTIONS.has(action) && action !== 'update_product' && (before.is_active !== 1 || before.is_archived !== 0)) return 'Ese producto está oculto o archivado. Restáuralo primero si quieres cambiarlo.'
   if (action === 'update_stock' && !parseVariants(before.variants).some((variant) => variant.sku === `${params.sku}-${params.size}` || variant.size === params.size)) return `El producto no tiene la talla ${escapeHtml(params.size)}. Revisa las tallas con “stock de ${escapeHtml(params.sku)}”.`
   if (action === 'archive_product' && before.is_archived === 1) return 'Ese producto ya está archivado.'
@@ -461,6 +511,37 @@ async function applyBulk(ctx: AssistantContext, pending: PendingOperation): Prom
       case 'create_category':
         return [db.prepare(`INSERT INTO categories (store_id, name, slug, sort_order) SELECT ?, ?, ?, COALESCE((SELECT MAX(sort_order) + 1 FROM categories WHERE store_id = ?), 0) WHERE ${gate}`)
           .bind(storeId, after.name, after.slug, storeId, ...g)]
+      case 'update_variant_stocks': {
+        const sku = String(params.sku)
+        const statements: D1PreparedStatement[] = []
+        for (const change of params.changes as Array<{ variantId: number; stock: number }>) {
+          statements.push(db.prepare(`UPDATE product_variants SET stock = ?, updated_at = datetime('now') WHERE id = ? AND product_id = (SELECT id FROM products WHERE store_id = ? AND sku = ?) AND ${gate}`)
+            .bind(change.stock, change.variantId, storeId, sku, ...g))
+        }
+        const existing = parseVariants(before.variants).length
+        const taken = new Set(parseVariants(before.variants).map((variant) => variant.sku.toUpperCase()))
+        ;(params.create as Array<{ size: string; color: string; stock: number }>).forEach((item, index) => {
+          // Readable and unique code: SKU-COLOR-SIZE (never reuses an existing variant code).
+          const base = `${sku}-${item.color.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 3)}-${item.size.toUpperCase().replace(/[^A-Z0-9.]/g, '')}`.slice(0, 60)
+          let variantSku = base
+          for (let n = 2; taken.has(variantSku.toUpperCase()); n++) variantSku = `${base}-${n}`
+          taken.add(variantSku.toUpperCase())
+          statements.push(db.prepare(
+            `INSERT INTO product_variants (product_id, sku, name, size, color, stock, sort_order)
+             SELECT id, ?, ?, ?, ?, ?, ? FROM products WHERE store_id = ? AND sku = ? AND ${gate}`,
+          ).bind(variantSku, `${item.color} ${item.size}`, item.size, item.color, item.stock, existing + index, storeId, sku, ...g))
+          // New variants start with an entry movement (the stock trigger only covers updates).
+          statements.push(db.prepare(
+            `INSERT INTO inventory_movements (store_id, product_id, variant_id, sku, kind, quantity, stock_before, stock_after, reason, reference, performed_by)
+             SELECT ?, v.product_id, v.id, v.sku, 'entrada', v.stock, 0, v.stock, ?, ?, ? FROM product_variants v JOIN products p ON p.id = v.product_id
+             WHERE p.store_id = ? AND p.sku = ? AND v.sku = ? AND v.stock > 0 AND ${gate}`,
+          ).bind(storeId, String(params.movementReason).slice(0, 120), `telegram:${pending.operation_id}`, `telegram:${ctx.telegramUserId}`, storeId, sku, variantSku, ...g))
+        })
+        return statements
+      }
+      case 'update_product_images':
+        return [db.prepare(`UPDATE products SET image_urls = ?, updated_at = datetime('now') WHERE store_id = ? AND sku = ? AND ${gate}`)
+          .bind(JSON.stringify(params.imageUrls), storeId, String(params.sku), ...g)]
       default: throw new Error('UNSUPPORTED_BULK_ACTION')
     }
   })
@@ -480,7 +561,7 @@ async function promoteStoreImage(ctx: AssistantContext, params: Record<string, a
 }
 
 export async function confirmOperation(ctx: AssistantContext, pending: PendingOperation): Promise<void> {
-  if (!actionAllowed(ctx.role, pending.action)) {
+  if (!actionAllowed(ctx.role, pending.action, JSON.parse(pending.params_json))) {
     await say(ctx, 'Tu rol en esta tienda no permite confirmar este cambio.')
     return
   }
@@ -541,6 +622,14 @@ export async function confirmOperation(ctx: AssistantContext, pending: PendingOp
   }
   if (promotedKey && ctx.env.ASSETS) await ctx.env.ASSETS.delete(String(params.draftKey)).catch(() => undefined)
   let lowStock = ''
+  if (pending.action === 'update_variant_stocks') {
+    const changed = (params.changes as Array<{ variantId: number }>).map((change) => change.variantId)
+    await annotateStockMovement(ctx.db, {
+      storeId: ctx.store.id, variantIds: changed, kind: params.movementKind, reason: String(params.movementReason),
+      reference: `telegram:${pending.operation_id}`, actor,
+    }).catch((error) => console.error('Movement annotation failed:', error instanceof Error ? error.message : 'unknown'))
+    lowStock = await lowStockWarning(ctx.db, ctx.store.id, changed)
+  }
   if (pending.action === 'update_stock') {
     // The database trigger wrote the movement; label it with who, why and which confirmation.
     const changed = parseVariants(after.variants).filter((variant) => parseVariants(before.variants).find((item) => item.id === variant.id)?.stock !== variant.stock).map((variant) => variant.id)
@@ -551,7 +640,7 @@ export async function confirmOperation(ctx: AssistantContext, pending: PendingOp
     }).catch((error) => console.error('Movement annotation failed:', error instanceof Error ? error.message : 'unknown'))
     lowStock = await lowStockWarning(ctx.db, ctx.store.id, changed)
   }
-  await say(ctx, `✅ ¡Listo! ${successMessage(pending.action, params, after, ctx.store.currency)}${lowStock}`, backToMenu())
+  await say(ctx, `✅ ¡Listo! ${successMessage(pending.action, params, after, ctx.store.currency)}${lowStock}`, typeof params.sku === 'string' ? productKeyboard(ctx, params.sku) : backToMenu())
 }
 
 function successMessage(action: string, params: Record<string, any>, after: Record<string, any>, currency: string): string {
@@ -577,6 +666,11 @@ function successMessage(action: string, params: Record<string, any>, after: Reco
     case 'restore_product': return `${escapeHtml(params.sku)} vuelve a estar visible.`
     case 'create_category': return `Creé la categoría “${escapeHtml(after.name)}”.`
     case 'import_catalog_updates': return `Apliqué ${(after.prices as unknown[]).length} precio(s) y ${(after.stocks as unknown[]).length} existencia(s) de tu archivo.`
+    case 'update_variant_stocks': {
+      const total = parseVariants(after.variants).filter((variant) => variant.active !== 0).reduce((sum, variant) => sum + Number(variant.stock), 0) + (params.create as Array<{ stock: number }>).reduce((sum, item) => sum + item.stock, 0)
+      return `Actualicé el inventario de ${escapeHtml(after.name)}. Ahora tiene ${total} unidades en total.`
+    }
+    case 'update_product_images': return `${escapeHtml(after.name)} ahora tiene ${(params.imageUrls as string[]).length} foto(s).`
     default: return 'Cambio aplicado.'
   }
 }

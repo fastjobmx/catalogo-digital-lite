@@ -82,6 +82,20 @@ export const actionSchemas = {
   }).strict().refine((value) => Object.values(value).some((item) => item !== undefined), 'Indica al menos una red social')
     .refine((value) => Object.values(value).every((item) => item === undefined || item === '' || /^https:\/\/[^\s]+$/i.test(item) || /^@?[A-Za-z0-9._]{2,60}$/.test(item)), 'Usa un enlace https o un usuario válido'),
   hide_out_of_stock: z.object({}).strict(),
+  /** Stock of several real variants of one product, plus new size/colour variants (prepared by the backend
+   * commerce planner from real variant ids; never proposed by the AI). */
+  update_variant_stocks: z.object({
+    sku: z.string().trim().min(1).max(64),
+    changes: z.array(z.object({ variantId: z.number().int().positive(), stock: z.number().int().nonnegative().max(1_000_000) }).strict()).max(80),
+    create: z.array(z.object({ size: z.string().trim().min(1).max(24), color: z.string().trim().min(1).max(48), stock: z.number().int().nonnegative().max(1_000_000) }).strict()).max(20),
+    movementKind: z.enum(['entrada', 'salida', 'ajuste']),
+    movementReason: z.string().trim().min(2).max(80),
+  }).strict().refine((value) => value.changes.length + value.create.length > 0, 'No hay cambios de inventario'),
+  /** New photo list of a product: only a subset of its current photos (removal / reorder). */
+  update_product_images: z.object({
+    sku: z.string().trim().min(1).max(64),
+    imageUrls: z.array(z.string().trim().min(1).max(500)).max(10),
+  }).strict(),
   move_products_to_category: z.object({
     skus: z.array(z.string().trim().min(1).max(64)).min(1).max(50),
     categoryName: z.string().trim().min(2).max(60),
@@ -117,6 +131,10 @@ export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set([
 export type ActionName = keyof typeof actionSchemas
 
 export const ACTION_NAMES = Object.keys(actionSchemas) as ActionName[]
+
+/** Actions that need real internal ids prepared by the backend: never offered to the AI. */
+export const BACKEND_ONLY_ACTIONS: ReadonlySet<string> = new Set(['update_variant_stocks', 'update_product_images'])
+export const AI_ACTION_NAMES = ACTION_NAMES.filter((action) => !BACKEND_ONLY_ACTIONS.has(action))
 
 export function parseActionPayload(input: unknown): { success: true; data: { action: ActionName; params: unknown } } | { success: false; error: string } {
   if (!input || typeof input !== 'object' || !('action' in input)) {
