@@ -730,7 +730,7 @@ La reversión está en `docs/USUARIOS_CORREOS_DIAGNOSTICO_Y_PLAN.md` §5.
 Detalle en `docs/ASISTENTE_TIENDIA.md`.
 - Producción: servidor `501b02d3` → `87e31055`, sin migración. Verificado: salud 200, 10 secretos y webhooks protegidos (403 sin secreto). Los conteos quedaron iguales.
 
-### Pedidos: seguimiento, envío y guías por foto — 2026-11-05 (staging; producción pendiente de autorización)
+### Pedidos: seguimiento, envío y guías por foto — 2026-11-06 (autorizado, en producción)
 
 **Qué cambió**
 
@@ -753,3 +753,4 @@ Detalle en `docs/ASISTENTE_TIENDIA.md`.
 
 - Servidor 363/363 y panel 81/81.
 - Staging de punta a punta 24/24 (servidor `2cc7fe68`), con una tienda ficticia que se eliminó al final.
+- Producción: `0016` aplicada y verificada (respaldo `.tmp/production-0016/`). Servidor `87e31055` → `60ed2b6e`. Panel `f3011324` → `4f9f13de`. Los datos quedaron iguales.

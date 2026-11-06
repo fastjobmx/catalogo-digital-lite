@@ -171,7 +171,18 @@ En todos los casos el bot sigue estos pasos:
 - **«Muéstrame la guía» en Telegram:** el bot reenvía las fotos que se recibieron por Telegram. Las que se subieron desde el panel se ven en el panel.
 - **Costo de la IA:** `leer_guia_envio` no tiene costo en créditos configurado, así que usa el presupuesto de IA del plan. El superadministrador puede asignarle un costo.
 
-## 11. Producción (requiere autorización)
+## 11. En producción (2026-11-06, autorizado)
+
+| Paso | Resultado |
+|---|---|
+| Respaldo | `.tmp/production-0016/production-pre-0016.sql`. Time Travel `000001d0-00000000-0000511b-1c651258aebd7695cbf7ff96e6ca0782`. |
+| Migración | `0016` aplicada. Se verificaron 7 columnas, la tabla `order_documents` y 2 índices. |
+| Servidor | `87e31055` → `60ed2b6e-91e4-4f35-8201-85f415e2b202`. |
+| Panel | `f3011324` → `4f9f13de-6b87-4886-a643-5ee94f0ce305`. |
+| Verificación | Salud 200 y los 10 secretos intactos. Ambos webhooks responden 403 sin secreto. Las estadísticas y las guías piden sesión (401). La ruta pública no sirve `order-docs/` (404). Datos sin cambios: 4 tiendas, 161 productos, 14 pedidos con los mismos estados, 24 eventos y 3 usuarios; ningún estado de envío quedó marcado automáticamente. El panel y la tienda cargan sin errores. No se tocaron pedidos reales. |
+| Commit | `3b1ddd7` |
+
+## 12. Pasos para producción (referencia)
 
 1. Respaldar la base de datos.
 2. Aplicar `0016` y **verificar las columnas**. En staging el primer intento falló de forma transitoria sin aplicar nada.
