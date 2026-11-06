@@ -14,7 +14,8 @@ const robots = await readFile(join(dist, 'robots.txt'), 'utf8')
 const noindex = html.includes('content="noindex, nofollow"')
 if (noindex !== headers.includes('X-Robots-Tag: noindex')) problems.push('meta robots and X-Robots-Tag disagree')
 if (noindex && (html.includes('rel="canonical"') || robots.includes('Sitemap'))) problems.push('noindex with canonical or sitemap')
-if (!html.includes('Si no lo')) problems.push('index.html is not prerendered')
+// Prerendered = the page heading already has its text in the HTML (not only an empty root for the client).
+if (!/<h1[^>]*>[\s\S]{1,4000}?<\/h1>/.test(html) || /<div id="root">\s*<\/div>/.test(html)) problems.push('index.html is not prerendered')
 const files = []
 const walk = async (dir) => { for (const e of await readdir(dir, { withFileTypes: true })) e.isDirectory() ? await walk(join(dir, e.name)) : files.push(join(dir, e.name)) }
 await walk(dist)

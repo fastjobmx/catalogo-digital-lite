@@ -11,9 +11,9 @@ const MUST_WORK = [
 // Social networks often answer bots with redirects to a login page or 4xx: reported, not asserted.
 const REPORT_ONLY = [
   'https://wa.me/573506912734',
-  'https://www.facebook.com/mostralopues/',
-  'https://www.instagram.com/mostralopues/',
-  'https://www.tiktok.com/@mostralopues',
+  'https://www.facebook.com/tiendiaexpres/',
+  'https://www.instagram.com/tiendiaexpres/',
+  'https://www.tiktok.com/@tiendiaexpres',
 ]
 
 test('demo store and admin login answer 200', async ({ request }) => {

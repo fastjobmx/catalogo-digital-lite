@@ -50,7 +50,7 @@ test.describe('page', () => {
     expect(hrefs).toContain(ADMIN)
     expect(hrefs).toContain(TRIAL)
     expect(hrefs.some((h) => h.startsWith('https://wa.me/573506912734'))).toBe(true)
-    for (const social of ['https://www.facebook.com/mostralopues/', 'https://www.instagram.com/mostralopues/', 'https://www.tiktok.com/@mostralopues']) expect(hrefs).toContain(social)
+    for (const social of ['https://www.facebook.com/tiendiaexpres/', 'https://www.instagram.com/tiendiaexpres/', 'https://www.tiktok.com/@tiendiaexpres']) expect(hrefs).toContain(social)
   })
 
   test('every image has an alt attribute', async ({ page }) => {

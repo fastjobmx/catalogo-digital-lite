@@ -23,9 +23,9 @@ export const site = {
   },
 
   social: [
-    { key: 'facebook', label: 'Facebook', url: 'https://www.facebook.com/mostralopues/' },
-    { key: 'instagram', label: 'Instagram', url: 'https://www.instagram.com/mostralopues/' },
-    { key: 'tiktok', label: 'TikTok', url: 'https://www.tiktok.com/@mostralopues' },
+    { key: 'facebook', label: 'Facebook', url: 'https://www.facebook.com/tiendiaexpres/' },
+    { key: 'instagram', label: 'Instagram', url: 'https://www.instagram.com/tiendiaexpres/' },
+    { key: 'tiktok', label: 'TikTok', url: 'https://www.tiktok.com/@tiendiaexpres' },
   ] as const,
 
   /** Legal pages: add the URL when they exist. Empty entries are not rendered. */
