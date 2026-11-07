@@ -97,6 +97,24 @@ describe('owner activation and first session', () => {
 })
 
 describe('platform administration', () => {
+  it('defaults Telegram bulk import off and lets only the superadmin toggle it with audit', async () => {
+    const created = await json(await newStore())
+    expect(h.db.query('SELECT telegram_bulk_import_enabled FROM stores WHERE slug = ?', created.slug)).toEqual([{ telegram_bulk_import_enabled: 0 }])
+    const ownerId = await createStoreUser(h.db, { email: 'admin@modaurbana.test', storeId: created.storeId, role: 'owner' })
+    const owner = await userToken(ownerId, 'admin@modaurbana.test')
+    const path = `/api/platform/stores/${created.slug}/telegram-bulk-import`
+    expect((await h.request(path, { method: 'PUT', token: owner, body: { enabled: true } })).status).toBe(403)
+    expect((await h.request(path, { method: 'PUT', token: admin, body: { enabled: 'yes' } })).status).toBe(400)
+    expect(await json(await h.request(path, { method: 'PUT', token: admin, body: { enabled: true } }))).toMatchObject({ storeId: created.storeId, slug: created.slug, enabled: true, changed: true })
+    expect(h.db.query('SELECT telegram_bulk_import_enabled FROM stores WHERE id = ?', created.storeId)).toEqual([{ telegram_bulk_import_enabled: 1 }])
+    expect(h.db.query("SELECT action, payload FROM audit_log WHERE action = 'store_feature_flag_changed'")).toEqual([
+      { action: 'store_feature_flag_changed', payload: JSON.stringify({ feature: 'telegram_bulk_import_enabled', from: false, to: true }) },
+    ])
+    const list = await json(await h.request('/api/platform/stores', { token: admin }))
+    expect(list.items.find((store: any) => store.slug === created.slug)).toMatchObject({ telegramBulkImportEnabled: 1 })
+    expect(await json(await h.request(path, { method: 'PUT', token: admin, body: { enabled: false } }))).toMatchObject({ enabled: false, changed: true })
+  })
+
   it('activates, suspends and reports stores; the primary store cannot be cancelled', async () => {
     await newStore()
     expect((await h.request('/api/platform/stores/moda-urbana/status', { method: 'POST', token: admin, body: { status: 'active' } })).status).toBe(200)

@@ -104,22 +104,36 @@ function buildCatalogProductStatements(
   db: D1Database,
   product: CatalogProductInput,
   context: AuditContext,
-  guard: { sku: string; operationId?: string; executionToken?: string; chatId?: string; paramsJson?: string; beforeJson?: string; afterJson?: string; auditPayload?: unknown },
+  guard: { sku: string; operationId?: string; executionToken?: string; chatId?: string; paramsJson?: string; beforeJson?: string; afterJson?: string; batchId?: string; batchItemId?: number; telegramUserId?: string; maxProducts?: number | null; auditPayload?: unknown },
 ): D1PreparedStatement[] {
   const guarded = Boolean(guard.operationId && guard.executionToken && guard.chatId && guard.paramsJson !== undefined && guard.beforeJson !== undefined && guard.afterJson !== undefined)
+  const batchGuarded = Boolean(guard.batchId && guard.batchItemId && guard.chatId && guard.telegramUserId)
   const gate = guarded
     ? `EXISTS (SELECT 1 FROM telegram_operations WHERE operation_id = ? AND chat_id = ? AND store_id = ? AND status = 'applying' AND execution_token = ? AND params_json = ? AND before_json = ? AND after_json = ?)`
-    : '1 = 1'
+    : batchGuarded
+      ? `EXISTS (SELECT 1 FROM telegram_product_batch_items i JOIN telegram_product_batches b ON b.id = i.batch_id
+                WHERE i.id = ? AND i.batch_id = ? AND i.store_id = ? AND i.status = 'publishing' AND i.sku = ? AND i.product_id IS NULL
+                  AND b.store_id = i.store_id AND b.chat_id = ? AND b.telegram_user_id = ? AND b.status = 'publishing'
+                  AND EXISTS (SELECT 1 FROM stores s WHERE s.id = i.store_id AND s.telegram_bulk_import_enabled = 1))`
+      : '1 = 1'
   const gateBindings = guarded
     ? [guard.operationId, guard.chatId, context.storeId, guard.executionToken, guard.paramsJson, guard.beforeJson, guard.afterJson]
-    : []
+    : batchGuarded
+      ? [guard.batchItemId, guard.batchId, context.storeId, product.sku, guard.chatId, guard.telegramUserId]
+      : []
+  // The batch path checks max_products inside the INSERT statement so two storeside imports cannot
+  // both observe the same last slot and publish beyond the plan concurrently.
+  const productLimitSql = batchGuarded && guard.maxProducts !== null && guard.maxProducts !== undefined
+    ? ' AND (SELECT COUNT(*) FROM products WHERE store_id = ?) < ?'
+    : ''
+  const productLimitBindings = productLimitSql ? [context.storeId, guard.maxProducts] : []
   const statements: D1PreparedStatement[] = [db.prepare(
     `INSERT INTO products (store_id, sku, name, description, brand, category_id, price, compare_at_price, is_featured, image_urls, is_active, is_archived)
-     SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0 WHERE ${gate}`,
+     SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0 WHERE ${gate}${productLimitSql}`,
   ).bind(
     context.storeId, product.sku, product.name, product.description || '', product.brand || null,
     product.categoryId ?? null, product.price, product.compareAtPrice ?? null,
-    product.isFeatured ? 1 : 0, JSON.stringify(product.imageUrls || []), ...gateBindings,
+    product.isFeatured ? 1 : 0, JSON.stringify(product.imageUrls || []), ...gateBindings, ...productLimitBindings,
   )]
   for (const [index, variant] of (product.variants || []).entries()) {
     statements.push(db.prepare(
@@ -137,6 +151,46 @@ function buildCatalogProductStatements(
      WHERE p.store_id = ? AND p.sku = ? AND ${gate}`,
   ).bind(JSON.stringify(guard.auditPayload ?? { sku: product.sku }), context.actor, context.source, context.storeId, product.sku, ...gateBindings))
   return statements
+}
+
+/** Idempotent Telegram batch creation through the same catalogue insert/audit statements as panel and individual Telegram products. */
+export async function applyTelegramProductBatchItem(
+  db: D1Database,
+  input: { batchId: string; itemId: number; chatId: string; telegramUserId: string; storeId: number; actor: string; product: CatalogProductInput },
+): Promise<{ id: number; sku: string }> {
+  const { batchId, itemId, chatId, telegramUserId, storeId, product } = input
+  await assertCategoryInStore(db, product.categoryId, storeId)
+  const limit = await productLimit(db, storeId)
+  if (limit.max !== null && limit.count >= limit.max) throw new Error('PLAN_PRODUCT_LIMIT')
+  const context: AuditContext = { actor: input.actor, source: 'telegram', storeId }
+  const statements = buildCatalogProductStatements(db, product, context, {
+    sku: product.sku, batchId, batchItemId: itemId, chatId, telegramUserId, maxProducts: limit.max,
+    auditPayload: { batchId, batchItemId: itemId, sku: product.sku, imageCount: product.imageUrls?.length || 0 },
+  })
+  statements.push(db.prepare(
+    `UPDATE telegram_product_batch_items SET status = 'published', product_id = (SELECT id FROM products WHERE store_id = ? AND sku = ?), category_id = ?, updated_at = datetime('now')
+     WHERE id = ? AND batch_id = ? AND store_id = ? AND status = 'publishing' AND sku = ? AND product_id IS NULL
+       AND EXISTS (SELECT 1 FROM telegram_product_batches WHERE id = ? AND store_id = ? AND chat_id = ? AND telegram_user_id = ? AND status = 'publishing')
+       AND EXISTS (SELECT 1 FROM products WHERE store_id = ? AND sku = ?)`
+  ).bind(storeId, product.sku, product.categoryId ?? null, itemId, batchId, storeId, product.sku, batchId, storeId, chatId, telegramUserId, storeId, product.sku))
+  let results: D1Result[]
+  try {
+    results = await db.batch(statements)
+  } catch (error) {
+    if (error instanceof Error && /unique constraint/i.test(error.message)) {
+      const existing = await db.prepare('SELECT id FROM products WHERE store_id = ? AND upper(sku) = upper(?)').bind(storeId, product.sku).first()
+      if (existing) throw new Error('SKU_ALREADY_EXISTS')
+    }
+    throw error
+  }
+  if (Number(results[0]?.meta.changes || 0) !== 1 || Number(results.at(-1)?.meta.changes || 0) !== 1) {
+    const currentLimit = await productLimit(db, storeId)
+    if (currentLimit.max !== null && currentLimit.count >= currentLimit.max) throw new Error('PLAN_PRODUCT_LIMIT')
+    throw new Error('BATCH_ITEM_NOT_PUBLISHABLE')
+  }
+  const id = Number(results[0]?.meta.last_row_id)
+  if (!Number.isSafeInteger(id) || id <= 0) throw new Error('PRODUCT_CREATE_FAILED')
+  return { id, sku: product.sku }
 }
 
 export async function applyConfirmedTelegramProductCreation(

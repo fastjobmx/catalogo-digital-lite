@@ -128,6 +128,12 @@ export async function cleanupExpiredTelegramProductAssets(db: D1Database, bucket
     `SELECT operation_id, status, params_json, expires_at, store_id FROM telegram_operations WHERE action IN ${draftActions}`,
   ).all<{ operation_id: string; status: string; params_json: string; expires_at: number; store_id: number }>()
   const byId = new Map((result.results || []).map((row) => [row.operation_id, row]))
+  const batchRows = await db.prepare('SELECT id, status FROM telegram_product_batches').all<{ id: string; status: string }>()
+  const liveBatchIds = new Set((batchRows.results || []).filter((row) => ['receiving', 'analyzing', 'needs_review', 'ready_to_publish', 'publishing', 'partially_published'].includes(row.status)).map((row) => row.id))
+  const publishedBatchRows = await db.prepare(
+    `SELECT b.store_id, i.batch_id, i.id, i.extension FROM telegram_product_batch_items i JOIN telegram_product_batches b ON b.id = i.batch_id WHERE i.status = 'published'`,
+  ).all<{ store_id: number; batch_id: string; id: number; extension: string }>()
+  const publishedBatchAssets = new Set((publishedBatchRows.results || []).map((row) => `stores/${row.store_id}/products/telegram/${row.batch_id}/${row.id}.${row.extension}`))
   const referenced = new Set<string>()
   for (const row of result.results || []) {
     if (row.status !== 'pending' || Number(row.expires_at) <= Math.floor(Date.now() / 1000)) continue
@@ -142,13 +148,16 @@ export async function cleanupExpiredTelegramProductAssets(db: D1Database, bucket
     const operationId = object.key.split('/')[1]
     const row = operationId ? byId.get(operationId) : undefined
     const ageMs = Date.now() - object.uploaded.getTime()
+    if (operationId && liveBatchIds.has(operationId)) return !referenced.has(object.key) && ageMs > 60 * 60 * 1000
     return row?.status === 'pending' && Number(row.expires_at) > Math.floor(Date.now() / 1000)
       ? !referenced.has(object.key) && ageMs > 60 * 60 * 1000
       : true
   })
   const sweepPublished = (operationIndex: number) => (object: R2Object) => {
+    if (publishedBatchAssets.has(object.key)) return false
     const operationId = object.key.split('/')[operationIndex]
     const row = operationId ? byId.get(operationId) : undefined
+    if (operationId && liveBatchIds.has(operationId)) return false
     if (row?.status === 'applied') return false
     return !row || row.status !== 'pending' || Date.now() - object.uploaded.getTime() > 60 * 60 * 1000
   }

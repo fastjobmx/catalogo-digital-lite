@@ -4,6 +4,8 @@ Tienda digital profesional, ligera e independiente para comercios. Construida co
 
 > **Onboarding 3.1 (2026-11-04):** bienvenida guiada para tiendas nuevas, progreso persistente, paletas desde logotipo, 13 plantillas, editor con vista previa privada y solicitudes de activación. Verificación local: Worker 191/191, frontend 63/63, typecheck y build correctos. La validación remota de staging espera acceso Cloudflare a su D1. Ver [docs/ONBOARDING_CLIENTES.md](docs/ONBOARDING_CLIENTES.md).
 >
+> **Importación masiva por Telegram:** los administradores pueden enviar fotos de varios productos, revisar/corregir datos y confirmar su publicación en el catálogo. La IA para sugerir datos visuales es opcional y usa créditos con autorización explícita. Ver [docs/IMPORTACION_MASIVA_TELEGRAM.md](docs/IMPORTACION_MASIVA_TELEGRAM.md).
+>
 > **Plataforma 3.0 (2026-11-03):** multitienda compartida (`/t/<tienda>`), asistente de Telegram con Gemini para cada tienda, bot maestro con `/crear_tienda` y aprovisionamiento automático. Ver [docs/PLATAFORMA_3_0.md](docs/PLATAFORMA_3_0.md) y [docs/DESPLIEGUE_Y_RECUPERACION_3_0.md](docs/DESPLIEGUE_Y_RECUPERACION_3_0.md).
 >
 > **Estado anterior:** storefront, backend D1/R2, panel `/admin` con autenticación JWT, inventario por variante, agente de acciones tipadas, scripts e infraestructura de pruebas **funcionando y verificados** (38/38 pruebas en verde). Telegram y Gemini están implementados pero **pendientes de credenciales** para probarse en vivo. Detalle en [PROGRESO.md](PROGRESO.md) y [docs/PENDIENTES.md](docs/PENDIENTES.md).

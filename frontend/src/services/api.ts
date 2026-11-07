@@ -582,6 +582,7 @@ export async function resetPassword(token: string, password: string): Promise<Ad
 export interface PlatformStore {
   id: number; slug: string; name: string; status: string; planCode: string; template: string; businessType: string
   products: number; ordersLast30: number; aiPercent: number; ownerEmail: string | null; createdAt: string; activationRequestStatus: string | null
+  telegramBulkImportEnabled: number
 }
 
 export interface PlatformSummary {
@@ -618,6 +619,7 @@ export const platformApi = {
   },
   setStatus: (slug: string, status: string, token: string, reason?: string) => fetchApi(`/api/platform/stores/${slug}/status`, { method: 'POST', headers: auth(token), body: JSON.stringify({ status, reason }) }),
   setAi: (slug: string, budgetUsd: number, token: string) => fetchApi(`/api/platform/stores/${slug}/ai`, { method: 'PUT', headers: auth(token), body: JSON.stringify({ budgetUsd, enabled: budgetUsd > 0 }) }),
+  setTelegramBulkImport: (slug: string, enabled: boolean, token: string) => fetchApi(`/api/platform/stores/${slug}/telegram-bulk-import`, { method: 'PUT', headers: auth(token), body: JSON.stringify({ enabled }) }),
   setPlan: (slug: string, planCode: string, token: string) => fetchApi(`/api/platform/stores/${slug}/plan`, { method: 'PUT', headers: auth(token), body: JSON.stringify({ planCode }) }),
   regenerateAccess: (slug: string, token: string) => fetchApi<{ activationUrl: string | null; telegramLinkCode: string | null; telegramDeepLink: string | null }>(`/api/platform/stores/${slug}/access`, { method: 'POST', headers: auth(token) }),
 }
@@ -655,11 +657,31 @@ export interface ImportItemResult {
 export interface ImportSummary { create: number; update: number; skip: number; invalid: number }
 export interface ImportPreview { items: ImportItemResult[]; summary: ImportSummary; newCategories: string[]; limit: { max: number | null; count: number } }
 export interface ImportJob { id: string; sourceType: string; fileName: string; status: string; created: number; updated: number; skipped: number; failed: number; createdAt: string; completedAt: string | null }
+export interface TelegramImport { id: string; status: string; createdAt: string; updatedAt: string; completedAt: string | null; telegramUserId: string; photos: number; published: number; pending: number; failed: number }
+export interface TelegramImportItem {
+  id: number; position: number; name: string | null; description: string | null; price: number | null; stock: number | null
+  size: string | null; color: string | null; sku: string | null; categoryName: string | null; status: string
+  validationErrors: string[]; warnings: string[]; productId: number | null
+}
+export interface TelegramImportReview {
+  batch: { id: string; storeId: number; status: string; maxItems: number; createdAt: string; updatedAt: string; completedAt: string | null }
+  items: TelegramImportItem[]
+}
 export interface ImportOptions { updateExisting: boolean; createCategories: boolean }
 
 const bearer = (token: string) => ({ Authorization: `Bearer ${token}` })
 export const importApi = {
   list: (token: string) => fetchApi<{ items: ImportJob[] }>('/api/admin/imports', { headers: bearer(token) }),
+  telegramList: (token: string) => fetchApi<{ items: TelegramImport[] }>('/api/admin/telegram-imports', { headers: bearer(token) }),
+  telegramReview: (id: string, token: string) => fetchApi<TelegramImportReview>(`/api/admin/telegram-imports/${encodeURIComponent(id)}`, { headers: bearer(token) }),
+  telegramUpdateItem: (id: string, itemId: number, fields: Partial<TelegramImportItem>, token: string) => fetchApi<TelegramImportReview>(`/api/admin/telegram-imports/${encodeURIComponent(id)}/items/${itemId}`, { method: 'PUT', headers: bearer(token), body: JSON.stringify(fields) }),
+  telegramPhoto: async (id: string, itemId: number, token: string): Promise<string> => {
+    const headers = new Headers(bearer(token))
+    for (const [name, value] of Object.entries(tenantHeaders())) headers.set(name, value)
+    const response = await fetch(`${API_BASE}/api/admin/telegram-imports/${encodeURIComponent(id)}/items/${itemId}/photo`, { headers })
+    if (!response.ok) throw new Error('No se pudo abrir la foto de esta importación.')
+    return URL.createObjectURL(await response.blob())
+  },
   start: (sourceType: 'csv' | 'xlsx' | 'pdf', fileName: string, options: ImportOptions, token: string) => fetchApi<{ id: string }>('/api/admin/imports', { method: 'POST', headers: bearer(token), body: JSON.stringify({ sourceType, fileName, options }) }),
   preview: (id: string, products: unknown[], token: string) => fetchApi<ImportPreview>(`/api/admin/imports/${id}/preview`, { method: 'POST', headers: bearer(token), body: JSON.stringify({ products }) }),
   apply: (id: string, index: number, products: unknown[], token: string) => fetchApi<{ batchIndex: number; summary: ImportSummary; items: ImportItemResult[]; replayed: boolean }>(`/api/admin/imports/${id}/batches/${index}`, { method: 'POST', headers: bearer(token), body: JSON.stringify({ products }) }),

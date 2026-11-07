@@ -40,6 +40,10 @@ export type Env = {
  TELEGRAM_WEBHOOK_URL?: string
  TELEGRAM_OWNER_ID?: string
  TELEGRAM_ENV_LABEL?: string
+ /** Maximum photos accepted in one Telegram product batch (defaults to 100, capped at 500). */
+ TELEGRAM_BATCH_MAX_ITEMS?: string
+ /** Maximum combined image bytes accepted in one Telegram product batch (defaults to 200 MiB). */
+ TELEGRAM_BATCH_MAX_BYTES?: string
  /** Public username of the shared store assistant bot (for t.me deep links). */
  TELEGRAM_BOT_USERNAME?: string
  /** Optional platform-wide monthly AI cap (estimated USD micros). */

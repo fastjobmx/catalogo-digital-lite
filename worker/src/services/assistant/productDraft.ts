@@ -85,6 +85,9 @@ export async function beginProductDraft(ctx: AssistantContext, input?: Record<st
     await say(ctx, 'Tu rol en esta tienda no permite publicar productos. Pídeselo al propietario o a un administrador.')
     return
   }
+  const batch = await ctx.db.prepare(`SELECT id FROM telegram_product_batches WHERE chat_id = ? AND store_id = ? AND status IN ('receiving','analyzing','needs_review','ready_to_publish','publishing','partially_published') LIMIT 1`)
+    .bind(String(ctx.chatId), ctx.store.id).first<{ id: string }>()
+  if (batch) { await say(ctx, 'Tienes un lote de productos activo. Termínalo con /listo y /publicar, o cancélalo con /cancelar antes de crear un producto individual.'); return }
   const current = await ctx.db.prepare(
     `SELECT operation_id, action, params_json, before_json, after_json FROM telegram_operations
      WHERE chat_id = ? AND status = 'pending' AND expires_at > unixepoch() ORDER BY created_at DESC LIMIT 1`,

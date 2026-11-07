@@ -5,7 +5,7 @@ import { platformAuth } from '../middleware/auth'
 import { provisionStore, ProvisioningError } from '../services/provisioning'
 import {
   addStoreService, assignOwner, getStoreDetail, listStores, platformSummary, PlatformError, purgeStore, recentEvents, regenerateOwnerAccess,
-  renameStoreSlug, requestCustomDomain, setStoreAiBudget, setStorePlan, setStoreStatus, storesHealth,
+  renameStoreSlug, requestCustomDomain, setStoreAiBudget, setStorePlan, setStoreStatus, setTelegramBulkImportEnabled, storesHealth,
 } from '../services/platform'
 import type { StoreStatus } from '../tenancy/stores'
 import { getStoreBySlug } from '../tenancy/stores'
@@ -74,6 +74,12 @@ app.put('/stores/:slug/ai', async (c) => {
   const body = await c.req.json().catch(() => null) as { budgetUsd?: number; enabled?: boolean; warnPercent?: number } | null
   if (!body) return c.json({ error: 'Invalid JSON body' }, 400)
   try { return c.json(await setStoreAiBudget(c.env.DB, c.req.param('slug'), body, actor(c))) } catch (error) { return fail(c, error) }
+})
+
+app.put('/stores/:slug/telegram-bulk-import', async (c) => {
+  const body = await c.req.json().catch(() => null) as { enabled?: boolean } | null
+  if (!body || typeof body.enabled !== 'boolean') return c.json({ error: 'enabled must be a boolean' }, 400)
+  try { return c.json(await setTelegramBulkImportEnabled(c.env.DB, c.req.param('slug'), body.enabled, actor(c))) } catch (error) { return fail(c, error) }
 })
 
 app.post('/stores/:slug/owner', async (c) => {

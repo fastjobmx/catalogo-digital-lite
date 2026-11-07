@@ -43,7 +43,8 @@ app.post('/webhook', async (c) => {
   ).bind(String(message.chat.id), now, now - 60, now - 60).first<{ request_count: number }>()
   // Acknowledge and drop abusive updates. Returning non-2xx makes Telegram
   // retry the same update and can amplify traffic during a rate-limit window.
-  if (!limit || limit.request_count > 20) return c.json({ ok: true, rate_limited: true })
+  const isMedia = Boolean(update.message?.photo?.length || (update.message?.document?.mime_type || '').startsWith('image/'))
+  if (!limit || limit.request_count > (isMedia ? 120 : 20)) return c.json({ ok: true, rate_limited: true })
 
   const text = update.callback_query ? '' : message.text?.trim() || ''
   const linkCode = text.match(/^\/link\s+([A-Za-z0-9-]{8,80})$/)?.[1] || text.match(/^\/start\s+link_([A-Za-z0-9-]{8,80})$/)?.[1]

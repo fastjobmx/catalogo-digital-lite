@@ -17,6 +17,7 @@ import { roleAllows } from '../tenancy/access'
 import { AiCatalogError, photoToProduct, readCatalogPage, studioEdit } from '../services/aiCatalog'
 import { ImportError, applyImportBatch, createImportJob, finishImportJob, listImportJobs, previewImport } from '../services/catalogImport'
 import { CreditError, createCreditRequest, creditSummary, listCreditCosts, listCreditMovements, listCreditRequests } from '../ai/credits'
+import { getTelegramBatchPhoto, getTelegramBatchReview, listTelegramBatches, updateTelegramBatchReviewItem } from '../services/telegramProductBatches'
 import type { Context } from 'hono'
 
 const app = new Hono<Env>()
@@ -334,6 +335,32 @@ function importFail(c: Context<Env>, error: unknown) {
  throw error
 }
 app.get('/imports', adminAuth, requireRole('admin'), async (c) => c.json({ items: await listImportJobs(c.env.DB, c.get('storeId')!) }))
+app.get('/telegram-imports', adminAuth, requireRole('admin'), async (c) => c.json({ items: await listTelegramBatches(c.env.DB, c.get('storeId')!) }))
+app.get('/telegram-imports/:id', adminAuth, requireRole('admin'), async (c) => {
+ const result = await getTelegramBatchReview(c.env.DB, c.get('storeId')!, c.req.param('id'))
+ return result ? c.json(result) : c.json({ error: 'Telegram import not found' }, 404)
+})
+app.get('/telegram-imports/:id/items/:itemId/photo', adminAuth, requireRole('admin'), async (c) => {
+ const itemId = Number(c.req.param('itemId'))
+ if (!Number.isSafeInteger(itemId) || itemId <= 0) return c.json({ error: 'Invalid item' }, 400)
+ const photo = await getTelegramBatchPhoto(c.env.DB, c.env.ASSETS, c.get('storeId')!, c.req.param('id'), itemId)
+ if (!photo) return c.json({ error: 'Photo not found' }, 404)
+ return c.body(photo.body, 200, { 'Content-Type': photo.httpMetadata?.contentType || 'application/octet-stream', 'Cache-Control': 'private, no-store' })
+})
+app.put('/telegram-imports/:id/items/:itemId', adminAuth, requireRole('admin'), async (c) => {
+ const itemId = Number(c.req.param('itemId'))
+ const body = await c.req.json().catch(() => null) as Record<string, unknown> | null
+ if (!Number.isSafeInteger(itemId) || itemId <= 0 || !body || Array.isArray(body)) return c.json({ error: 'Invalid item update' }, 400)
+ try {
+  return c.json(await updateTelegramBatchReviewItem(c.env.DB, c.get('storeId')!, c.req.param('id'), itemId, body, c.get('adminEmail') || 'unknown'))
+ } catch (error) {
+  const code = error instanceof Error ? error.message : 'UPDATE_FAILED'
+  if (code === 'BATCH_NOT_FOUND' || code === 'BATCH_ITEM_NOT_FOUND') return c.json({ error: 'Telegram import item not found' }, 404)
+  if (code === 'INVALID_SKU' || code === 'INVALID_PRICE' || code === 'INVALID_STOCK') return c.json({ error: code }, 400)
+  if (code === 'BATCH_NOT_EDITABLE' || code === 'BATCH_ITEM_NOT_EDITABLE' || code === 'SKU_ALREADY_EXISTS') return c.json({ error: code }, 409)
+  throw error
+ }
+})
 app.post('/imports', adminAuth, requireRole('admin'), async (c) => {
  const body = await c.req.json().catch(() => null)
  if (!body) return c.json({ error: 'Invalid JSON body' }, 400)

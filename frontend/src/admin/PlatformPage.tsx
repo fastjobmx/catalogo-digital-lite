@@ -107,9 +107,9 @@ export default function PlatformPage() {
         )}
 
         <section className="card p-0 overflow-x-auto">
-          <table className="w-full text-sm min-w-[760px]">
+          <table className="w-full text-sm min-w-[900px]">
             <thead className="text-left text-xs uppercase tracking-widest text-muted border-b border-line">
-              <tr><th className="p-4">Tienda</th><th className="p-4">Estado</th><th className="p-4">Plan</th><th className="p-4">Catálogo</th><th className="p-4">IA</th><th className="p-4 text-right">Acciones</th></tr>
+              <tr><th className="p-4">Tienda</th><th className="p-4">Estado</th><th className="p-4">Plan</th><th className="p-4">Catálogo</th><th className="p-4">IA</th><th className="p-4">Importación Telegram</th><th className="p-4 text-right">Acciones</th></tr>
             </thead>
             <tbody>
               {stores.map((store) => (
@@ -137,6 +137,17 @@ export default function PlatformPage() {
                     }}>Cambiar límite</button>
                   </td>
                   <td className="p-4">
+                    <p className={store.telegramBulkImportEnabled ? 'text-emerald-800 font-bold' : 'text-muted'}>{store.telegramBulkImportEnabled ? 'Activada' : 'Desactivada'}</p>
+                    <button type="button" className="text-xs underline text-muted hover:text-ink" aria-label={`${store.telegramBulkImportEnabled ? 'Desactivar' : 'Activar'} importación masiva para ${store.name}`} disabled={busy === store.slug} onClick={() => {
+                      const enabled = !store.telegramBulkImportEnabled
+                      const action = enabled ? 'Habilitar' : 'Desactivar'
+                      const detail = enabled ? 'Solo esta tienda podrá iniciar lotes con /lote. Ningún producto se publica sin confirmación.' : 'Se bloqueará la recepción y publicación de nuevos lotes en esta tienda.'
+                      if (token && window.confirm(`${action} la importación masiva por Telegram para ${store.name}? ${detail}`)) {
+                        void act(store.slug, () => platformApi.setTelegramBulkImport(store.slug, enabled, token))
+                      }
+                    }}>{store.telegramBulkImportEnabled ? 'Desactivar' : 'Habilitar'}</button>
+                  </td>
+                  <td className="p-4">
                     <div className="flex flex-wrap justify-end gap-2">
                       {store.status === 'active'
                         ? <button type="button" className="btn-ghost" disabled={busy === store.slug} onClick={() => {
@@ -149,7 +160,7 @@ export default function PlatformPage() {
                   </td>
                 </tr>
               ))}
-              {!stores.length && <tr><td colSpan={6} className="p-6 text-center text-muted">No hay tiendas para mostrar.</td></tr>}
+              {!stores.length && <tr><td colSpan={7} className="p-6 text-center text-muted">No hay tiendas para mostrar.</td></tr>}
             </tbody>
           </table>
         </section>

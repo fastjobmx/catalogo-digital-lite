@@ -135,5 +135,5 @@ export const HELP_TEXT = [
   '📄 Un archivo CSV para actualizar precios y stock',
   '',
   'Antes de cambiar algo te muestro una vista previa y te pido confirmación. Si me equivoco, corrígeme: “las M son 5, no 3”.',
-  'Comandos: /resumen · /productos · /inventario · /pedidos · /tiendas · /configurar · /cancelar · /ayuda',
+  'Comandos: /resumen · /productos · /inventario · /pedidos · /lote · /listo · /sugerir · /publicar · /tiendas · /configurar · /cancelar · /ayuda',
 ].join('\n')

@@ -9,6 +9,7 @@ import { storeAssetPrefix } from '../lib/assets'
 export type StoreListItem = {
   id: number; slug: string; name: string; status: StoreStatus; planCode: string; template: string; businessType: string
   products: number; ordersLast30: number; aiPercent: number; ownerEmail: string | null; createdAt: string; activationRequestStatus: string | null
+  telegramBulkImportEnabled: number
 }
 
 export class PlatformError extends Error {
@@ -24,6 +25,7 @@ export async function listStores(db: D1Database, filter: { status?: string; quer
   const period = currentPeriod()
   const result = await db.prepare(
     `SELECT s.id, s.slug, s.name, s.status, s.plan_code AS planCode, s.template, s.business_type AS businessType, s.created_at AS createdAt,
+            s.telegram_bulk_import_enabled AS telegramBulkImportEnabled,
             (SELECT COUNT(*) FROM products p WHERE p.store_id = s.id AND p.is_archived = 0) AS products,
             (SELECT COUNT(*) FROM orders o WHERE o.store_id = s.id AND o.created_at >= datetime('now', '-30 days')) AS ordersLast30,
             CASE WHEN s.ai_monthly_budget_micros > 0 THEN CAST(ROUND(100.0 * COALESCE(u.estimated_cost_micros, 0) / s.ai_monthly_budget_micros) AS INTEGER) ELSE 0 END AS aiPercent,
@@ -119,6 +121,23 @@ export async function setStoreAiBudget(db: D1Database, slugOrId: string, input: 
   if (budget > store.ai_monthly_budget_micros) await db.prepare('UPDATE ai_usage_monthly SET warned_at = NULL WHERE store_id = ? AND period = ?').bind(store.id, currentPeriod()).run()
   await platformAudit(db, 'store_ai_budget_changed', store.id, { budgetMicros: budget, enabled: Boolean(enabled), warnPercent: warn }, actor)
   return { store, budgetMicros: budget, enabled: Boolean(enabled), warnPercent: warn }
+}
+
+export async function setTelegramBulkImportEnabled(db: D1Database, slugOrId: string, enabled: boolean, actor: string) {
+  const store = await requireStore(db, slugOrId)
+  const current = await db.prepare('SELECT telegram_bulk_import_enabled AS enabled FROM stores WHERE id = ?')
+    .bind(store.id).first<{ enabled: number }>()
+  if (!current) throw new PlatformError('STORE_NOT_FOUND', `No encontré la tienda “${slugOrId}”.`)
+  const before = Number(current.enabled) === 1
+  if (before === enabled) return { storeId: store.id, slug: store.slug, enabled, changed: false }
+  await db.batch([
+    db.prepare('UPDATE stores SET telegram_bulk_import_enabled = ?, updated_at = datetime(\'now\') WHERE id = ?')
+      .bind(enabled ? 1 : 0, store.id),
+    db.prepare(`INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source, store_id)
+      VALUES ('store_feature_flag_changed', 'store', ?, ?, ?, 'platform', ?)`)
+      .bind(String(store.id), JSON.stringify({ feature: 'telegram_bulk_import_enabled', from: before, to: enabled }), actor, store.id),
+  ])
+  return { storeId: store.id, slug: store.slug, enabled, changed: true }
 }
 
 /** Assigns an owner (by email or Telegram id) and returns one-time access codes. */

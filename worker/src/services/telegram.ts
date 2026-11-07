@@ -34,6 +34,7 @@ import { catalogFacts, deterministicAdvice, escapeHtml } from './assistant/tools
 import { handleCommerceCallback, handleCommerceText, isNewCommerceRequest, storeSummary } from './assistant/commerce/engine'
 import { parseCommerce } from './assistant/commerce/parse'
 import { handleGuideCallback, handleGuideText, mentionsGuide, showGuide, startGuideFromPhoto, startGuideFromText } from './assistant/shippingGuide'
+import { activeTelegramBatch, analyzeTelegramBatchNext, cancelTelegramBatch, finishTelegramBatchReceiving, handleTelegramBatchText, publishTelegramBatch, receiveTelegramBatchPhoto, requestTelegramBatchAnalysis, requestTelegramBatchPublish, showTelegramBatch, startTelegramBatch } from './telegramProductBatches'
 import { detectOrderViewIntent, showOrderView } from './assistant/orders'
 import { findOrder } from './orders'
 import {
@@ -153,6 +154,7 @@ async function showStorePicker(ctx: AssistantContext): Promise<void> {
 
 async function handleCallback(ctx: AssistantContext, data: string): Promise<void> {
   const key = data.trim()
+  if (key === 'tb:new') { await startTelegramBatch(ctx); return }
   const select = key.match(/^s:select:(\d+)$/)
   if (select) {
     const notice = ctx.cancelledOnSwitch ? `\n\nCancelé ${ctx.cancelledOnSwitch} cambio(s) pendiente(s) de la tienda anterior; no se aplicó nada.` : ''
@@ -162,6 +164,18 @@ async function handleCallback(ctx: AssistantContext, data: string): Promise<void
   }
   const product = key.match(/^pd:(preview|edit|publish|cancel|done|field|photo|main|cat|newcat|sku):([0-9a-f-]{36})(?::([a-z_]+|\d+))?$/i)
   if (product) { await handleProductDraftCallback(ctx, product[1]!.toLowerCase(), product[2]!, product[3]); return }
+  const batch = key.match(/^tb:(page|finish|publish|confirm|cancel|suggest|analyze):([0-9a-f-]{36})(?::(\d+))?$/i)
+  if (batch) {
+    const [, action, batchId, page] = batch
+    if (action === 'page') await showTelegramBatch(ctx, batchId!, Number(page || 0))
+    else if (action === 'finish') await finishTelegramBatchReceiving(ctx)
+    else if (action === 'publish') await requestTelegramBatchPublish(ctx, batchId)
+    else if (action === 'confirm') await publishTelegramBatch(ctx, batchId!)
+    else if (action === 'suggest') await requestTelegramBatchAnalysis(ctx, batchId)
+    else if (action === 'analyze') await analyzeTelegramBatchNext(ctx, batchId!)
+    else await cancelTelegramBatch(ctx, batchId)
+    return
+  }
   const attach = key.match(/^ap:(done|confirm|cancel):([0-9a-f-]{36})$/)
   if (attach) { await handleAttachCallback(ctx, attach[1]!, attach[2]!); return }
   const operation = key.match(/^op:(preview|confirm|cancel):([0-9a-f-]{36})$/i)
@@ -321,6 +335,7 @@ async function handleMenu(ctx: AssistantContext, key: string): Promise<void> {
 }
 
 async function handlePhoto(ctx: AssistantContext, message: TelegramMessage): Promise<void> {
+  if (await receiveTelegramBatchPhoto(ctx, message)) return
   const fileId = photoFileId(message)
   if (!fileId) {
     await say(ctx, 'Ese tipo de archivo no es compatible. Envía fotos JPG, PNG o WebP, o archivos CSV/PDF.')
@@ -436,8 +451,13 @@ async function handleCommand(ctx: AssistantContext, text: string): Promise<boole
     case '/nuevo_producto':
     case '/crear_producto':
     case '/agregar': await beginProductDraft(ctx); return true
+    case '/lote': await startTelegramBatch(ctx); return true
+    case '/listo': await finishTelegramBatchReceiving(ctx); return true
+    case '/publicar': await requestTelegramBatchPublish(ctx); return true
+    case '/sugerir': await requestTelegramBatchAnalysis(ctx); return true
     case '/consejos': await handleProposal(ctx, { action: 'catalog_advice', params: {}, missing: [], summary: '', needsConfirmation: false }, text); return true
     case '/cancelar': {
+      if (await activeTelegramBatch(ctx)) { await cancelTelegramBatch(ctx); return true }
       const draft = await getPendingProductDraft(ctx)
       if (draft) { await cancelProductDraft(ctx, draft.operation.operation_id); await say(ctx, 'Cancelé el borrador del producto. No se publicó nada.', backToMenu()); return true }
       const attach = await getPendingAttach(ctx)
@@ -457,6 +477,11 @@ async function handleText(ctx: AssistantContext, text: string): Promise<void> {
   if (text.startsWith('/')) { await handleCommand(ctx, text); return }
   await rememberTurn(ctx, 'user', text)
   if (await handleOnboardingText(ctx, text)) return
+  if (await handleTelegramBatchText(ctx, text)) return
+  if (/\b(?:quiero subir varios productos|vamos a cargar \d*\s*art[ií]culos|publicar varios productos|crear cat[aá]logo con estas fotos|tiendia,? voy a enviarte varios productos)\b/i.test(text)) {
+    await startTelegramBatch(ctx)
+    return
+  }
   const draft = await getPendingProductDraft(ctx)
   if (draft) {
     if (CANCEL_WORDS.test(text)) { await cancelProductDraft(ctx, draft.operation.operation_id); await say(ctx, 'Cancelé el borrador del producto. No se publicó nada.', backToMenu()); return }

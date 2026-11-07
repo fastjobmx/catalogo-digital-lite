@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, FileUp, Loader2, Sparkles, Upload } from 'lucide-react'
+import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, Eye, FileUp, Loader2, Save, Sparkles, Upload } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { useCatalog } from '../../contexts/CatalogContext'
-import { aiCatalogApi, creditsApi, importApi, type CatalogPageRow, type ImportItemResult, type ImportPreview, type ImportSummary, type StoreCredits } from '../../services/api'
+import { aiCatalogApi, creditsApi, importApi, type CatalogPageRow, type ImportItemResult, type ImportPreview, type ImportSummary, type StoreCredits, type TelegramImport, type TelegramImportItem, type TelegramImportReview } from '../../services/api'
 import { aiRowsToTable, forEachPdfPageImage, readImportFile, ReadError } from '../../lib/import/readers'
 import { buildProducts, detectMapping, FIELD_LABELS, IMPORT_FIELDS, type ColumnMapping, type ImportProduct, type RowIssue } from '../../lib/import/mapping'
 import type { RawTable } from '../../lib/import/table'
@@ -43,7 +43,57 @@ export default function ImportProducts() {
   const [result, setResult] = useState<{ summary: ImportSummary; items: ImportItemResult[] } | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [telegramImports, setTelegramImports] = useState<TelegramImport[]>([])
+  const [telegramReview, setTelegramReview] = useState<TelegramImportReview | null>(null)
+  const [telegramReviewDrafts, setTelegramReviewDrafts] = useState<Record<number, TelegramImportItem>>({})
+  const [telegramReviewError, setTelegramReviewError] = useState<string | null>(null)
+  const [telegramReviewBusy, setTelegramReviewBusy] = useState<number | null>(null)
+  const [telegramPhotoUrls, setTelegramPhotoUrls] = useState<Record<number, string>>({})
+  const [telegramPhotoBusy, setTelegramPhotoBusy] = useState<number | null>(null)
   const input = useRef<HTMLInputElement>(null)
+  const telegramPhotoUrlsRef = useRef<Record<number, string>>({})
+
+  useEffect(() => {
+    if (!token) return
+    importApi.telegramList(token).then((result) => setTelegramImports(result.items)).catch(() => setTelegramImports([]))
+  }, [token])
+
+  useEffect(() => () => Object.values(telegramPhotoUrlsRef.current).forEach((url) => URL.revokeObjectURL(url)), [])
+
+  const loadTelegramReview = async (id: string) => {
+    if (!token) return
+    setTelegramReviewError(null)
+    try {
+      const review = await importApi.telegramReview(id, token)
+      setTelegramReview(review)
+      setTelegramReviewDrafts(Object.fromEntries(review.items.map((item) => [item.id, item])))
+    } catch (err) { setTelegramReviewError(err instanceof Error ? err.message : 'No se pudo abrir el lote.') }
+  }
+
+  const saveTelegramItem = async (itemId: number) => {
+    if (!token || !telegramReview) return
+    setTelegramReviewBusy(itemId); setTelegramReviewError(null)
+    try {
+      const item = telegramReviewDrafts[itemId]!
+      const next = await importApi.telegramUpdateItem(telegramReview.batch.id, itemId, item, token)
+      setTelegramReview(next)
+      setTelegramReviewDrafts(Object.fromEntries(next.items.map((row) => [row.id, row])))
+      const list = await importApi.telegramList(token)
+      setTelegramImports(list.items)
+    } catch (err) { setTelegramReviewError(err instanceof Error ? err.message : 'No se pudo guardar la corrección.') }
+    finally { setTelegramReviewBusy(null) }
+  }
+
+  const loadTelegramPhoto = async (batchId: string, itemId: number) => {
+    if (!token || telegramPhotoUrls[itemId]) return
+    setTelegramPhotoBusy(itemId)
+    try {
+      const url = await importApi.telegramPhoto(batchId, itemId, token)
+      telegramPhotoUrlsRef.current[itemId] = url
+      setTelegramPhotoUrls((current) => ({ ...current, [itemId]: url }))
+    } catch (err) { setTelegramReviewError(err instanceof Error ? err.message : 'No se pudo abrir la foto.') }
+    finally { setTelegramPhotoBusy(null) }
+  }
 
   const built = useMemo(() => {
     if (!table) return { products: [] as Array<{ product: ImportProduct; rows: number[]; generated: boolean }>, issues: [] as RowIssue[] }
@@ -132,6 +182,77 @@ export default function ImportProducts() {
           </li>
         ))}
       </ol>
+
+      <section className="card p-5 space-y-3">
+        <div>
+          <h2 className="font-bold text-ink">Importaciones desde Telegram</h2>
+          <p className="text-sm text-muted">Consulta los lotes recibidos por TiendIA y el resultado de cada publicación.</p>
+        </div>
+        {telegramImports.length ? <div className="divide-y divide-line">
+          {telegramImports.map((batch) => (
+            <div key={batch.id} className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm">
+              <div>
+                <p className="font-semibold text-ink">{new Date(batch.createdAt).toLocaleString()} · {batch.photos} foto(s)</p>
+                <p className="text-muted">Telegram {batch.telegramUserId} · {batch.published} publicados · {batch.pending} pendientes · {batch.failed} fallidos</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="rounded-full border border-line px-2.5 py-1 text-xs font-semibold">{batch.status}</span>
+                {batch.published > 0 && <Link to="/admin/products" className="font-semibold text-brand">Ver productos creados</Link>}
+                <button type="button" className="btn-ghost py-1.5" onClick={() => void loadTelegramReview(batch.id)}><Eye size={15} /> Revisar</button>
+              </div>
+            </div>
+          ))}
+        </div> : <p className="text-sm text-muted">Todavía no hay importaciones desde Telegram.</p>}
+      </section>
+
+      {telegramReview && (
+        <section className="card p-5 space-y-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="font-bold text-ink">Revisión del lote · {telegramReview.items.length} productos</h2>
+              <p className="text-sm text-muted">Estado: {telegramReview.batch.status}. Las correcciones se guardan en este comercio. Confirma la publicación desde Telegram con /publicar.</p>
+            </div>
+            <button type="button" className="btn-ghost py-1.5" onClick={() => { setTelegramReview(null); setTelegramReviewDrafts({}) }}>Cerrar</button>
+          </div>
+          {telegramReviewError && <p className="rounded-btn bg-red-50 p-3 text-sm text-red-700" role="alert">{telegramReviewError}</p>}
+          <div className="space-y-3">
+            {telegramReview.items.map((item) => {
+              const draft = telegramReviewDrafts[item.id] || item
+              const editable = !['published', 'ignored', 'publishing', 'analyzing'].includes(item.status) && !['published', 'cancelled', 'publishing', 'analyzing'].includes(telegramReview.batch.status)
+              const field = (key: keyof TelegramImportItem, value: string) => setTelegramReviewDrafts((current) => ({ ...current, [item.id]: { ...draft, [key]: value } }))
+              return (
+                <article key={item.id} className="rounded-card border border-line p-4 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="font-semibold text-ink">Foto {item.position} · {item.status}</p>
+                    <button type="button" className="btn-ghost py-1.5" onClick={() => void loadTelegramPhoto(telegramReview.batch.id, item.id)} disabled={telegramPhotoBusy === item.id}>
+                      {telegramPhotoBusy === item.id ? <Loader2 size={15} className="animate-spin" /> : <Eye size={15} />} Ver foto
+                    </button>
+                  </div>
+                  {telegramPhotoUrls[item.id] && <img src={telegramPhotoUrls[item.id]} alt={`Foto del producto ${item.position}`} className="max-h-56 rounded-btn object-contain" />}
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <ReviewField label="Nombre" value={draft.name || ''} disabled={!editable} onChange={(value) => field('name', value)} />
+                    <ReviewField label="Precio" value={draft.price === null ? '' : String(draft.price)} disabled={!editable} inputMode="numeric" onChange={(value) => setTelegramReviewDrafts((current) => ({ ...current, [item.id]: { ...draft, price: value === '' ? null : Number(value) } }))} />
+                    <ReviewField label="Cantidad inicial" value={draft.stock === null ? '' : String(draft.stock)} disabled={!editable} inputMode="numeric" onChange={(value) => setTelegramReviewDrafts((current) => ({ ...current, [item.id]: { ...draft, stock: value === '' ? null : Number(value) } }))} />
+                    <ReviewField label="SKU" value={draft.sku || ''} disabled={!editable} onChange={(value) => field('sku', value)} />
+                    <ReviewField label="Categoría" value={draft.categoryName || ''} disabled={!editable} onChange={(value) => field('categoryName', value)} />
+                    <ReviewField label="Talla" value={draft.size || ''} disabled={!editable} onChange={(value) => field('size', value)} />
+                    <ReviewField label="Color" value={draft.color || ''} disabled={!editable} onChange={(value) => field('color', value)} />
+                    <p className="self-end text-xs text-muted">Si el SKU queda vacío, se asigna un código interno al publicar.</p>
+                  </div>
+                  <label className="block space-y-1 text-sm">
+                    <span className="font-semibold text-ink">Descripción</span>
+                    <textarea className="input-field min-h-20 w-full" value={draft.description || ''} disabled={!editable} onChange={(event) => field('description', event.target.value)} />
+                  </label>
+                  {(item.validationErrors.length > 0 || item.warnings.length > 0) && <p className="text-sm text-amber-800">{[...item.validationErrors, ...item.warnings].join(' · ')}</p>}
+                  {editable && <button type="button" className="btn-brand py-1.5" disabled={telegramReviewBusy === item.id} onClick={() => void saveTelegramItem(item.id)}>
+                    {telegramReviewBusy === item.id ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} Guardar corrección
+                  </button>}
+                </article>
+              )
+            })}
+          </div>
+        </section>
+      )}
 
       {error && <p className="card flex items-start gap-2 p-4 text-sm text-red-700" role="alert"><AlertCircle size={17} className="mt-0.5 shrink-0" />{error}</p>}
 
@@ -346,6 +467,15 @@ function Nav({ onBack, onNext, nextLabel = 'Siguiente', nextDisabled, busy }: { 
       <button type="button" className="btn-ghost" onClick={onBack} disabled={busy}><ArrowLeft size={16} /> Atrás</button>
       <button type="button" className="btn-brand" onClick={onNext} disabled={nextDisabled || busy}>{busy ? <Loader2 size={16} className="animate-spin" /> : null}{nextLabel} <ArrowRight size={16} /></button>
     </div>
+  )
+}
+
+function ReviewField({ label, value, disabled, inputMode, onChange }: { label: string; value: string; disabled: boolean; inputMode?: 'numeric' | 'decimal'; onChange: (value: string) => void }) {
+  return (
+    <label className="block space-y-1 text-sm">
+      <span className="font-semibold text-ink">{label}</span>
+      <input className="input-field w-full" value={value} disabled={disabled} inputMode={inputMode} onChange={(event) => onChange(event.target.value)} />
+    </label>
   )
 }
 
