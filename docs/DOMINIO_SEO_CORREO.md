@@ -609,3 +609,17 @@ La alineación real en los encabezados del correo (`spf=pass`, `dkim=pass` y `dm
    - Una llamada sin firma debe responder **401**, no 503.
    - El mensaje 5 debería pasar a «Entregado» con los reintentos de Resend.
    - Para probar el rebote en producción, Resend ofrece direcciones de prueba como `bounced@resend.dev`, pero exigen autorizar ese destinatario de prueba además de `explorandocdsm@gmail.com`.
+
+## 27. Webhook de Resend operativo (2026-11-10, 23:39 UTC)
+
+| Verificación | Resultado real |
+|---|---|
+| `RESEND_WEBHOOK_SECRET` en `catalogo-lite-api` | ✅ Existe (verificado solo por nombre). El Worker tiene 12 secretos: los 11 anteriores sin cambios más este. Versión activa `68f94417-e9c5-4d43-987c-2352fb95ac3b`, cuyo mensaje es «Agregar secreto: RESEND_WEBHOOK_SECRET» |
+| Llamada sin firma al webhook | ✅ **401** «Invalid signature» (antes 503) |
+| Llamada con firma falsa | ✅ **401** «Invalid signature» |
+| Prueba única (mensaje 6, «¡Bienvenido a TiendIA Exprés! Tu tienda está lista para comenzar», solo a `explorandocdsm@gmail.com`) | ✅ Aceptada por Resend (`enviado`, 1 intento) |
+| Evento de Resend | ✅ `email.delivered` recibido por el **webhook firmado** (ID de evento `msg_…` de Svix, no la consulta del cron). Guardado en `email_events` y aplicado: `delivery_status = entregado` a las 23:39:34 UTC, unos segundos después del envío |
+| Panel «Correos y notificaciones» | ✅ «Eventos de entrega: Webhook configurado», «1 Entregados (confirmados por el proveedor)» y, en el historial, «Enviado · Entregado» en la prueba de las 6:39 p. m. (hora de Colombia) |
+| Mensajes 2 a 5 (enviados antes de que existiera el webhook) | Siguen «Sin confirmación»: Resend no reenvía eventos anteriores a la creación del webhook. No es un error |
+
+No se modificaron otros secretos, los bots ni los comercios. El resultado en el propio panel de Resend (*Emails*) no se pudo ver desde aquí, porque no hay acceso a esa cuenta. El evento `delivered` que registró la plataforma lo emite Resend.
