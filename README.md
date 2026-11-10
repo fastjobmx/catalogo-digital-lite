@@ -147,6 +147,7 @@ Resultado más reciente: **Worker 191/191 y frontend 63/63 en verde**. Ver [docs
 - [Onboarding inteligente, paletas y plantillas 3.1](docs/ONBOARDING_CLIENTES.md)
 - [Despliegue y recuperación 3.0](docs/DESPLIEGUE_Y_RECUPERACION_3_0.md)
 - [Guía de los bots](docs/GUIA_BOTS_3_0.md)
+- [Dominio, SEO técnico y correo de TiendIA Exprés](docs/DOMINIO_SEO_CORREO.md)
 - [Progreso del proyecto](PROGRESO.md)
 
 ## Licencia

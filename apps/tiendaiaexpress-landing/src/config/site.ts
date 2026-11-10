@@ -9,12 +9,14 @@ export const site = {
   concept: 'Catálogo digital con pedidos por WhatsApp.',
   url: __SITE_URL__,
 
+  /** Platform app (stores, panel, trial). Set with VITE_APP_URL when the official domain is live. */
+  appUrl: __APP_URL__,
   /** Live pilot store (Catálogo Digital IA platform). Opened in a new tab. */
-  demoStoreUrl: 'https://catalogo-digital-ia.catalogo-lite-worker.workers.dev/',
+  demoStoreUrl: `${__APP_URL__}/`,
   /** Store owners' panel login. Accounts with several stores choose the store after signing in. */
-  adminLoginUrl: 'https://catalogo-digital-ia.catalogo-lite-worker.workers.dev/admin/login',
+  adminLoginUrl: `${__APP_URL__}/admin/login`,
   /** Free trial without sign-up: a temporary, unpublished preview of the visitor's catalogue (48 hours). */
-  trialUrl: 'https://catalogo-digital-ia.catalogo-lite-worker.workers.dev/prueba',
+  trialUrl: `${__APP_URL__}/prueba`,
 
   whatsapp: {
     /** International format, digits only. */

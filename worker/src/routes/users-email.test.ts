@@ -52,7 +52,7 @@ describe('password recovery by email', () => {
     expect(verified).toEqual(unknown)
     expect(sent).toHaveLength(1)
     expect(sent[0]!.to).toBe('vendedor@tienda-a.co')
-    expect(sent[0]!.subject).toContain('Tienda IA Express')
+    expect(sent[0]!.subject).toBe('Restablece tu contraseña | TiendIA Exprés')
     expect(sent[0]!.html).toContain('Crear nueva contraseña')
     expect(sent[0]!.html).toContain('60 minutos')
     expect(sent[0]!.html).not.toMatch(/ClaveVieja/)
@@ -73,9 +73,13 @@ describe('password recovery by email', () => {
     expect((await h.request('/api/admin/session', { token: fresh, store: 'tienda-a' })).status).toBe(200)
     const login = await h.request('/api/admin/login', { method: 'POST', body: { email: 'vendedor@tienda-a.co', password: 'ClaveNueva2026' } })
     expect(login.status).toBe(200)
+    // Security notice: sent once, without any recovery link or token.
+    expect(sent[1]!.subject).toBe('Tu contraseña fue cambiada | TiendIA Exprés')
+    expect(`${sent[1]!.html} ${sent[1]!.text}`).not.toMatch(/token=/)
+    expect(h.db.query<any>("SELECT purpose, status FROM email_messages WHERE purpose = 'password_changed'")).toEqual([{ purpose: 'password_changed', status: 'enviado' }])
 
     await forgot('vendedor@tienda-a.co', '203.0.113.20')
-    const expiring = tokenOf(linkIn(sent[1]!.text, '/restablecer')!)
+    const expiring = tokenOf(linkIn(sent[2]!.text, '/restablecer')!)
     h.db.sqlite.exec(`UPDATE user_access_tokens SET expires_at = unixepoch() - 1 WHERE purpose = 'password_reset' AND used_at IS NULL`)
     expect((await h.request('/api/auth/password-reset', { method: 'POST', body: { token: expiring, password: 'ClaveNueva2027' } })).status).toBe(404)
   })
@@ -153,7 +157,9 @@ describe('users and access (per store)', () => {
     const latest = tokenOf(linkIn(sent[1]!.text, '/activar')!)
     expect((await h.request('/api/auth/activate', { method: 'POST', body: { token: latest, password: 'ClaveNueva2026' } })).status).toBe(200)
     expect(h.db.query<any>(`SELECT email_verified_at IS NOT NULL AS verified FROM platform_users WHERE id = ${userId}`)).toEqual([{ verified: 1 }])
-    expect(sent[2]!.subject).toBe('Tu cuenta de Tienda A ya está activa')
+    expect(sent[2]!.subject).toBe('¡Bienvenido a TiendIA Exprés! Tu tienda está lista para comenzar')
+    expect(sent[2]!.text).toContain('https://tiendas.test/t/tienda-a')
+    expect(sent[2]!.text).not.toMatch(/contraseña:\s*\S/i)
     expect((await h.request(`/api/admin/users/${userId}/invitation`, { method: 'POST', token: ownerA, store: 'tienda-a' })).status).toBe(409)
   })
 
@@ -182,7 +188,7 @@ describe('email templates (superadmin)', () => {
 
   it('starts with the five system templates and lists the variables each one can use', async () => {
     const list = await json(await h.request('/api/platform/email/templates', { token: admin }))
-    expect(list.items.map((item: any) => item.systemKey)).toEqual(['password_reset', 'invitation', 'welcome', 'admin_notice', 'email_verification'])
+    expect(list.items.map((item: any) => item.systemKey)).toEqual(['password_reset', 'invitation', 'welcome', 'admin_notice', 'email_verification', 'password_changed'])
     const reset = list.items[0]
     expect(reset.variables.map((v: any) => v.key)).toContain('enlace_recuperacion')
     expect(list.items[3].variables.map((v: any) => v.key)).not.toContain('enlace_recuperacion')

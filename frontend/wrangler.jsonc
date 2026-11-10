@@ -1,7 +1,7 @@
 {
   // Frontend of the Tienda IA Express platform (technical name catalogo-digital-ia) on Workers Static Assets.
   // Deploy:  npm run deploy:cloudflare  (build with .env.cloudflare, then wrangler deploy)
-  // Public URL: https://catalogo-digital-ia.catalogo-lite-worker.workers.dev
+  // Public URLs: https://app.tiendiaexpres.com (official) and https://catalogo-digital-ia.catalogo-lite-worker.workers.dev
   "$schema": "../worker/node_modules/wrangler/config-schema.json",
   "name": "catalogo-digital-ia",
   "main": "cloudflare/worker.js",
@@ -18,5 +18,11 @@
   },
   // Backend Worker (unchanged): images under /api/assets/* and any relative /api call.
   "services": [{ "binding": "API", "service": "catalogo-lite-api" }],
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  // Official domain (authorised 2026-11-10; see docs/DOMINIO_SEO_CORREO.md). workers.dev keeps working.
+  "routes": [{ "pattern": "app.tiendiaexpres.com", "custom_domain": true }],
+  // CANONICAL_ORIGIN sets canonical URLs, og:url and sitemaps; REDIRECT_TO_CANONICAL=true sends a 301 from
+  // other hostnames (workers.dev) to it — never for /api/*, so Telegram buttons and image URLs keep working.
+  // Stage 1: redirection stays off until app.tiendiaexpres.com is verified.
+  "vars": { "CANONICAL_ORIGIN": "https://app.tiendiaexpres.com", "REDIRECT_TO_CANONICAL": "false" }
 }

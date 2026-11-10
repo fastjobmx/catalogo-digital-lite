@@ -16,6 +16,9 @@ export const EMAIL_VARIABLES = {
   enlace_recuperacion: 'Enlace seguro para crear una contraseña nueva (lo genera el sistema)',
   enlace_invitacion: 'Enlace de activación de la invitación (lo genera el sistema)',
   enlace_verificacion: 'Enlace para verificar el correo (lo genera el sistema)',
+  enlace_tienda: 'Dirección pública de la tienda',
+  nombre_plan: 'Plan activo del comercio',
+  fecha_evento: 'Fecha y hora del evento (hora de Colombia)',
 } as const
 export type EmailVariable = keyof typeof EMAIL_VARIABLES
 
@@ -26,7 +29,7 @@ export const LINK_VARIABLES: Partial<Record<EmailVariable, SystemTemplateKey>> =
   enlace_verificacion: 'email_verification',
 }
 
-export const SYSTEM_TEMPLATE_KEYS = ['password_reset', 'invitation', 'welcome', 'admin_notice', 'email_verification'] as const
+export const SYSTEM_TEMPLATE_KEYS = ['password_reset', 'invitation', 'welcome', 'admin_notice', 'email_verification', 'password_changed'] as const
 export type SystemTemplateKey = typeof SYSTEM_TEMPLATE_KEYS[number]
 
 export class TemplateError extends Error {
@@ -96,6 +99,9 @@ export function renderTemplate(template: { subject: string; html: string; text: 
 // ---- default designs -------------------------------------------------------------
 
 const BRAND = { forest: '#03301F', lime: '#CDF53F', coral: '#8A2FF5', ivory: '#F7F8F3', ink: '#1C2A24', muted: '#5C6B63' }
+/** Public support channel of the platform (the same one shown on the commercial site). */
+const SUPPORT = { whatsappUrl: 'https://wa.me/573506912734', whatsappDisplay: '+57 350 691 2734' }
+const SUPPORT_TEXT = `¿Necesitas ayuda? WhatsApp ${SUPPORT.whatsappDisplay}`
 
 function layout(body: string, preheader: string) {
   return `<!doctype html>
@@ -113,7 +119,8 @@ ${body}
 </td></tr>
 <tr><td style="padding:24px 28px 28px 28px;border-top:1px solid #E6EAE7;font-size:12px;line-height:1.6;color:${BRAND.muted};">
 <strong style="color:${BRAND.forest};">Tienda IA Express</strong> · Tu tienda online, más fácil.<br>
-Este es un mensaje automático de {{nombre_plataforma}}. Nunca te pediremos tu contraseña por correo.
+Este es un mensaje automático de {{nombre_plataforma}}. Nunca te pediremos tu contraseña por correo.<br>
+¿Necesitas ayuda? Escríbenos por WhatsApp al <a href="${SUPPORT.whatsappUrl}" style="color:${BRAND.forest};">${SUPPORT.whatsappDisplay}</a>.
 </td></tr>
 </table>
 </td></tr></table>
@@ -130,7 +137,7 @@ const securityNote = (text: string) => `<p style="margin:16px 0 0 0;padding:14px
 export const DEFAULT_TEMPLATES: Record<SystemTemplateKey, { name: string; subject: string; html: string; text: string }> = {
   password_reset: {
     name: 'Recuperación de contraseña',
-    subject: 'Crea tu nueva contraseña de {{nombre_plataforma}}',
+    subject: 'Restablece tu contraseña | TiendIA Exprés',
     html: layout(`<h1 style="margin:0 0 16px 0;font-size:24px;color:${BRAND.forest};">Hola, {{nombre_usuario}}</h1>
 <p style="margin:0 0 12px 0;">Recibimos una solicitud para recuperar el acceso al panel de <strong>{{nombre_comercio}}</strong> con el correo {{correo_usuario}}.</p>
 <p style="margin:0;">Para crear una contraseña nueva, usa este botón:</p>
@@ -148,7 +155,8 @@ El enlace vence en {{vence_en}} y sirve una sola vez.
 
 ¿No fuiste tú? Ignora este mensaje: tu contraseña actual sigue funcionando.
 
-Tienda IA Express · Nunca te pediremos tu contraseña por correo.`,
+Tienda IA Express · Nunca te pediremos tu contraseña por correo.
+${SUPPORT_TEXT}`,
   },
   invitation: {
     name: 'Invitación de usuario',
@@ -168,26 +176,40 @@ Activa tu acceso y crea tu contraseña aquí:
 
 La invitación vence en {{vence_en}} y sirve una sola vez. Si no la esperabas, ignora este mensaje.
 
-Tienda IA Express · Tu tienda online, más fácil.`,
+Tienda IA Express · Tu tienda online, más fácil.
+${SUPPORT_TEXT}`,
   },
   welcome: {
     name: 'Bienvenida',
-    subject: 'Tu cuenta de {{nombre_comercio}} ya está activa',
+    subject: '¡Bienvenido a TiendIA Exprés! Tu tienda está lista para comenzar',
     html: layout(`<h1 style="margin:0 0 16px 0;font-size:24px;color:${BRAND.forest};">¡Bienvenido, {{nombre_usuario}}!</h1>
 <p style="margin:0 0 12px 0;">Tu cuenta para administrar <strong>{{nombre_comercio}}</strong> en {{nombre_plataforma}} quedó activa.</p>
-<p style="margin:0 0 12px 0;">Desde el panel puedes cargar productos, recibir pedidos por WhatsApp y personalizar tu tienda.</p>
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 4px 0;font-size:14px;line-height:1.7;">
+<tr><td style="padding-right:12px;color:${BRAND.muted};">Negocio</td><td><strong>{{nombre_comercio}}</strong></td></tr>
+<tr><td style="padding-right:12px;color:${BRAND.muted};">Usuario</td><td>{{correo_usuario}}</td></tr>
+<tr><td style="padding-right:12px;color:${BRAND.muted};">Plan</td><td>{{nombre_plan}}</td></tr>
+<tr><td style="padding-right:12px;color:${BRAND.muted};">Tu tienda</td><td><a href="{{enlace_tienda}}" style="color:${BRAND.forest};word-break:break-all;">{{enlace_tienda}}</a></td></tr>
+</table>
+<p style="margin:12px 0;">Ingresa con tu correo y la contraseña que creaste. Desde el panel puedes cargar productos, recibir pedidos por WhatsApp y personalizar tu tienda.</p>
 <table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0;"><tr><td style="background:${BRAND.lime};border-radius:999px;">
 <a href="{{enlace_panel}}" style="display:inline-block;padding:14px 28px;font-weight:bold;color:${BRAND.forest};text-decoration:none;">Ir a mi panel</a></td></tr></table>
-${securityNote('Si no creaste esta cuenta, responde a este correo o escríbenos para revisarlo.')}`, 'Tu cuenta quedó activa.'),
+<p style="margin:0 0 12px 0;font-size:14px;">Inicio de sesión: <a href="{{enlace_panel}}" style="color:${BRAND.forest};word-break:break-all;">{{enlace_panel}}</a></p>
+${securityNote('Nunca te enviaremos tu contraseña. Si no creaste esta cuenta, escríbenos para revisarlo.')}`, 'Tu cuenta quedó activa. Estos son tus datos de acceso.'),
     text: `¡Bienvenido, {{nombre_usuario}}!
 
 Tu cuenta para administrar {{nombre_comercio}} en {{nombre_plataforma}} quedó activa.
 
-Ingresa a tu panel: {{enlace_panel}}
+Negocio: {{nombre_comercio}}
+Usuario: {{correo_usuario}}
+Plan: {{nombre_plan}}
+Tu tienda: {{enlace_tienda}}
 
-Si no creaste esta cuenta, escríbenos para revisarlo.
+Ingresa con tu correo y la contraseña que creaste: {{enlace_panel}}
 
-Tienda IA Express · Tu tienda online, más fácil.`,
+Nunca te enviaremos tu contraseña. Si no creaste esta cuenta, escríbenos para revisarlo.
+
+Tienda IA Express · Tu tienda online, más fácil.
+${SUPPORT_TEXT}`,
   },
   admin_notice: {
     name: 'Notificación administrativa',
@@ -201,11 +223,12 @@ Tienda IA Express · Tu tienda online, más fácil.`,
 
 Este aviso es sobre tu cuenta de {{nombre_comercio}} en {{nombre_plataforma}}.
 
-Tienda IA Express · Tu tienda online, más fácil.`,
+Tienda IA Express · Tu tienda online, más fácil.
+${SUPPORT_TEXT}`,
   },
   email_verification: {
     name: 'Verificación de correo',
-    subject: 'Confirma tu correo en {{nombre_plataforma}}',
+    subject: 'Confirma tu correo electrónico | TiendIA Exprés',
     html: layout(`<h1 style="margin:0 0 16px 0;font-size:24px;color:${BRAND.forest};">Hola, {{nombre_usuario}}</h1>
 <p style="margin:0 0 12px 0;">Confirma que <strong>{{correo_usuario}}</strong> es tu correo para el panel de {{nombre_comercio}}. Así podrás recuperar tu acceso por correo si olvidas tu contraseña.</p>
 ${button('enlace_verificacion', 'Confirmar mi correo')}
@@ -218,7 +241,26 @@ Confirma que {{correo_usuario}} es tu correo para el panel de {{nombre_comercio}
 
 El enlace vence en {{vence_en}}. Si no reconoces esta solicitud, ignora este mensaje.
 
-Tienda IA Express · Tu tienda online, más fácil.`,
+Tienda IA Express · Tu tienda online, más fácil.
+${SUPPORT_TEXT}`,
+  },
+  password_changed: {
+    name: 'Aviso de cambio de contraseña',
+    subject: 'Tu contraseña fue cambiada | TiendIA Exprés',
+    html: layout(`<h1 style="margin:0 0 16px 0;font-size:24px;color:${BRAND.forest};">Hola, {{nombre_usuario}}</h1>
+<p style="margin:0 0 12px 0;">La contraseña de tu cuenta <strong>{{correo_usuario}}</strong> en {{nombre_plataforma}} se cambió el <strong>{{fecha_evento}}</strong>.</p>
+<p style="margin:0 0 12px 0;">Por seguridad, cerramos las demás sesiones abiertas de tu cuenta.</p>
+${securityNote('<strong>¿No fuiste tú?</strong> Usa «¿Olvidaste tu contraseña?» en el inicio de sesión para recuperar el acceso y escríbenos de inmediato.')}
+<p style="margin:16px 0 0 0;font-size:14px;">Inicio de sesión: <a href="{{enlace_panel}}" style="color:${BRAND.forest};word-break:break-all;">{{enlace_panel}}</a></p>`, 'Aviso de seguridad: tu contraseña cambió.'),
+    text: `Hola, {{nombre_usuario}}
+
+La contraseña de tu cuenta {{correo_usuario}} en {{nombre_plataforma}} se cambió el {{fecha_evento}}.
+Por seguridad, cerramos las demás sesiones abiertas de tu cuenta.
+
+¿No fuiste tú? Usa «¿Olvidaste tu contraseña?» en {{enlace_panel}} para recuperar el acceso y escríbenos de inmediato.
+
+Tienda IA Express · Nunca te pediremos tu contraseña por correo.
+${SUPPORT_TEXT}`,
   },
 }
 
@@ -229,6 +271,9 @@ export const SAMPLE_VALUES: RenderValues = {
   nombre_comercio: 'Luz Mágica',
   nombre_plataforma: PLATFORM_NAME,
   vence_en: '60 minutos',
+  enlace_tienda: 'https://ejemplo.invalid/t/luz-magica',
+  nombre_plan: 'Profesional',
+  fecha_evento: '10/11/2026, 4:30 p. m.',
   mensaje: 'Este es un mensaje de ejemplo de la notificación administrativa.',
   enlace_panel: 'https://ejemplo.invalid/panel',
   enlace_recuperacion: 'https://ejemplo.invalid/enlace-de-muestra-sin-validez',

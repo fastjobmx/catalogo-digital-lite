@@ -6,7 +6,8 @@ export const PLATFORM_BRAND = {
   /** Stylised spelling used by the logo artwork and the catalogue attribution. */
   wordmark: 'TiendIA Exprés',
   slogan: 'Tu tienda online, más fácil.',
-  siteUrl: 'https://tiendaiaexpress.pages.dev/',
+  /** Commercial site. VITE_PLATFORM_SITE_URL switches it to the official domain once it is verified. */
+  siteUrl: (import.meta.env.VITE_PLATFORM_SITE_URL as string | undefined)?.trim() || 'https://tiendaiaexpress.pages.dev/',
   logo: '/brand/tiendaiaexpress/logo-720.webp',
   /** Real pixel size of the logo file, to reserve its space and avoid layout shift. */
   logoSize: { width: 720, height: 273 },

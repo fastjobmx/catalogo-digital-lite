@@ -10,7 +10,8 @@ import {
 import type { StoreStatus } from '../tenancy/stores'
 import { getStoreBySlug } from '../tenancy/stores'
 import { TemplateError } from '../email/templates'
-import { createTemplate, duplicateTemplate, emailHistory, emailStatus, listTemplates, previewTemplate, sendTestEmail, setTemplateActive, updateTemplate, variablesFor } from '../email/manage'
+import { createTemplate, duplicateTemplate, emailHistory, emailOverview, emailStatus, listCategories, listSuppressions, listTemplates, previewTemplate, removeSuppression, sendTestEmail, setCategoryEnabled, setTemplateActive, updateTemplate, variablesFor } from '../email/manage'
+import { checkSenderDns } from '../email/webhooks'
 import { regularizeOwner, storesWithoutVerifiedOwner } from '../services/ownerRegularization'
 import { CreditError, creditSummary, grantCredits, listCreditCosts, listCreditMovements, listCreditRequests, resolveCreditRequest, setCreditCost } from '../ai/credits'
 import { ConversionError, convertTrial, discardActivationRequest, listActivationRequests, trialMetrics } from '../services/trialConversion'
@@ -213,6 +214,20 @@ app.post('/email/templates/:id/preview', async (c) => {
 app.post('/email/templates/:id/test', async (c) => {
   const body = await c.req.json().catch(() => null) as { to?: unknown } | null
   try { return c.json(await sendTestEmail(c.env.DB, c.env, Number(c.req.param('id')), body?.to, (c.req.header('Idempotency-Key') || '').trim(), actor(c))) } catch (error) { return fail(c, error) }
+})
+app.get('/email/overview', async (c) => c.json(await emailOverview(c.env.DB)))
+// Reads public DNS (SPF, DKIM, DMARC, MX of the sender domain). Never changes anything.
+app.get('/email/dns', async (c) => c.json(await checkSenderDns(c.env)))
+app.get('/email/categories', async (c) => c.json({ items: await listCategories(c.env.DB) }))
+app.post('/email/categories/:key', async (c) => {
+  const body = await c.req.json().catch(() => null) as { enabled?: unknown } | null
+  if (typeof body?.enabled !== 'boolean') return c.json({ error: 'enabled must be true or false' }, 400)
+  try { return c.json({ items: await setCategoryEnabled(c.env.DB, c.req.param('key'), body.enabled, actor(c)) }) } catch (error) { return fail(c, error) }
+})
+app.get('/email/suppressions', async (c) => c.json({ items: await listSuppressions(c.env.DB) }))
+app.post('/email/suppressions/remove', async (c) => {
+  const body = await c.req.json().catch(() => null) as { email?: unknown } | null
+  try { return c.json(await removeSuppression(c.env.DB, typeof body?.email === 'string' ? body.email : '', actor(c))) } catch (error) { return fail(c, error) }
 })
 app.get('/email/messages', async (c) => c.json({ items: await emailHistory(c.env.DB, { status: c.req.query('status'), purpose: c.req.query('purpose'), limit: Number(c.req.query('limit') || 100) }) }))
 

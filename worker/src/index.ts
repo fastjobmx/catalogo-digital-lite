@@ -17,6 +17,9 @@ import { cleanupAssistantMemory } from './services/assistant/context'
 import { cleanupExpiredTelegramProductAssets } from './services/telegramProductImages'
 import { releaseExpiredReservations } from './ai/credits'
 import trialRoutes from './routes/trial'
+import seoRoutes from './routes/seo'
+import emailRoutes from './routes/email'
+import { purgeEmailLogs } from './email/send'
 import { cleanupExpiredTrials } from './services/trials'
 import { cleanupOrderDocuments } from './services/orderDocuments'
 import type { Principal, EffectiveRole } from './tenancy/access'
@@ -60,6 +63,12 @@ export type Env = {
  RESEND_API_KEY?: string
  /** Extra addresses allowed to receive template test emails (comma separated). The superadmin email is always allowed. */
  EMAIL_TEST_RECIPIENTS?: string
+ /** Reply-To for platform emails (an address with a real inbox or forwarding, e.g. soporte@<domain>). */
+ EMAIL_REPLY_TO?: string
+ /** Signing secret of the Resend webhook (whsec_…), for delivery, bounce and complaint events. */
+ RESEND_WEBHOOK_SECRET?: string
+ /** Days of email history kept (default 180, minimum 30). */
+ EMAIL_LOG_RETENTION_DAYS?: string
  /** Maximum trials created per day across the platform (default 300). */
  TRIALS_DAILY_LIMIT?: string
  /** Output price per million tokens for that image model, in micro-dollars (for the monthly budget). */
@@ -125,6 +134,8 @@ app.route('/api/orders', ordersRoutes)
 app.route('/api/telegram', telegramRoutes)
 app.route('/api/auth', authRoutes)
 app.route('/api/master', masterRoutes)
+app.route('/api/seo', seoRoutes)
+app.route('/api/email', emailRoutes)
 
 // Rutas protegidas (requieren autenticación admin)
 app.route('/api/admin', adminRoutes)
@@ -147,7 +158,10 @@ app.notFound((c) => {
 
 const worker = {
  fetch: (request: Request, env: Env['Bindings'], context: ExecutionContext) => app.fetch(request, env, context),
- scheduled: (_controller: ScheduledController, env: Env['Bindings'], context: ExecutionContext) => {
+ scheduled: (controller: ScheduledController, env: Env['Bindings'], context: ExecutionContext) => {
+  // Once a day (first tick after 08:00 UTC): email history retention.
+  const tick = new Date(controller?.scheduledTime || Date.now())
+  if (tick.getUTCHours() === 8 && tick.getUTCMinutes() < 15) context.waitUntil(purgeEmailLogs(env.DB, env).catch((error) => console.error('Email log retention failed:', error instanceof Error ? error.message : 'unknown')))
   if (env.ASSETS) context.waitUntil(cleanupExpiredTelegramProductAssets(env.DB, env.ASSETS))
   context.waitUntil(cleanupOrderDocuments(env.DB, env.ASSETS).catch((error) => console.error('Order documents cleanup failed:', error instanceof Error ? error.message : 'unknown')))
   context.waitUntil(cleanupExpiredTrials(env.DB, env.ASSETS).catch((error) => console.error('Trial cleanup failed:', error instanceof Error ? error.message : 'unknown')))

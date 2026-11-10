@@ -799,8 +799,17 @@ export interface EmailTemplate {
   id: number; systemKey: string | null; name: string; subject: string; html: string; text: string; active: boolean; system: boolean
   updatedBy: string; updatedAt: string; variables: Array<{ key: string; label: string; systemLink: boolean }>
 }
-export interface EmailMessage { id: number; purpose: string; toEmail: string; subject: string; status: string; provider: string; errorCode: string | null; requestedBy: string; createdAt: string; storeName: string | null; templateName: string | null }
-export interface EmailStatusInfo { configured: boolean; provider: string; from: string | null; testRecipients: string[] }
+export interface EmailMessage { id: number; purpose: string; toEmail: string; subject: string; status: string; provider: string; errorCode: string | null; requestedBy: string; createdAt: string; storeName: string | null; templateName: string | null; deliveryStatus?: string | null; attempts?: number }
+export interface EmailStatusInfo { configured: boolean; provider: string; from: string | null; testRecipients: string[]; replyTo?: string | null; webhookConfigured?: boolean }
+export interface EmailOverview {
+  windowDays: number
+  totals: { total: number; accepted: number; failed: number; notConfigured: number; pending: number; delivered: number; bounced: number; complained: number; delayed: number }
+  suppressed: number
+  alerts: Array<{ purpose: string; count: number; lastAt: string }>
+}
+export interface EmailCategoryInfo { key: string; label: string; essential: boolean; enabled: boolean; updatedBy: string | null; updatedAt: string | null; templates: string[] }
+export interface EmailDnsCheck { name: string; status: 'ok' | 'falta' | 'revisar' | 'error'; detail: string }
+export interface EmailSuppression { email: string; reason: string; source: string; createdAt: string }
 export interface UnverifiedOwnerStore { id: number; slug: string; name: string; status: string; ownerEmail: string | null; ownerAssigned: boolean }
 
 export const emailApi = {
@@ -812,6 +821,12 @@ export const emailApi = {
   setActive: (id: number, active: boolean, token: string) => fetchApi<EmailTemplate>(`/api/platform/email/templates/${id}/status`, { method: 'POST', headers: bearer(token), body: JSON.stringify({ active }) }),
   preview: (id: number, draft: { name: string; subject: string; html: string; text: string } | null, token: string) => fetchApi<{ subject: string; html: string; text: string }>(`/api/platform/email/templates/${id}/preview`, { method: 'POST', headers: bearer(token), body: JSON.stringify(draft ? { draft } : {}) }),
   test: (id: number, to: string, key: string, token: string) => fetchApi<{ status: string; replayed: boolean }>(`/api/platform/email/templates/${id}/test`, { method: 'POST', headers: { ...bearer(token), 'Idempotency-Key': key }, body: JSON.stringify({ to }) }),
+  overview: (token: string) => fetchApi<EmailOverview>('/api/platform/email/overview', { headers: bearer(token) }),
+  dns: (token: string) => fetchApi<{ domain: string | null; checks: EmailDnsCheck[] }>('/api/platform/email/dns', { headers: bearer(token) }),
+  categories: (token: string) => fetchApi<{ items: EmailCategoryInfo[] }>('/api/platform/email/categories', { headers: bearer(token) }),
+  setCategory: (key: string, enabled: boolean, token: string) => fetchApi<{ items: EmailCategoryInfo[] }>(`/api/platform/email/categories/${encodeURIComponent(key)}`, { method: 'POST', headers: bearer(token), body: JSON.stringify({ enabled }) }),
+  suppressions: (token: string) => fetchApi<{ items: EmailSuppression[] }>('/api/platform/email/suppressions', { headers: bearer(token) }),
+  removeSuppression: (email: string, token: string) => fetchApi<{ ok: boolean }>('/api/platform/email/suppressions/remove', { method: 'POST', headers: bearer(token), body: JSON.stringify({ email }) }),
   messages: (token: string, status?: string) => fetchApi<{ items: EmailMessage[] }>(`/api/platform/email/messages${status ? `?status=${status}` : ''}`, { headers: bearer(token) }),
   unverifiedOwners: (token: string) => fetchApi<{ items: UnverifiedOwnerStore[] }>('/api/platform/owners/unverified', { headers: bearer(token) }),
   regularize: (slug: string, payload: { email: string; name: string; identityMethod: string; evidence: string; confirm: boolean }, token: string) =>

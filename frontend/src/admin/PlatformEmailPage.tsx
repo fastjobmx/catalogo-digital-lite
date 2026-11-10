@@ -3,6 +3,7 @@ import { Link, Navigate } from 'react-router-dom'
 import { AlertTriangle, ArrowLeft, CheckCircle2, Copy, Eye, Loader2, Mail, Plus, Save, Send, ShieldCheck } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { emailApi, type EmailMessage, type EmailStatusInfo, type EmailTemplate, type UnverifiedOwnerStore } from '../services/api'
+import PlatformEmailHealth from './PlatformEmailHealth'
 
 const STATUS: Record<string, { label: string; tone: string }> = {
   enviado: { label: 'Enviado', tone: 'bg-emerald-50 text-emerald-800 border-emerald-200' },
@@ -10,7 +11,15 @@ const STATUS: Record<string, { label: string; tone: string }> = {
   no_configurado: { label: 'Sin proveedor', tone: 'bg-amber-50 text-amber-900 border-amber-200' },
   enviando: { label: 'Enviando', tone: 'bg-sky-50 text-sky-800 border-sky-200' },
 }
-const PURPOSES: Record<string, string> = { password_reset: 'Recuperación', invitation: 'Invitación', welcome: 'Bienvenida', email_verification: 'Verificación', test: 'Prueba', admin_notice: 'Notificación' }
+const PURPOSES: Record<string, string> = { password_reset: 'Recuperación', invitation: 'Invitación', welcome: 'Bienvenida', email_verification: 'Verificación', test: 'Prueba', admin_notice: 'Notificación', password_changed: 'Cambio de contraseña' }
+const DELIVERY: Record<string, { label: string; tone: string }> = {
+  entregado: { label: 'Entregado', tone: 'text-emerald-800' },
+  rebotado: { label: 'Rebotó', tone: 'text-red-700' },
+  queja: { label: 'Marcado como spam', tone: 'text-red-700' },
+  retrasado: { label: 'Entrega demorada', tone: 'text-amber-900' },
+  fallido: { label: 'No entregado', tone: 'text-red-700' },
+}
+const ERRORS: Record<string, string> = { SUPPRESSED: 'Dirección bloqueada', NOT_CONFIGURED: 'Sin proveedor', NETWORK: 'Sin conexión con el proveedor' }
 const METHODS: Record<string, string> = { videollamada: 'Videollamada con documento', documento: 'Documento de identidad y registro del negocio', presencial: 'Verificación presencial', canal_conocido: 'Confirmación por un canal ya registrado del comercio' }
 const when = (value: string) => new Date(value.includes('T') ? value : `${value.replace(' ', 'T')}Z`).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })
 type Draft = { name: string; subject: string; html: string; text: string }
@@ -60,7 +69,7 @@ export default function PlatformEmailPage() {
         <header className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-xs font-bold uppercase tracking-widest text-muted flex items-center gap-2"><img src="/brand/tiendaiaexpress/icon-192.png" alt="" width={20} height={20} className="rounded" /> Tienda IA Express · Plataforma</p>
-            <h1 className="text-2xl font-black tracking-tight text-ink">Plantillas de correo electrónico</h1>
+            <h1 className="text-2xl font-black tracking-tight text-ink">Correos y notificaciones</h1>
           </div>
           <Link to="/plataforma" className="btn-ghost"><ArrowLeft size={16} /> Volver a la plataforma</Link>
         </header>
@@ -71,6 +80,7 @@ export default function PlatformEmailPage() {
           </p>
         )}
         {status?.configured && <p className="card flex items-center gap-2 p-4 text-sm text-emerald-800"><CheckCircle2 size={17} /> Envíos activos con {status.provider} desde {status.from}.</p>}
+        {token && <PlatformEmailHealth token={token} />}
         {notice && <p role={notice.tone === 'error' ? 'alert' : 'status'} className={`card p-4 text-sm ${notice.tone === 'error' ? 'text-red-700' : 'text-emerald-800'}`}>{notice.text}</p>}
 
         <div className="grid gap-6 lg:grid-cols-[18rem_1fr]">
@@ -137,20 +147,22 @@ export default function PlatformEmailPage() {
             <h2 className="text-lg font-black text-ink flex items-center gap-2"><Mail size={18} /> Historial de envíos</h2>
             <select aria-label="Filtrar por estado" className="input-field w-auto py-1.5" value={filter} onChange={(e) => setFilter(e.target.value)}>
               <option value="">Todos</option>{Object.entries(STATUS).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}
+              {['entregado', 'rebotado', 'queja', 'retrasado'].map((key) => <option key={key} value={key}>{DELIVERY[key]!.label}</option>)}
             </select>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[640px] text-sm">
-              <thead className="text-left text-xs uppercase tracking-widest text-muted border-b border-line"><tr><th className="py-2 pr-3">Fecha</th><th className="py-2 pr-3">Tipo</th><th className="py-2 pr-3">Para</th><th className="py-2 pr-3">Tienda</th><th className="py-2">Estado</th></tr></thead>
+              <thead className="text-left text-xs uppercase tracking-widest text-muted border-b border-line"><tr><th className="py-2 pr-3">Fecha</th><th className="py-2 pr-3">Tipo</th><th className="py-2 pr-3">Para</th><th className="py-2 pr-3">Tienda</th><th className="py-2 pr-3">Proveedor</th><th className="py-2">Entrega</th></tr></thead>
               <tbody>{messages.map((message) => (
                 <tr key={message.id} className="border-b border-line last:border-0">
                   <td className="py-2 pr-3 text-muted whitespace-nowrap">{when(message.createdAt)}</td>
                   <td className="py-2 pr-3">{PURPOSES[message.purpose] || message.purpose}</td>
                   <td className="py-2 pr-3">{message.toEmail}</td>
                   <td className="py-2 pr-3 text-muted">{message.storeName || '—'}</td>
-                  <td className="py-2"><span className={`rounded-full border px-2 py-0.5 text-xs font-bold ${STATUS[message.status]?.tone || ''}`}>{STATUS[message.status]?.label || message.status}</span>{message.errorCode && <span className="ml-2 text-xs text-muted">{message.errorCode}</span>}</td>
+                  <td className="py-2"><span className={`rounded-full border px-2 py-0.5 text-xs font-bold ${STATUS[message.status]?.tone || ''}`}>{STATUS[message.status]?.label || message.status}</span>{message.errorCode && <span className="ml-2 text-xs text-muted">{ERRORS[message.errorCode] || message.errorCode}</span>}{(message.attempts || 0) > 1 && <span className="ml-2 text-xs text-muted">{message.attempts} intentos</span>}</td>
+                  <td className="py-2 text-xs">{message.deliveryStatus ? <span className={`font-bold ${DELIVERY[message.deliveryStatus]?.tone || ''}`}>{DELIVERY[message.deliveryStatus]?.label || message.deliveryStatus}</span> : <span className="text-muted">{message.status === 'enviado' ? 'Sin confirmación' : '—'}</span>}</td>
                 </tr>))}
-                {!messages.length && <tr><td colSpan={5} className="py-4 text-center text-muted">Todavía no hay envíos.</td></tr>}
+                {!messages.length && <tr><td colSpan={6} className="py-4 text-center text-muted">Todavía no hay envíos.</td></tr>}
               </tbody>
             </table>
           </div>

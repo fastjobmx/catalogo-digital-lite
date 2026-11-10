@@ -79,9 +79,11 @@ export default defineConfig(({ mode, isSsrBuild }) => {
   const env = loadEnv(mode, process.cwd(), 'VITE_')
   const siteUrl = (env.VITE_SITE_URL || 'https://tiendaiaexpress.pages.dev').replace(/\/+$/, '')
   const allowIndexing = env.VITE_ALLOW_INDEXING === 'true'
+  // Platform app (stores, panel, trial). Technical hostname until the official domain is verified.
+  const appUrl = (env.VITE_APP_URL || 'https://catalogo-digital-ia.catalogo-lite-worker.workers.dev').replace(/\/+$/, '')
   return {
     plugins: [react(), tailwindcss(), ...(isSsrBuild ? [] : [seo(siteUrl, allowIndexing)])],
-    define: { __SITE_URL__: JSON.stringify(siteUrl) },
+    define: { __SITE_URL__: JSON.stringify(siteUrl), __APP_URL__: JSON.stringify(appUrl) },
     server: { port: 4317, strictPort: true },
     build: {
       target: 'es2022',

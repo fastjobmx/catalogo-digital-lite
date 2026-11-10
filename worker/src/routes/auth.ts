@@ -7,7 +7,21 @@ import { listUserMemberships } from '../tenancy/access'
 import { maskEmail, requestPasswordReset } from '../services/passwordReset'
 import { confirmEmailVerification } from '../services/userAccess'
 import { sendEmail } from '../email/send'
-import { adminStoreUrl } from '../tenancy/stores'
+import { adminStoreUrl, publicStoreUrl } from '../tenancy/stores'
+
+/** Security notice after a password change. Only to verified addresses; never contains links that grant access. */
+async function notifyPasswordChanged(env: Env['Bindings'], user: { id: number; email: string; displayName?: string | null }, storeId: number, changedAt: number) {
+  const store = await env.DB.prepare('SELECT id, slug, name FROM stores WHERE id = ?').bind(storeId).first<{ id: number; slug: string; name: string }>()
+  const verified = await env.DB.prepare('SELECT email_verified_at IS NOT NULL AS verified FROM platform_users WHERE id = ?').bind(user.id).first<{ verified: number }>()
+  const panel = store ? `${adminStoreUrl(env.PUBLIC_STORE_BASE_URL, store)}/login` : ''
+  if (!store || !verified?.verified || !panel.startsWith('https://')) return
+  const when = new Date(changedAt * 1000).toLocaleString('es-CO', { timeZone: 'America/Bogota', dateStyle: 'long', timeStyle: 'short' })
+  await sendEmail(env.DB, env, {
+    template: { key: 'password_changed' }, to: user.email, purpose: 'password_changed', storeId: store.id, userId: user.id, requestedBy: 'system',
+    idempotencyKey: `password_changed:${user.id}:${changedAt}`,
+    values: { nombre_usuario: user.displayName || user.email.split('@')[0]!, correo_usuario: user.email, nombre_comercio: store.name, enlace_panel: panel, fecha_evento: when },
+  }).catch(() => null)
+}
 
 const app = new Hono<Env>()
 
@@ -52,12 +66,12 @@ app.post('/activate', async (c) => {
   ).bind(passwordHash, changedAt, consumed.deliveredVia, consumed.userId).first<{ id: number; email: string; displayName: string; verified: number }>()
   if (!user?.email) return c.json({ error: 'This account cannot be activated' }, 409)
   if (user.verified) {
-    const store = await c.env.DB.prepare('SELECT id, slug, name FROM stores WHERE id = ?').bind(consumed.storeId).first<{ id: number; slug: string; name: string }>()
+    const store = await c.env.DB.prepare('SELECT s.id, s.slug, s.name, COALESCE(p.name, s.plan_code) AS planName FROM stores s LEFT JOIN plans p ON p.code = s.plan_code WHERE s.id = ?').bind(consumed.storeId).first<{ id: number; slug: string; name: string; planName: string | null }>()
     const panel = store ? `${adminStoreUrl(c.env.PUBLIC_STORE_BASE_URL, store)}/login` : ''
     if (store && panel.startsWith('https://')) {
       await sendEmail(c.env.DB, c.env, {
         template: { key: 'welcome' }, to: user.email, purpose: 'welcome', storeId: store.id, userId: user.id, requestedBy: 'system', idempotencyKey: `welcome:${user.id}:${store.id}`,
-        values: { nombre_usuario: user.displayName || user.email.split('@')[0]!, correo_usuario: user.email, nombre_comercio: store.name, enlace_panel: panel },
+        values: { nombre_usuario: user.displayName || user.email.split('@')[0]!, correo_usuario: user.email, nombre_comercio: store.name, enlace_panel: panel, enlace_tienda: publicStoreUrl(c.env.PUBLIC_STORE_BASE_URL, store), nombre_plan: store.planName || 'Por confirmar' },
       }).catch(() => null)
     }
   }
@@ -124,6 +138,7 @@ app.post('/password-reset', async (c) => {
       .bind(String(user.id), user.email, consumed.storeId),
   ])
   await clearAdminLoginFailures(c.env.DB, clientIp, 'password_reset_token')
+  await notifyPasswordChanged(c.env, user, consumed.storeId, changedAt)
   const stores = await listUserMemberships(c.env.DB, user.id)
   const activeStore = stores.find((store) => store.storeId === consumed.storeId) || stores[0]
   return c.json({
