@@ -81,6 +81,34 @@ export async function applyProviderEvent(db: D1Database, eventId: string, event:
   return { stored: true, state }
 }
 
+/** Delivery follow-up without a webhook: asks the provider for the last event of recent messages that were
+ * accepted but have no confirmed outcome yet (at most `limit` per run, last 72 hours). Each provider state
+ * is applied once (same idempotent path as the webhook). Never reads or stores message content. */
+export async function pollDeliveryStatus(db: D1Database, env: Partial<Env['Bindings']>, fetcher: typeof fetch = fetch, limit = 10): Promise<{ checked: number; updated: number }> {
+  if ((env.EMAIL_PROVIDER || '').toLowerCase() !== 'resend' || !env.RESEND_API_KEY) return { checked: 0, updated: 0 }
+  const { results } = await db.prepare(
+    `SELECT id, provider_message_id FROM email_messages
+     WHERE provider = 'resend' AND status = 'enviado' AND provider_message_id IS NOT NULL
+       AND (delivery_status IS NULL OR delivery_status = 'retrasado') AND created_at >= datetime('now', '-72 hours')
+     ORDER BY id DESC LIMIT ?`,
+  ).bind(limit).all<{ id: number; provider_message_id: string }>()
+  let checked = 0
+  let updated = 0
+  for (const row of results || []) {
+    checked += 1
+    try {
+      const response = await fetcher(`https://api.resend.com/emails/${encodeURIComponent(row.provider_message_id)}`, { headers: { Authorization: `Bearer ${env.RESEND_API_KEY}` } })
+      if (!response.ok) continue
+      const body = await response.json() as { last_event?: unknown }
+      const lastEvent = typeof body.last_event === 'string' ? body.last_event.slice(0, 40) : ''
+      if (!DELIVERY_STATE[`email.${lastEvent}`]) continue
+      const result = await applyProviderEvent(db, `poll:${row.id}:${lastEvent}`, { type: `email.${lastEvent}`, data: { email_id: row.provider_message_id } })
+      if (result.stored) updated += 1
+    } catch { /* network errors: the next run tries again */ }
+  }
+  return { checked, updated }
+}
+
 // ---- DNS check of the sender domain -----------------------------------------------------------
 
 export type DnsCheck = { name: string; status: 'ok' | 'falta' | 'revisar' | 'error'; detail: string }

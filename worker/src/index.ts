@@ -20,6 +20,7 @@ import trialRoutes from './routes/trial'
 import seoRoutes from './routes/seo'
 import emailRoutes from './routes/email'
 import { purgeEmailLogs } from './email/send'
+import { pollDeliveryStatus } from './email/webhooks'
 import { cleanupExpiredTrials } from './services/trials'
 import { cleanupOrderDocuments } from './services/orderDocuments'
 import type { Principal, EffectiveRole } from './tenancy/access'
@@ -162,6 +163,8 @@ const worker = {
   // Once a day (first tick after 08:00 UTC): email history retention.
   const tick = new Date(controller?.scheduledTime || Date.now())
   if (tick.getUTCHours() === 8 && tick.getUTCMinutes() < 15) context.waitUntil(purgeEmailLogs(env.DB, env).catch((error) => console.error('Email log retention failed:', error instanceof Error ? error.message : 'unknown')))
+  // Delivery outcome of recent emails, asked to the provider (works with or without the webhook).
+  context.waitUntil(pollDeliveryStatus(env.DB, env).catch((error) => console.error('Email delivery check failed:', error instanceof Error ? error.message : 'unknown')))
   if (env.ASSETS) context.waitUntil(cleanupExpiredTelegramProductAssets(env.DB, env.ASSETS))
   context.waitUntil(cleanupOrderDocuments(env.DB, env.ASSETS).catch((error) => console.error('Order documents cleanup failed:', error instanceof Error ? error.message : 'unknown')))
   context.waitUntil(cleanupExpiredTrials(env.DB, env.ASSETS).catch((error) => console.error('Trial cleanup failed:', error instanceof Error ? error.message : 'unknown')))

@@ -19,6 +19,14 @@ ALLOWED_ORIGIN = "https://app.tiendiaexpres.com,https://catalogo-digital-ia.cata
 COMMERCE_ENABLED = "true"
 # Plataforma 3.0: base pública para enlaces de tiendas (/t/<dirección>) y activaciones.
 PUBLIC_STORE_BASE_URL = "https://app.tiendiaexpres.com"
+# Correo transaccional (Resend). La clave va como secreto RESEND_API_KEY, nunca aquí.
+# Dominio tiendiaexpres.com verificado en Resend (DKIM resend._domainkey, MX/SPF en send.).
+EMAIL_PROVIDER = "resend"
+EMAIL_FROM = "TiendIA Exprés <notificaciones@tiendiaexpres.com>"
+# soporte@ reenvía al buzón real mediante Cloudflare Email Routing.
+EMAIL_REPLY_TO = "soporte@tiendiaexpres.com"
+# Únicas direcciones (además del superadmin) que pueden recibir correos de prueba.
+EMAIL_TEST_RECIPIENTS = "explorandocdsm@gmail.com"
 # Estudio IA: modelo que devuelve imágenes y su precio de salida (US$60 por millón de tokens de imagen)
 GEMINI_IMAGE_MODEL = "gemini-3.1-flash-image"
 GEMINI_IMAGE_PRICE_OUTPUT_MICROS_PER_MTOK = "60000000"

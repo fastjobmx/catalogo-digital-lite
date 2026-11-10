@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import worker from '../index'
 import { createHarness, superadminToken, type Harness } from '../testing/harness'
 import { purgeEmailLogs, sendEmail } from '../email/send'
-import { checkSenderDns, senderDomain, verifySvixSignature } from '../email/webhooks'
+import { checkSenderDns, pollDeliveryStatus, senderDomain, verifySvixSignature } from '../email/webhooks'
 
 const SECRET_BYTES = 'c2VjcmV0by1kZS1wcnVlYmEtcGFyYS13ZWJob29rcw=='
 const SECRET = `whsec_${SECRET_BYTES}`
@@ -157,5 +157,29 @@ describe('sender DNS check', () => {
     expect(by).toMatchObject({ DKIM: 'ok', SPF: 'ok', 'MX de rebotes': 'ok', DMARC: 'revisar', 'SPF de tiendas.test': 'revisar' })
     const missing = await checkSenderDns({ EMAIL_FROM: 'x <a@vacio.test>' }, (async () => new Response('{}')) as unknown as typeof fetch)
     expect(missing.checks.every((check) => check.status === 'falta')).toBe(true)
+  })
+})
+
+describe('delivery follow-up without webhook', () => {
+  it('asks the provider for the last event once, records delivery and ignores repeats', async () => {
+    await sendEmail(h.db, h.env, welcome('ana@correo.test', 'welcome:poll'), fetcher, noSleep)
+    const asked: string[] = []
+    const provider = (async (url: string, init?: RequestInit) => {
+      asked.push(`${init?.method || 'GET'} ${url}`)
+      return new Response(JSON.stringify({ id: 're_1', last_event: 'delivered' }))
+    }) as unknown as typeof fetch
+    expect(await pollDeliveryStatus(h.db, h.env, provider)).toEqual({ checked: 1, updated: 1 })
+    expect(asked).toEqual(['GET https://api.resend.com/emails/re_1'])
+    expect(h.db.query<any>('SELECT delivery_status FROM email_messages')).toEqual([{ delivery_status: 'entregado' }])
+    // Delivered messages are not asked again.
+    expect(await pollDeliveryStatus(h.db, h.env, provider)).toEqual({ checked: 0, updated: 0 })
+    expect(await pollDeliveryStatus(h.db, { ...h.env, EMAIL_PROVIDER: undefined }, provider)).toEqual({ checked: 0, updated: 0 })
+  })
+
+  it('keeps waiting while the provider only reports "sent"', async () => {
+    await sendEmail(h.db, h.env, welcome('ana@correo.test', 'welcome:poll2'), fetcher, noSleep)
+    const provider = (async () => new Response(JSON.stringify({ last_event: 'sent' }))) as unknown as typeof fetch
+    expect(await pollDeliveryStatus(h.db, h.env, provider)).toEqual({ checked: 1, updated: 0 })
+    expect(h.db.query<any>('SELECT delivery_status FROM email_messages')).toEqual([{ delivery_status: null }])
   })
 })
