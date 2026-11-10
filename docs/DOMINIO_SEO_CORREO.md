@@ -572,3 +572,12 @@ Para tener eventos de entrega:
 Los envíos que se hagan después de eso registrarán «Entregado», «Rebotó» o «Marcado como spam» en el historial.
 
 Mientras tanto, la entrega se comprueba en la bandeja de `explorandocdsm@gmail.com` y en Resend → *Emails*.
+
+### Publicación del ajuste visual (autorizada: «Yes, publish»)
+
+- **Panel `catalogo-digital-ia`:** pasó de `d5a2ecff-6905-4c37-a1ed-a35f81ae73da` a `d03d5473-1a56-4bdc-830e-219b1729a77d` (commit `c16cc10`). Mismo dominio y mismas variables.
+- **Verificación en vivo:**
+  - En `/t/luz-magica/plataforma/correos`, los botones «Pausar» quedan dentro de sus tarjetas.
+  - `app.` responde: portada 200, tienda 200, tienda inexistente 404 y API 200.
+  - `workers.dev` sigue respondiendo 301 hacia `app.`.
+- **Reversión:** desde `frontend/`, ejecutar `node ../worker/node_modules/wrangler/bin/wrangler.js rollback d5a2ecff-6905-4c37-a1ed-a35f81ae73da`.
