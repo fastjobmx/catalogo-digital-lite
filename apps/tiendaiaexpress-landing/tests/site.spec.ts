@@ -20,17 +20,30 @@ test.describe('page', () => {
     expect(errors).toEqual([])
   })
 
-  test('pre-launch indexing signals are consistent (noindex everywhere, no canonical, no sitemap)', async ({ page, request }) => {
+  // The build decides (VITE_ALLOW_INDEXING): every signal must agree with the meta robots tag.
+  test('indexing signals are consistent (pre-launch: noindex everywhere; official: canonical + sitemap)', async ({ page, request }) => {
+    const raw = await (await request.get('/')).text()
+    const indexable = raw.includes('content="index, follow')
     await page.goto('/')
-    await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', 'noindex, nofollow')
-    await expect(page.locator('link[rel="canonical"]')).toHaveCount(0)
     const robots = await (await request.get('/robots.txt')).text()
     expect(robots).toContain('Allow: /')
-    expect(robots).not.toContain('Sitemap')
-    expect((await request.get('/sitemap.xml')).status()).toBe(404)
     const headers = (await request.get('/')).headers()
-    expect(headers['x-robots-tag']).toBe('noindex, nofollow')
     expect(headers['x-content-type-options']).toBe('nosniff')
+    if (indexable) {
+      const canonical = await page.locator('link[rel="canonical"]').getAttribute('href')
+      expect(canonical).toMatch(/^https:\/\/[^/]+\/$/)
+      await expect(page.locator('meta[property="og:url"]')).toHaveAttribute('content', canonical!)
+      expect(robots).toContain(`Sitemap: ${canonical}sitemap.xml`)
+      const sitemap = await (await request.get('/sitemap.xml')).text()
+      expect(sitemap).toContain(`<loc>${canonical}</loc>`)
+      expect(headers['x-robots-tag']).toBeUndefined()
+    } else {
+      await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', 'noindex, nofollow')
+      await expect(page.locator('link[rel="canonical"]')).toHaveCount(0)
+      expect(robots).not.toContain('Sitemap')
+      expect((await request.get('/sitemap.xml')).status()).toBe(404)
+      expect(headers['x-robots-tag']).toBe('noindex, nofollow')
+    }
   })
 
   test('every in-page link points to an existing section', async ({ page }) => {

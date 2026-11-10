@@ -12,7 +12,7 @@ const MOTION_SCRIPT = "document.documentElement.classList.add(window.matchMedia(
  *           noindex can be read), no canonical, no sitemap.
  *  - true:  <meta robots index>, canonical + og:url = VITE_SITE_URL, sitemap.xml listed in robots.txt.
  */
-function seo(siteUrl: string, allowIndexing: boolean): Plugin {
+function seo(siteUrl: string, allowIndexing: boolean, noindexHosts: string[]): Plugin {
   const scriptHash = createHash('sha256').update(MOTION_SCRIPT).digest('base64')
   const csp = [
     "default-src 'self'",
@@ -69,6 +69,8 @@ function seo(siteUrl: string, allowIndexing: boolean): Plugin {
         '/assets/*',
         '  Cache-Control: public, max-age=31536000, immutable',
         '',
+        // Alternate hostnames that serve the same files (www, *.pages.dev) are never indexed: only the canonical one.
+        ...noindexHosts.flatMap((host) => [`https://${host}/*`, '  X-Robots-Tag: noindex, nofollow', '']),
       ].join('\n')
       this.emitFile({ type: 'asset', fileName: '_headers', source: headers })
     },
@@ -79,10 +81,11 @@ export default defineConfig(({ mode, isSsrBuild }) => {
   const env = loadEnv(mode, process.cwd(), 'VITE_')
   const siteUrl = (env.VITE_SITE_URL || 'https://tiendaiaexpress.pages.dev').replace(/\/+$/, '')
   const allowIndexing = env.VITE_ALLOW_INDEXING === 'true'
+  const noindexHosts = (env.VITE_NOINDEX_HOSTS || '').split(',').map((host) => host.trim().toLowerCase()).filter((host) => /^[a-z0-9.-]+$/.test(host))
   // Platform app (stores, panel, trial). Technical hostname until the official domain is verified.
   const appUrl = (env.VITE_APP_URL || 'https://catalogo-digital-ia.catalogo-lite-worker.workers.dev').replace(/\/+$/, '')
   return {
-    plugins: [react(), tailwindcss(), ...(isSsrBuild ? [] : [seo(siteUrl, allowIndexing)])],
+    plugins: [react(), tailwindcss(), ...(isSsrBuild ? [] : [seo(siteUrl, allowIndexing, noindexHosts)])],
     define: { __SITE_URL__: JSON.stringify(siteUrl), __APP_URL__: JSON.stringify(appUrl) },
     server: { port: 4317, strictPort: true },
     build: {

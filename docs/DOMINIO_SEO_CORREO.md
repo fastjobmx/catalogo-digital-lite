@@ -383,3 +383,66 @@ cd frontend; node ../worker/node_modules/wrangler/bin/wrangler.js rollback 51fd1
 ```
 
 Landing: Pages → Deployments → *Rollback* a `4ed99cf3`.
+
+## 23. Lanzamiento del dominio principal (2026-11-10)
+
+Pedido explícito: «Activar la indexación de la landing cuando todo esté correcto». No se modificaron `mostralopues.pages.dev` ni el dominio `app.tiendiaexpres.com`.
+
+### Estado verificado en vivo
+
+| Hostname | Respuesta | Indexación |
+|---|---|---|
+| `https://tiendiaexpres.com/` | 200, HTTPS correcto; `http://` → 301 a `https://` | **Indexable:** `index, follow`, canonical `https://tiendiaexpres.com/`, `og:url` y `og:image` en el dominio, `robots.txt` con `Sitemap:`, `sitemap.xml` con la portada |
+| `https://www.tiendiaexpres.com/` | 200 (todavía **sin** 301 al dominio raíz) | `X-Robots-Tag: noindex, nofollow` por encabezado, solo para ese host |
+| `https://tiendaiaexpress.pages.dev/` | 200 (todavía **sin** 301) | `X-Robots-Tag: noindex, nofollow` |
+| Vistas previas `*.tiendaiaexpress.pages.dev` | 200 | `noindex` (lo pone Cloudflare) |
+| `https://app.tiendiaexpres.com` | Sin cambios: tiendas 200, inexistentes 404, sitemaps y API correctos | Tiendas indexables, áreas privadas `noindex` |
+| `workers.dev` del panel | 301 → `app.` (excepto `/api/*`) | — |
+| `mostralopues.pages.dev` | 200, intacto | Su propio `noindex` |
+
+### Publicaciones
+
+| Pieza | Antes | Después |
+|---|---|---|
+| Landing Pages `tiendaiaexpress` | `530ce202` | `a955b85a` (build `official`): indexable en el dominio raíz y `noindex` por host en `www` y `pages.dev` |
+| Panel `catalogo-digital-ia` | `c2f5ab87-a6ad-4af6-9f15-6296567a9911` | `d5a2ecff-6905-4c37-a1ed-a35f81ae73da`: «Creado con TiendIA Exprés» lleva a `https://tiendiaexpres.com/?utm_source=catalogo&utm_medium=atribucion&utm_campaign=<tienda>` (verificado en Luz Mágica). Mismo dominio y variables |
+
+Cambios en el repositorio:
+- `apps/tiendaiaexpress-landing/.env.official`: valores públicos del build oficial, sin secretos. Excepción agregada en `.gitignore`.
+- `build:official`: `npm run cf:deploy` ahora siempre publica el build oficial.
+- `VITE_NOINDEX_HOSTS` en `vite.config.ts`.
+- `scripts/check-dist.mjs`: compara solo el bloque del host canónico.
+- Prueba de señales de indexación para los dos modos.
+- `frontend/.env.cloudflare`: `VITE_PLATFORM_SITE_URL=https://tiendiaexpres.com/`.
+
+Pruebas: landing Playwright 24/24 (escritorio y móvil) sobre el build oficial y `check-dist` correcto.
+
+### Pendiente en el panel de Cloudflare (el CLI no tiene permiso)
+
+1. **Rules → Redirect Rules → plantilla «Redirect from WWW to root»:** 301, conservando la consulta.
+2. **Bulk Redirects:** `tiendaiaexpress.pages.dev` → `https://tiendiaexpres.com`, 301, con *Preserve query string*, *Subpath matching* y *Preserve path suffix*. **No** incluir `mostralopues.pages.dev`.
+
+Mientras falten, el `noindex` por host evita contenido duplicado en buscadores.
+
+### Search Console (preparado; requiere tu cuenta de Google)
+
+1. En https://search.google.com/search-console → *Agregar propiedad* → **Dominio** → `tiendiaexpres.com`.
+2. Verificar con el TXT `google-site-verification=…`:
+   - Opción A: Google ofrece el botón **«Verificar con Cloudflare»**, que lo agrega solo.
+   - Opción B: Cloudflare DNS → *Add record* → TXT, nombre `@` y el valor de Google.
+3. *Sitemaps* → enviar `https://tiendiaexpres.com/sitemap.xml` y `https://app.tiendiaexpres.com/sitemap.xml`. La propiedad de dominio cubre los dos.
+4. *Inspección de URL* → portada, `https://app.tiendiaexpres.com/t/luz-magica` y un producto → *Solicitar indexación*.
+
+Enviar un sitemap no garantiza la indexación. Los resultados se revisan en *Páginas* y *Rendimiento* después de algunos días.
+
+### Reversión
+
+- **Landing:** Pages → Deployments → *Rollback* a `530ce202`, que vuelve al estado no indexable.
+- **Panel:** `node ../worker/node_modules/wrangler/bin/wrangler.js rollback c2f5ab87-a6ad-4af6-9f15-6296567a9911` (desde `frontend/`).
+
+### Correo: estado al cierre
+
+- **Email Routing** de la zona: `unconfigured`, sin destinos.
+- Registros que agregaría el CLI al activarlo (los entrega Cloudflare): MX `route1/2/3.mx.cloudflare.net`, `TXT @ "v=spf1 include:_spf.mx.cloudflare.net ~all"` y DKIM de reenvío `cf2024-1._domainkey`.
+- **Envío:** el código usa Resend. Falta la cuenta, que es tuya; sus registros (`resend._domainkey`, `send.` MX/TXT) se agregan después en DNS.
+- **DMARC:** `_dmarc` TXT `v=DMARC1; p=none; rua=mailto:dmarc@tiendiaexpres.com; fo=1`. Se agrega en el panel (DNS) o con *Email → DMARC Management*.

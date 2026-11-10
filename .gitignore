@@ -45,6 +45,7 @@ coverage/
 .env
 .env.*
 !.env.example
+!apps/tiendaiaexpress-landing/.env.official
 .dev.vars
 .dev.vars.*
 !.dev.vars.staging.example

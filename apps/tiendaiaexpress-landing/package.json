@@ -12,8 +12,9 @@
     "brand": "python scripts/brand_transparent.py",
     "snapshot": "node scripts/snapshot-sneakerhub.mjs",
     "test": "playwright test",
-    "cf:deploy": "npm run build && node ../../worker/node_modules/wrangler/bin/wrangler.js pages deploy dist --project-name tiendaiaexpress --branch main --commit-dirty=true",
-    "cf:check": "npm run build && node scripts/check-dist.mjs"
+    "cf:deploy": "npm run build:official && node ../../worker/node_modules/wrangler/bin/wrangler.js pages deploy dist --project-name tiendaiaexpress --branch main --commit-dirty=true",
+    "cf:check": "npm run build && node scripts/check-dist.mjs",
+    "build:official": "tsc --noEmit && vite build --mode official && vite build --mode official --ssr src/entry-server.tsx --outDir dist-ssr && node scripts/prerender.mjs"
   },
   "dependencies": {
     "@fontsource-variable/manrope": "5.3.0",
