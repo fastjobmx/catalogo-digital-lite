@@ -446,3 +446,55 @@ Enviar un sitemap no garantiza la indexación. Los resultados se revisan en *Pá
 - Registros que agregaría el CLI al activarlo (los entrega Cloudflare): MX `route1/2/3.mx.cloudflare.net`, `TXT @ "v=spf1 include:_spf.mx.cloudflare.net ~all"` y DKIM de reenvío `cf2024-1._domainkey`.
 - **Envío:** el código usa Resend. Falta la cuenta, que es tuya; sus registros (`resend._domainkey`, `send.` MX/TXT) se agregan después en DNS.
 - **DMARC:** `_dmarc` TXT `v=DMARC1; p=none; rua=mailto:dmarc@tiendiaexpres.com; fo=1`. Se agrega en el panel (DNS) o con *Email → DMARC Management*.
+
+## 24. Correo corporativo: etapa 3 en curso (2026-11-10)
+
+Decisiones: los correos se reenvían a `explorandocdsm@gmail.com` y el proveedor de envío es **Resend**.
+
+### Hecho y verificado en DNS público
+
+- **Email Routing activado** en `tiendiaexpres.com` (estado `ready`). Cloudflare publicó:
+  - MX `route1/2/3.mx.cloudflare.net` (prioridades 75, 85 y 40).
+  - `TXT @ "v=spf1 include:_spf.mx.cloudflare.net ~all"`: el único SPF del dominio raíz.
+  - `TXT cf2024-1._domainkey`: DKIM con el que Cloudflare firma los reenvíos.
+- **Destino** `explorandocdsm@gmail.com` creado (ID `e83842ddfd5748bea104051bad9d3b32`). Cloudflare envió el enlace de confirmación.
+
+### Bloqueado hasta que confirmes el destino
+
+Las reglas `soporte@`, `ventas@`, `seguridad@` y `dmarc@` → `explorandocdsm@gmail.com`. Cloudflare rechaza crearlas con un destino sin confirmar (error 2054). Con el enlace abierto, se crean con:
+
+```
+npx wrangler email routing rules create tiendiaexpres.com --name "soporte a buzon principal" --match-type literal --match-field to --match-value soporte@tiendiaexpres.com --action-type forward --action-value explorandocdsm@gmail.com
+```
+
+Se repite el comando para `ventas@`, `seguridad@` y `dmarc@`. El *catch-all* queda en `drop`: no se crean direcciones ficticias.
+
+### Tus pasos para el envío (Resend)
+
+1. Crear la cuenta en https://resend.com → *Domains* → *Add domain* → `tiendiaexpres.com`, región **us-east-1**.
+2. Resend muestra 3 registros: `resend._domainkey` TXT (DKIM), `send` MX y `send` TXT (SPF del *return-path*). Agregarlos en Cloudflare DNS o con su botón para configurarlos automáticamente con Cloudflare. **No** tocar los MX ni el SPF del dominio raíz.
+3. *API Keys* → crear una con permiso **Sending access**, limitada a `tiendiaexpres.com`.
+4. *Webhooks* → endpoint `https://catalogo-lite-api.catalogo-lite-worker.workers.dev/api/email/webhooks/resend` con los eventos `email.delivered`, `email.delivery_delayed`, `email.bounced`, `email.complained` y `email.failed`. Copiar el *Signing secret* (`whsec_…`).
+5. Cargar los dos secretos **tú mismo**, sin pegarlos en el chat:
+   ```
+   cd worker
+   npx wrangler secret put RESEND_API_KEY --config wrangler.production.toml
+   npx wrangler secret put RESEND_WEBHOOK_SECRET --config wrangler.production.toml
+   ```
+6. **DMARC:** Cloudflare DNS → *Add record* → TXT, nombre `_dmarc`, valor `v=DMARC1; p=none; rua=mailto:dmarc@tiendiaexpres.com; fo=1`. Empieza en monitoreo; tras 2 a 4 semanas de informes limpios se pasa a `p=quarantine` y después a `p=reject`.
+
+### Lo que hago después (con tu aviso)
+
+- Variables del API:
+  - `EMAIL_PROVIDER=resend`
+  - `EMAIL_FROM="TiendIA Exprés <notificaciones@tiendiaexpres.com>"`
+  - `EMAIL_REPLY_TO=soporte@tiendiaexpres.com`
+  - `EMAIL_TEST_RECIPIENTS=explorandocdsm@gmail.com`
+- Desplegar el API y revisar SPF, DKIM y DMARC con «Verificar configuración» en `/plataforma/correos`.
+- Enviar las pruebas de plantillas solo a direcciones autorizadas y revisar los encabezados (`SPF=PASS`, `DKIM=PASS`, `DMARC=PASS`) y que el webhook marque «Entregado».
+
+### Reversión del correo
+
+- `npx wrangler email routing disable tiendiaexpres.com` quita el enrutamiento. Los MX quedan bloqueados por Cloudflare hasta usar `email routing dns unlock`.
+- Borrar las reglas con `email routing rules delete`.
+- Quitar `EMAIL_PROVIDER`: los envíos vuelven a «Sin proveedor».
