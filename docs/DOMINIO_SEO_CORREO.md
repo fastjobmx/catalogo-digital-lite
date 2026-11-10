@@ -498,3 +498,18 @@ Se repite el comando para `ventas@`, `seguridad@` y `dmarc@`. El *catch-all* que
 - `npx wrangler email routing disable tiendiaexpres.com` quita el enrutamiento. Los MX quedan bloqueados por Cloudflare hasta usar `email routing dns unlock`.
 - Borrar las reglas con `email routing rules delete`.
 - Quitar `EMAIL_PROVIDER`: los envíos vuelven a «Sin proveedor».
+
+### Actualización: reglas de reenvío creadas (2026-11-10)
+
+El destino `explorandocdsm@gmail.com` quedó confirmado a las 22:21 UTC. Reglas activas (con el *catch-all* en `drop`):
+
+| Dirección | Acción | ID de regla |
+|---|---|---|
+| `soporte@tiendiaexpres.com` | reenviar a `explorandocdsm@gmail.com` | `0315a8ffdd8b4e7aae9902536febb1ed` |
+| `ventas@tiendiaexpres.com` | reenviar a `explorandocdsm@gmail.com` | `24a46f17d24b4aa39fe2b30707cadff4` |
+| `seguridad@tiendiaexpres.com` | reenviar a `explorandocdsm@gmail.com` | `0064b544d5a947db990e117413f22701` |
+| `dmarc@tiendiaexpres.com` | reenviar a `explorandocdsm@gmail.com` | `33b21a7435bc4b9fbefa8186a4d43f2a` |
+
+**Falta probar la recepción real:** enviar un correo desde otra cuenta a cada dirección y confirmar que llega. La configuración no garantiza la entrega.
+
+Para borrar una regla: `npx wrangler email routing rules delete tiendiaexpres.com <ID>`.
