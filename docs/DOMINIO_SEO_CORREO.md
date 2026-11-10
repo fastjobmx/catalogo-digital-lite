@@ -581,3 +581,31 @@ Mientras tanto, la entrega se comprueba en la bandeja de `explorandocdsm@gmail.c
   - `app.` responde: portada 200, tienda 200, tienda inexistente 404 y API 200.
   - `workers.dev` sigue respondiendo 301 hacia `app.`.
 - **Reversión:** desde `frontend/`, ejecutar `node ../worker/node_modules/wrangler/bin/wrangler.js rollback d5a2ecff-6905-4c37-a1ed-a35f81ae73da`.
+
+## 26. Verificación de DMARC y webhook (2026-11-10, 23:14 UTC)
+
+| Verificación | Resultado real |
+|---|---|
+| `RESEND_WEBHOOK_SECRET` en `catalogo-lite-api` | ❌ **No existe.** El Worker sigue con 11 secretos (ninguno nuevo) y no hay versión «Agregar secreto». Tampoco está en `catalogo-digital-ia` ni en el entorno staging |
+| Endpoint `POST /api/email/webhooks/resend` en producción | Responde **503 «Webhook not configured»**. Los eventos que envíe Resend se rechazan hasta cargar el secreto |
+| DMARC `_dmarc.tiendiaexpres.com` (Cloudflare DNS y Google DNS) | ✅ `v=DMARC1; p=none; rua=mailto:dmarc@tiendiaexpres.com; fo=1`. El panel lo marca «Revisar» porque está en modo monitoreo, que es lo esperado al inicio |
+| DKIM | ✅ `resend._domainkey.tiendiaexpres.com` publicado. Firma con `d=tiendiaexpres.com`, idéntico al dominio del remitente: **alineado** |
+| SPF | ✅ Un único SPF en `send.tiendiaexpres.com`, que es el *return-path* de Resend. Es subdominio de `tiendiaexpres.com`: **alineado en modo relajado** (DMARC no define `aspf`, así que vale `r`). El SPF raíz (`_spf.mx.cloudflare.net`) es solo para recepción, y hay uno solo por nombre |
+| Informes DMARC | `dmarc@tiendiaexpres.com` reenvía a `explorandocdsm@gmail.com`. Al ser el mismo dominio, no requiere autorización externa |
+| Search Console | El TXT `google-site-verification` ya está en el dominio raíz |
+| Prueba nueva | Mensaje 5, «Confirma tu correo electrónico \| TiendIA Exprés», a `explorandocdsm@gmail.com`: **aceptado por Resend** (`enviado`, ID de proveedor, 1 intento) |
+| Evento de entrega del mensaje 5 | ⏳ Sin registrar: `email_events` vacía y `delivery_status` nulo, por el 503 del webhook. Resend reintenta los webhooks fallidos durante varias horas; al cargar el secreto, los reintentos deberían registrar «Entregado» |
+| Entrega, retraso y rebote firmados (pruebas automáticas, firma Svix real con secreto de prueba) | ✅ 12/12: firma inválida o vencida → 401; `delivered` → «Entregado»; `delivery_delayed` no oculta un rebote; `bounced` permanente → dirección bloqueada; rebote transitorio no bloquea; eventos duplicados se ignoran |
+| Entrega, retraso y rebote firmados en producción | ⛔ No se pueden ejecutar: sin el secreto el endpoint no valida firmas, y yo no tengo el valor del secreto para firmar |
+
+La alineación real en los encabezados del correo (`spf=pass`, `dkim=pass` y `dmarc=pass` con `header.from=tiendiaexpres.com`) se comprueba en Gmail con «Mostrar original» sobre el mensaje recibido. No tengo acceso a esa bandeja.
+
+### Para completar
+
+1. Copiar el *Signing secret* (`whsec_…`) del webhook en Resend → Webhooks → el endpoint creado.
+2. Desde `worker/`: `npx wrangler secret put RESEND_WEBHOOK_SECRET --config wrangler.production.toml`. Sin `--config wrangler.production.toml`, el secreto no queda en la configuración de producción.
+3. Comprobar que el endpoint del webhook en Resend sea exactamente `https://catalogo-lite-api.catalogo-lite-worker.workers.dev/api/email/webhooks/resend`.
+4. Con el secreto cargado:
+   - Una llamada sin firma debe responder **401**, no 503.
+   - El mensaje 5 debería pasar a «Entregado» con los reintentos de Resend.
+   - Para probar el rebote en producción, Resend ofrece direcciones de prueba como `bounced@resend.dev`, pero exigen autorizar ese destinatario de prueba además de `explorandocdsm@gmail.com`.
