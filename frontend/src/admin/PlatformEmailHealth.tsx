@@ -103,9 +103,9 @@ export default function PlatformEmailHealth({ token }: { token: string }) {
 
       <div className="space-y-2">
         <h3 className="text-sm font-black text-ink">Categorías de notificación</h3>
-        <ul className="grid gap-2 md:grid-cols-3">
+        <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
           {categories.map((category) => (
-            <li key={category.key} className="flex items-start justify-between gap-3 rounded-btn border border-line p-3 text-sm">
+            <li key={category.key} className="flex flex-wrap items-start justify-between gap-2 rounded-btn border border-line p-3 text-sm">
               <span><b className="text-ink">{category.label}</b><span className="block text-xs text-muted">{category.essential ? 'Esencial: siempre activa' : category.enabled ? 'Activa' : 'Pausada: no se envía'}</span></span>
               {!category.essential && (
                 <button type="button" className="btn-ghost py-1 text-xs" disabled={busy !== null} onClick={() => void act(`cat-${category.key}`, async () => { setCategories((await emailApi.setCategory(category.key, !category.enabled, token)).items) })}>
