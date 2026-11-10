@@ -513,3 +513,62 @@ El destino `explorandocdsm@gmail.com` quedó confirmado a las 22:21 UTC. Reglas 
 **Falta probar la recepción real:** enviar un correo desde otra cuenta a cada dirección y confirmar que llega. La configuración no garantiza la entrega.
 
 Para borrar una regla: `npx wrangler email routing rules delete tiendiaexpres.com <ID>`.
+
+## 25. Envío real con Resend (2026-11-10)
+
+### Verificado sin mostrar valores
+
+- **`RESEND_API_KEY` está en `catalogo-lite-api`**, el Worker correcto. Tiene 11 secretos: los 10 anteriores más este, ninguno modificado. `catalogo-digital-ia` no tiene secretos.
+- **DNS (consulta pública y «Verificar configuración» del panel):**
+  - DKIM `resend._domainkey`: correcto.
+  - SPF `send.tiendiaexpres.com`: correcto, un solo registro.
+  - MX de rebotes en `send.`: correcto.
+  - Verificación de dominio de Resend en el TXT raíz: correcta.
+  - **DMARC: falta.**
+- **`RESEND_WEBHOOK_SECRET`:** no está cargado.
+
+### Publicado
+
+- **API `catalogo-lite-api` `0e5f74f5-b3e4-4725-8b61-8f2b33255cf9`** (antes `4627bbfb-736d-4196-855b-56543421c28c`):
+  - `EMAIL_PROVIDER=resend`
+  - `EMAIL_FROM="TiendIA Exprés <notificaciones@tiendiaexpres.com>"`
+  - `EMAIL_REPLY_TO=soporte@tiendiaexpres.com`
+  - `EMAIL_TEST_RECIPIENTS=explorandocdsm@gmail.com`
+- **Seguimiento de entrega sin webhook:** el cron (cada 15 min) consulta `GET /emails/{id}` de Resend para los mensajes aceptados en las últimas 72 h, hasta 10 por ejecución. Aplica el último evento por la misma vía idempotente del webhook. Commit `28b7c7a`.
+
+### Prueba real (solo a `explorandocdsm@gmail.com`, desde `/plataforma/correos` con sesión de superadmin)
+
+| ID | Plantilla | Asunto | Resultado del proveedor | Intentos |
+|---|---|---|---|---|
+| 2 | `email_verification` | Confirma tu correo electrónico \| TiendIA Exprés | **Aceptado** (`enviado`, con ID de Resend) | 1 |
+| 3 | `welcome` | ¡Bienvenido a TiendIA Exprés! Tu tienda está lista para comenzar | **Aceptado** | 1 |
+| 4 | `password_reset` | Restablece tu contraseña \| TiendIA Exprés | **Aceptado** | 1 |
+
+Son pruebas con datos de ejemplo y enlaces de muestra que no funcionan. No se creó ni modificó ninguna cuenta ni comercio, ni se tocaron los bots.
+
+«Aceptado» significa que Resend recibió el mensaje. La entrega a la bandeja la confirma el evento del proveedor (ver abajo) y la revisión en Gmail de los encabezados `SPF=PASS`, `DKIM=PASS` y `DMARC`.
+
+### Observaciones
+
+- La sesión del superadmin se guarda por ruta: al entrar desde `/t/luz-magica/admin/login`, el panel queda en `https://app.tiendiaexpres.com/t/luz-magica/plataforma/correos`.
+- **Ajuste visual sin publicar** (commit `c16cc10`): las tarjetas de categorías desbordaban el botón «Pausar» en pantallas medianas. La publicación del panel necesita tu autorización.
+
+### Pendiente
+
+- **DMARC** (Cloudflare DNS → TXT `_dmarc`): `v=DMARC1; p=none; rua=mailto:dmarc@tiendiaexpres.com; fo=1`.
+- **Opcional:** `RESEND_WEBHOOK_SECRET` para recibir eventos al instante, en vez de esperar al cron.
+- **Reversión del correo:** `npx wrangler rollback 4627bbfb-736d-4196-855b-56543421c28c --config wrangler.production.toml`, o quitar `EMAIL_PROVIDER` y volver a desplegar. Los envíos vuelven a «Sin proveedor».
+
+### Eventos de entrega: resultado
+
+Después del cron de las 23:00 UTC, los mensajes 2, 3 y 4 siguen en `enviado`, sin estado de entrega, y `email_events` está vacía.
+
+Causa más probable (no confirmada desde aquí): la API key de Resend es de tipo **Sending access**, como se recomendó. Ese tipo solo permite `POST /emails`, no consultar mensajes, así que la consulta del cron no recibe respuesta válida. **No conviene** cambiarla por una clave *Full access*: la vía correcta es el webhook.
+
+Para tener eventos de entrega:
+1. En Resend → *Webhooks*, crear el endpoint `https://catalogo-lite-api.catalogo-lite-worker.workers.dev/api/email/webhooks/resend` con los eventos `email.delivered`, `email.delivery_delayed`, `email.bounced`, `email.complained` y `email.failed`.
+2. Cargar su secreto: `npx wrangler secret put RESEND_WEBHOOK_SECRET --config wrangler.production.toml` (desde `worker/`).
+
+Los envíos que se hagan después de eso registrarán «Entregado», «Rebotó» o «Marcado como spam» en el historial.
+
+Mientras tanto, la entrega se comprueba en la bandeja de `explorandocdsm@gmail.com` y en Resend → *Emails*.
