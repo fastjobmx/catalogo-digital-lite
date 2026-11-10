@@ -291,3 +291,46 @@ Webhook en Resend: `https://catalogo-lite-api.catalogo-lite-worker.workers.dev/a
    - **Marketing:** subdominio propio (p. ej. `novedades.`), consentimiento explícito, baja en un clic y sin mezclar compradores de distintos comercios.
 7. **Contenido comercial:** términos y privacidad, y páginas reales para planes, preguntas frecuentes, catálogo para WhatsApp e importación de productos. El contenido ya existe en secciones de la landing; convertirlo en páginas exige textos tuyos, no páginas de relleno.
 8. **Rendimiento:** cargar solo la fuente del tema de cada tienda y medir con Lighthouse y Search Console (Core Web Vitals) después del lanzamiento.
+
+---
+
+## 21. Despliegue etapa 1 (2026-11-10, autorizado: «Yes, stage 1»)
+
+Dominio comprado en Cloudflare Registrar (misma cuenta que los Workers). Zona activa con los nameservers `bob` y `desiree.ns.cloudflare.com`.
+
+### Qué se publicó (commit `f3c32ad`)
+
+| Pieza | Antes | Después |
+|---|---|---|
+| Respaldo D1 | — | `.tmp/production-0019/production-pre-0019.sql` (2347 `INSERT`) |
+| Punto Time Travel | — | `000003bc-00000000-0000511f-898c9a7269d94f115bf83acc10f86c26` |
+| Base `catalogo-lite-production-db` | migraciones hasta `0018` | `0019_email_delivery` aplicada |
+| API `catalogo-lite-api` | `d56b0a5c-91ba-4f73-a4cd-3c66c18ea3e8` | `97c00587-226f-4e70-be27-4454cababf15` (los 10 secretos intactos, sin variables de correo nuevas) |
+| Panel `catalogo-digital-ia` | `d2123104-d9d5-4850-8806-8fdd1372dec5` | `51fd1f28-f0d7-4bbc-8ecc-cafda9eb9ea8` + Custom Domain **`app.tiendiaexpres.com`**, `CANONICAL_ORIGIN=https://app.tiendiaexpres.com`, `REDIRECT_TO_CANONICAL=false` |
+
+### Verificación en vivo
+
+- **Probado en los dos hostnames** (`app.tiendiaexpres.com` y `workers.dev`), con resultados idénticos:
+  - Responden 200: portada, tienda `luz-magica`, producto `LM-005`, login, restablecer, verificar correo, activar, plataforma, prueba, `robots.txt`, índice de sitemaps, sitemap de tiendas y de productos, `/api/health`, `/api/store`, favicon y logo `/brand`.
+  - Responden 404 con `noindex`: tienda y producto inexistentes.
+  - La búsqueda envía `noindex, follow` y las páginas privadas `noindex, nofollow`.
+- **Metadatos reales:** el producto `LM-005` muestra «Tocador Imperia | Luz Mágica», canonical en `app.`, JSON-LD `OnlineStore`, `Product` y `Offer` en COP, y su `og:image` responde 200 (`image/webp`).
+- **Navegador:** la tienda y el login cargan, las llamadas a `/api/*` y las imágenes `/api/assets/*` responden 200 y no hay errores en la consola.
+- **API:** el `POST` de «¿Olvidaste tu contraseña?» con un correo inexistente responde la respuesta genérica.
+- **Conteos iguales antes y después:** 5 tiendas, 167 productos, 19 pedidos, 4 usuarios, 5 membresías y 1 registro de correo.
+
+### Observaciones
+
+- `http://app.tiendiaexpres.com` responde 200 sin redirigir a HTTPS. Falta activar **Always Use HTTPS** en la zona (SSL/TLS → Edge Certificates); el CLI no tiene permiso de configuración de zona.
+- `tiendiaexpres.com` y `www` todavía no responden: falta agregarlos como Custom domains del proyecto Pages `tiendaiaexpress`.
+- Los enlaces de correos y Telegram siguen usando `workers.dev` (`PUBLIC_STORE_BASE_URL` sin cambios) hasta la etapa 2.
+
+### Reversión de la etapa 1
+
+```
+cd frontend; node ../worker/node_modules/wrangler/bin/wrangler.js rollback d2123104-d9d5-4850-8806-8fdd1372dec5
+cd worker; npx wrangler rollback d56b0a5c-91ba-4f73-a4cd-3c66c18ea3e8 --config wrangler.production.toml
+```
+
+- Quitar el Custom Domain `app.tiendiaexpres.com` en Workers → `catalogo-digital-ia` → Settings → Domains.
+- La migración `0019` es aditiva y compatible con el código anterior: no hace falta revertirla. Si se quisiera, usar `database/rollback/0019_email_delivery.down.sql` o el punto de Time Travel.
