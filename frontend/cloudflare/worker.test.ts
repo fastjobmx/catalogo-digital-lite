@@ -48,6 +48,8 @@ describe('search-engine signals', () => {
     expect(canonicalRedirect(env, new URL(`${ORIGIN}/admin/login`), 'POST')).toBeNull()
     expect(canonicalRedirect(env, new URL('https://app.ejemplo.com/'), 'GET')).toBeNull()
     expect(canonicalRedirect({ CANONICAL_ORIGIN: 'https://app.ejemplo.com' }, new URL(`${ORIGIN}/`), 'GET')).toBeNull()
+    expect(canonicalRedirect({}, new URL('http://app.ejemplo.com/t/x?a=1'), 'GET')).toBe('https://app.ejemplo.com/t/x?a=1')
+    expect(canonicalRedirect({}, new URL('http://127.0.0.1:8797/'), 'GET')).toBeNull()
   })
 
   it('normalises canonical paths and marks search results noindex', () => {

@@ -34,6 +34,11 @@ export function canonicalOrigin(env, requestOrigin) {
 
 /** 301 target when the request reached a non-canonical host (only if explicitly enabled). Null = serve normally. */
 export function canonicalRedirect(env, url, method) {
+  // Plain HTTP on a public host always moves to HTTPS (local development stays on http://localhost).
+  // Only GET/HEAD: a 301 would turn other methods into GET.
+  if (url.protocol === 'http:' && (method === 'GET' || method === 'HEAD') && !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(url.hostname)) {
+    return `https://${url.host}${url.pathname}${url.search}`
+  }
   if (String(env?.REDIRECT_TO_CANONICAL || '') !== 'true') return null
   const origin = canonicalOrigin(env, url.origin)
   if (origin === url.origin || (method !== 'GET' && method !== 'HEAD')) return null

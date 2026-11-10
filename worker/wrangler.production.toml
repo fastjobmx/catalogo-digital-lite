@@ -15,10 +15,10 @@ STORE_CURRENCY = "COP"
 STORE_COUNTRY = "CO"
 # Frontend en Cloudflare Workers Static Assets. Netlify queda solo durante la transición
 # (enlaces ya entregados); retirarlo de esta lista cuando se apague el sitio.
-ALLOWED_ORIGIN = "https://catalogo-digital-ia.catalogo-lite-worker.workers.dev,https://catalogo-digital-ia.netlify.app"
+ALLOWED_ORIGIN = "https://app.tiendiaexpres.com,https://catalogo-digital-ia.catalogo-lite-worker.workers.dev,https://catalogo-digital-ia.netlify.app"
 COMMERCE_ENABLED = "true"
 # Plataforma 3.0: base pública para enlaces de tiendas (/t/<dirección>) y activaciones.
-PUBLIC_STORE_BASE_URL = "https://catalogo-digital-ia.catalogo-lite-worker.workers.dev"
+PUBLIC_STORE_BASE_URL = "https://app.tiendiaexpres.com"
 # Estudio IA: modelo que devuelve imágenes y su precio de salida (US$60 por millón de tokens de imagen)
 GEMINI_IMAGE_MODEL = "gemini-3.1-flash-image"
 GEMINI_IMAGE_PRICE_OUTPUT_MICROS_PER_MTOK = "60000000"

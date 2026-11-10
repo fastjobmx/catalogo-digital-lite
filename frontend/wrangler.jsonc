@@ -23,6 +23,6 @@
   "routes": [{ "pattern": "app.tiendiaexpres.com", "custom_domain": true }],
   // CANONICAL_ORIGIN sets canonical URLs, og:url and sitemaps; REDIRECT_TO_CANONICAL=true sends a 301 from
   // other hostnames (workers.dev) to it — never for /api/*, so Telegram buttons and image URLs keep working.
-  // Stage 1: redirection stays off until app.tiendiaexpres.com is verified.
-  "vars": { "CANONICAL_ORIGIN": "https://app.tiendiaexpres.com", "REDIRECT_TO_CANONICAL": "false" }
+  // Stage 2 (2026-11-10): app.tiendiaexpres.com verified, so workers.dev answers 301 to it (except /api/*).
+  "vars": { "CANONICAL_ORIGIN": "https://app.tiendiaexpres.com", "REDIRECT_TO_CANONICAL": "true" }
 }

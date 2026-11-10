@@ -334,3 +334,52 @@ cd worker; npx wrangler rollback d56b0a5c-91ba-4f73-a4cd-3c66c18ea3e8 --config w
 
 - Quitar el Custom Domain `app.tiendiaexpres.com` en Workers → `catalogo-digital-ia` → Settings → Domains.
 - La migración `0019` es aditiva y compatible con el código anterior: no hace falta revertirla. Si se quisiera, usar `database/rollback/0019_email_delivery.down.sql` o el punto de Time Travel.
+
+## 22. Despliegue etapa 2 (2026-11-10, autorizado: «Yes, stage 2»)
+
+### Qué se publicó
+
+| Pieza | Antes | Después |
+|---|---|---|
+| API `catalogo-lite-api` | `97c00587-226f-4e70-be27-4454cababf15` | `16927098-9ee9-415d-8144-62ad77ec99a5`: `PUBLIC_STORE_BASE_URL=https://app.tiendiaexpres.com` (correos, Telegram, guías y pedidos) y `app.` agregado a `ALLOWED_ORIGIN` |
+| Panel `catalogo-digital-ia` | `51fd1f28-f0d7-4bbc-8ecc-cafda9eb9ea8` | `c2f5ab87-a6ad-4af6-9f15-6296567a9911`: `REDIRECT_TO_CANONICAL=true` y HTTP → HTTPS en el propio Worker (solo GET y HEAD) |
+| Landing Pages `tiendaiaexpress` | `4ed99cf3-bc95-4b45-a700-f62e1a63b7e2` | `530ce202`: botones «Tienda demo», «Ingresar» y «Prueba gratis» hacia `app.`; título y descripción nuevos; sigue en `noindex` |
+
+Build de la landing usado (las variables no se guardan en el repositorio, porque `.env.*` está ignorado):
+
+```
+VITE_APP_URL=https://app.tiendiaexpres.com VITE_SITE_URL=https://tiendaiaexpress.pages.dev VITE_ALLOW_INDEXING=false npm run cf:deploy
+```
+
+### Verificación en vivo
+
+- `workers.dev` responde 301 hacia `app.` conservando ruta y parámetros, incluidos los enlaces viejos con token (`/admin/restablecer?token=…`).
+- Siguen respondiendo 200 en `workers.dev`: `/api/*` (incluido un POST), las imágenes `/api/assets/*` y `/brand/*` (logo de los correos).
+- `http://app.tiendiaexpres.com/…` → 301 a `https://…`.
+- `app.` → 200 en portada, tienda, login y API. CORS: `Access-Control-Allow-Origin: https://app.tiendiaexpres.com`.
+- Landing: 3 enlaces a `app./`, 3 a `app./admin/login` y 7 a `app./prueba`. Pruebas Playwright de escritorio 12/12, incluida la comprobación en vivo de esos destinos.
+- `mostralopues.pages.dev` responde 200 y no se tocó.
+- El API conserva sus 10 secretos.
+
+### Pendiente (tus pasos en el panel; el CLI no tiene permiso de DNS ni de reglas)
+
+1. **Workers & Pages → `tiendaiaexpress` → Custom domains → Set up a domain:** `tiendiaexpres.com`, y repetir con `www.tiendiaexpres.com`.
+2. **SSL/TLS → Edge Certificates:** activar *Always Use HTTPS* (cubre el apex y `www`).
+3. **Rules → Redirect Rules → plantilla «Redirect from WWW to root»:** 301, conservando la consulta.
+4. **Bulk Redirects** (de cuenta) para `tiendaiaexpress.pages.dev`:
+   - Lista: origen `tiendaiaexpress.pages.dev`, destino `https://tiendiaexpres.com`, 301, con *Preserve query string*, *Subpath matching* y *Preserve path suffix*.
+   - Crear la regla que usa esa lista.
+   - **No** incluir `mostralopues.pages.dev`.
+5. Con el apex respondiendo, yo hago el resto:
+   - Rebuild de la landing con `VITE_SITE_URL=https://tiendiaexpres.com` y `VITE_ALLOW_INDEXING=true`.
+   - Atribución de los catálogos con `VITE_PLATFORM_SITE_URL=https://tiendiaexpres.com/`.
+6. **Search Console:** propiedad de dominio `tiendiaexpres.com`, con el TXT de verificación en DNS. Enviar los dos sitemaps.
+
+### Reversión de la etapa 2
+
+```
+cd worker; npx wrangler rollback 97c00587-226f-4e70-be27-4454cababf15 --config wrangler.production.toml
+cd frontend; node ../worker/node_modules/wrangler/bin/wrangler.js rollback 51fd1f28-f0d7-4bbc-8ecc-cafda9eb9ea8
+```
+
+Landing: Pages → Deployments → *Rollback* a `4ed99cf3`.

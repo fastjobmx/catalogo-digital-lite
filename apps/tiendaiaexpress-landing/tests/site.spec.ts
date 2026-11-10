@@ -1,8 +1,10 @@
 import { expect, test } from '@playwright/test'
+// Platform app URL the site was built with (VITE_APP_URL), same default as vite.config.ts.
+const APP = (process.env.VITE_APP_URL || 'https://catalogo-digital-ia.catalogo-lite-worker.workers.dev').replace(/\/+$/, '')
 
-const DEMO = 'https://catalogo-digital-ia.catalogo-lite-worker.workers.dev/'
-const ADMIN = 'https://catalogo-digital-ia.catalogo-lite-worker.workers.dev/admin/login'
-const TRIAL = 'https://catalogo-digital-ia.catalogo-lite-worker.workers.dev/prueba'
+const DEMO = `${APP}/`
+const ADMIN = `${APP}/admin/login`
+const TRIAL = `${APP}/prueba`
 
 test.describe('page', () => {
   test('loads without console errors, with one h1 and prerendered content', async ({ page, request }) => {

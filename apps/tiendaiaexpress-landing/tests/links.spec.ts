@@ -1,12 +1,14 @@
 // Live destination check (network). Run before publishing: npx playwright test links --project=desktop
 import { expect, test } from '@playwright/test'
+// Platform app URL the site was built with (VITE_APP_URL), same default as vite.config.ts.
+const APP = (process.env.VITE_APP_URL || 'https://catalogo-digital-ia.catalogo-lite-worker.workers.dev').replace(/\/+$/, '')
 
 test.describe.configure({ mode: 'serial' })
 
 const MUST_WORK = [
-  'https://catalogo-digital-ia.catalogo-lite-worker.workers.dev/',
-  'https://catalogo-digital-ia.catalogo-lite-worker.workers.dev/admin/login',
-  'https://catalogo-digital-ia.catalogo-lite-worker.workers.dev/prueba',
+  `${APP}/`,
+  `${APP}/admin/login`,
+  `${APP}/prueba`,
 ]
 // Social networks often answer bots with redirects to a login page or 4xx: reported, not asserted.
 const REPORT_ONLY = [
