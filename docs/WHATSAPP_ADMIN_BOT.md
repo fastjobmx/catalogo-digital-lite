@@ -218,3 +218,20 @@ Reversión: `WHATSAPP_ADMIN_BOT_ENABLED=false` (inmediato, sin tocar código; el
 | 22 | Requisitos del piloto | Implementado · requiere autorización |
 
 Criterios de aceptación: 2–12, 14 y 16 probados en local con Meta simulado; 13 probado con Gemini simulado; 15 sin cambios en `frontend/` ni en rutas del panel (suite del Worker en verde); **1 (Meta entrega un mensaje real) pendiente** hasta configurar Meta.
+
+## 13. Staging (2026-11-11, autorizado; producción sin cambios)
+
+| Qué | Valor |
+|---|---|
+| Worker | `sneakerhub-telegram-staging` · versión `053233ed` (rama en `1a887ba`) · retorno `2af7f1d2` |
+| D1 | `sneakerhub-telegram-staging-db` (`18ac228c…`), distinto del de producción (`10b10054…`); R2 propio |
+| Respaldo antes de migrar | Copia SQL de 197.121 bytes y bookmark Time Travel `000003b4-00000002-00005120-d3aa37ff0927e3380527ab826ec2929d` |
+| Migración 0024 | Aplicada con el aplicador oficial: 24 migraciones, 4 tablas `whatsapp_*`, 1 tienda y 2 productos iguales, 0 violaciones de relaciones |
+| Canal WhatsApp | **Apagado**: sin secretos de Meta ni `WHATSAPP_ADMIN_BOT_ENABLED` |
+| Humo | salud 200 · catálogo 200 · verificación con token incorrecto 403 · webhook sin App Secret 503 · webhook de Telegram sin secreto 403 · código de vinculación sin sesión 401 |
+| Producción | Sigue en `56b1450b`; la ruta `/api/whatsapp/webhook` responde 404 allí |
+| Comerciante ficticio | Usuario `prueba-whatsapp@staging.invalid` (id 59), propietario de la tienda 1 «Tenis Manizales»; sin contraseña |
+
+Pendiente para las pruebas reales: secretos de la app de prueba de Meta en el Worker de staging, identificador del número temporal, webhook registrado y activar el canal solo en staging. No se pudo comprobar desde aquí que la clave de Gemini de staging sea distinta de la de producción (los valores de los secretos no son legibles).
+
+Reversión de staging: `npx wrangler rollback 2af7f1d2-f253-4520-928d-00dbdfabd7c4 -c wrangler.remote-staging.toml`; si hiciera falta, `database/rollback/0024_whatsapp_admin_bot.down.sql` o el bookmark anterior.
