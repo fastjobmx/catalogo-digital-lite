@@ -67,6 +67,11 @@ export type Env = {
  /** Telegram assistant: 'false' turns off the natural-language commerce interpreter / voice notes (previous behaviour stays). */
  TELEGRAM_SMART_INTERPRETER_ENABLED?: string
  TELEGRAM_VOICE_ENABLED?: string
+ /** Quota of AI messages per plan: 'off' (default, counts nothing) | 'shadow' (counts and alerts, never blocks) | 'enforce'. */
+ AI_MESSAGE_QUOTA_MODE?: string
+ /** Observation thresholds (they never block): messages per store in 24 h, and identical messages repeated in 10 minutes. */
+ AI_MONITOR_DAILY_MESSAGES?: string
+ AI_MONITOR_LOOP_REPEATS?: string
  /** Catalogue trial without sign-up: 'false' turns it off. */
  TRIALS_ENABLED?: string
  /** Email: provider name ('resend'), sender address and API key (secret). Unset = emails are recorded as not configured. */

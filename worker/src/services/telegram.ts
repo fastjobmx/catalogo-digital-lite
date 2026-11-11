@@ -26,6 +26,8 @@ import { handleDocument, isSupportedDocument } from './assistant/documents'
 import { answerWithStoreFacts, draftProductDescription, interpretRequest } from './assistant/ai'
 import { detectIntent } from './assistant/intents'
 import { handleTeamCallback, showTeam } from './assistant/team'
+import { CONSUMPTION_INTENT, showConsumption } from './assistant/consumption'
+import { fingerprintText } from '../ai/messageQuota'
 import { sendPanelPasswordReset } from './assistant/panelAccess'
 import { acceptCampaignText, createCampaign, detectCouponDraft, detectMarketingIntent, handleMarketingCallback, proposeCoupon, showCampaigns, showCoupons, showFollowUps, unsubscribe } from './assistant/marketing'
 import { detectMovementsQuery, detectStockMovement, proposeStockMovement, showStockMovements } from './assistant/inventory'
@@ -144,6 +146,9 @@ export async function processTelegramUpdate(
     await ctx.db.prepare(`INSERT INTO platform_events (store_id, level, source, code, detail) VALUES (?, 'error', 'assistant', 'UPDATE_FAILED', ?)`)
       .bind(ctx.store.id, (error instanceof Error ? error.message : 'unknown').slice(0, 200)).run().catch(() => undefined)
     await say(ctx, 'Algo no salió bien y no se modificó nada. Puedes intentarlo nuevamente.', backToMenu()).catch(() => undefined)
+  } finally {
+    // The 80 % / 100 % quota notice goes after the answer of this update.
+    if (ctx.quotaNotice) await say(ctx, ctx.quotaNotice).catch(() => undefined)
   }
 }
 
@@ -411,6 +416,7 @@ async function handleVoice(ctx: AssistantContext, message: TelegramMessage): Pro
     await say(ctx, 'No pude escuchar la nota de voz. ¿Puedes enviarla otra vez o escribirlo?')
     return
   }
+  ctx.voiceSeconds = Math.max(1, Math.round(voice.duration || 1))
   const outcome = await interpretRequest(ctx, 'Interpreta la nota de voz adjunta.', audio)
   if (!outcome.ok) { await say(ctx, outcome.message); return }
   const transcript = outcome.value.transcript?.trim()
@@ -444,6 +450,8 @@ async function handleCommand(ctx: AssistantContext, text: string): Promise<boole
     case '/campanas':
     case '/campañas': await showCampaigns(ctx); return true
     case '/configurar': await showSettingsCenter(ctx); return true
+    case '/consumo':
+    case '/mensajes': await showConsumption(ctx); return true
     case '/menu': await say(ctx, '¿Qué hacemos ahora?', mainMenuKeyboard(ctx.memberships.length > 1)); return true
     case '/ayuda':
     case '/help': if (!await onboardingHelp(ctx)) await say(ctx, HELP_TEXT, backToMenu()); return true
@@ -489,6 +497,8 @@ async function handleCommand(ctx: AssistantContext, text: string): Promise<boole
 
 async function handleText(ctx: AssistantContext, text: string): Promise<void> {
   if (text.startsWith('/')) { await handleCommand(ctx, text); return }
+  if (CONSUMPTION_INTENT.test(text) && text.length < 60) { await showConsumption(ctx); return }
+  ctx.fingerprint = await fingerprintText(text)
   await rememberTurn(ctx, 'user', text)
   if (await handleOnboardingText(ctx, text)) return
   if (await handleTelegramBatchText(ctx, text)) return

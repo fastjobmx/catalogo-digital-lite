@@ -11,6 +11,7 @@ import { INVITABLE_ROLES, listUserMemberships, ROLE_LABELS, type StoreRole } fro
 import { PRIMARY_STORE_ID } from '../tenancy/stores'
 import { createAccessToken, ensureUser, findUserByEmail, normalizeEmail, upsertMembership } from '../services/platformUsers'
 import { getStoreAiUsage } from '../ai/usage'
+import { storeConsumption } from '../services/aiMessageAdmin'
 import { studioModel } from '../ai/imageStudio'
 import { AccessError, listStoreMembers, requestEmailVerification, resendInvitation, resetMemberPassword, sendInvitation, setMemberAccess } from '../services/userAccess'
 import { roleAllows } from '../tenancy/access'
@@ -299,6 +300,11 @@ app.get('/audit', adminAuth, requireRole('admin'), async (c) => {
 
 app.get('/ai-usage', adminAuth, requireRole('admin'), async (c) => {
  return c.json(await getStoreAiUsage(c.env.DB, c.get('storeId')!))
+})
+
+// AI messages used in the current billing cycle of this store (same numbers as the /consumo command).
+app.get('/ai-messages', adminAuth, requireRole('admin'), async (c) => {
+ return c.json(await storeConsumption(c.env.DB, c.env, c.get('storeId')!))
 })
 
 // AI credits of the current store: read-only balance and history, plus recharge requests.

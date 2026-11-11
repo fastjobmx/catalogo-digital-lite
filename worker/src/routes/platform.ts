@@ -18,8 +18,21 @@ import { ConversionError, convertTrial, discardActivationRequest, listActivation
 import { getTrialSettings, setTrialSettings, SettingsError } from '../services/trialSettings'
 import { aiUsageAlerts, currentBillingPeriod, generateInvoices, listInvoices, setDomainStatus, setInvoiceStatus } from '../services/billing'
 
+import { AiMessageAdminError, platformConsumption, setStoreMessageSettings, storeConsumptionDetail } from '../services/aiMessageAdmin'
+
 const app = new Hono<Env>()
 app.use('*', platformAuth)
+
+// Consumption of AI messages per store and cycle (observation; the counter never blocks unless the mode is 'enforce').
+app.get('/ai-messages', async (c) => c.json(await platformConsumption(c.env.DB, c.env, { limit: Number(c.req.query('limit') || 200) })))
+app.get('/stores/:slug/ai-messages', async (c) => {
+  try { return c.json(await storeConsumptionDetail(c.env.DB, c.env, c.req.param('slug'))) } catch (error) { return fail(c, error) }
+})
+app.put('/stores/:slug/ai-messages', async (c) => {
+  const body = await c.req.json().catch(() => null) as { cycleAnchorDay?: number | null; monthlyMessagesOverride?: number | null } | null
+  if (!body || typeof body !== 'object') return c.json({ error: 'Invalid JSON body' }, 400)
+  try { return c.json(await setStoreMessageSettings(c.env.DB, c.req.param('slug'), body, actor(c))) } catch (error) { return fail(c, error) }
+})
 
 function actor(c: Context<Env>): string {
   return `platform:${c.get('adminEmail') || 'superadmin'}`
@@ -27,6 +40,7 @@ function actor(c: Context<Env>): string {
 
 function fail(c: Context<Env>, error: unknown) {
   if (error instanceof ConversionError) return c.json({ error: error.message, code: error.code }, error.status)
+  if (error instanceof AiMessageAdminError) return c.json({ error: error.message, code: error.code }, error.status)
   if (error instanceof SettingsError) return c.json({ error: error.message, code: error.code }, 400)
   if (error instanceof CreditError) return c.json({ error: error.message, code: error.code }, error.status)
   if (error instanceof TemplateError) return c.json({ error: error.message, code: error.code }, error.code.endsWith('NOT_FOUND') ? 404 : 400)

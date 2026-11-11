@@ -27,6 +27,11 @@ export interface AssistantContext {
   memberships: Membership[]
   /** Pending changes of the previous store cancelled by this store switch. */
   cancelledOnSwitch?: number
+  /** Voice note being processed (seconds) and a hash of the text of this update: only for the AI message counter. */
+  voiceSeconds?: number
+  fingerprint?: string
+  /** Quota notice (80 % / 100 %) to send after the reply of this update, so it never comes before the answer. */
+  quotaNotice?: string
 }
 
 export type SessionState = {

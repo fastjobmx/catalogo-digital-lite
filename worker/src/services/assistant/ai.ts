@@ -1,7 +1,8 @@
 import { z } from 'zod'
 import { callGeminiJson, geminiFailureCode, GeminiRequestError, UNTRUSTED_CONTENT_RULE, usageFromError } from '../../ai/geminiClient'
 import { interpretWithGemini, type ValidatedProposal } from '../../ai/gemini'
-import { BUDGET_MESSAGES, checkAiBudget, recordAiUsage, type TokenUsage } from '../../ai/usage'
+import { BUDGET_MESSAGES, checkAiBudget, estimateCostMicros, recordAiUsage, type TokenUsage } from '../../ai/usage'
+import { completeMessage, QUOTA_BLOCKED_MESSAGE, quotaAlertText, releaseMessage, reserveMessage } from '../../ai/messageQuota'
 import { conversationContext, say, type AssistantContext } from './context'
 import { suggestProductFromPhotos, type VisionSuggestion } from '../../ai/productVision'
 
@@ -29,14 +30,33 @@ export async function withAiBudget<T extends { usage?: TokenUsage; model?: strin
     await recordAiUsage(ctx.db, ctx.env, { storeId: ctx.store.id, feature, status: 'blocked' })
     return { ok: false, message: BUDGET_MESSAGES[budget.reason || 'budget_exhausted'] }
   }
+  // Quota of AI messages (off by default). One interaction counts once, however many calls it needs.
+  const ref = ctx.updateId > 0 ? { storeId: ctx.store.id, eventKey: `tg:${ctx.updateId}`, feature, voiceSeconds: ctx.voiceSeconds, fingerprint: ctx.fingerprint } : null
+  if (ref) {
+    const reservation = await reserveMessage(ctx.db, ctx.env, ref).catch((error) => {
+      // A counter failure must never take the assistant down: the interaction proceeds uncounted and is logged.
+      console.error('AI message counter failed:', error instanceof Error ? error.message : 'unknown')
+      return { state: 'off' } as const
+    })
+    if (reservation.state === 'blocked') {
+      await recordAiUsage(ctx.db, ctx.env, { storeId: ctx.store.id, feature, status: 'blocked' })
+      return { ok: false, message: QUOTA_BLOCKED_MESSAGE(reservation.limit, reservation.cycle.end) }
+    }
+  }
   try {
     const value = await call()
     const recorded = await recordAiUsage(ctx.db, ctx.env, { storeId: ctx.store.id, feature, model: value.model, usage: value.usage, status: 'ok' })
+    if (ref) {
+      const completed = await completeMessage(ctx.db, ctx.env, ref, { costMicros: estimateCostMicros(ctx.env, value.usage || { promptTokens: 0, outputTokens: 0 }), promptTokens: value.usage?.promptTokens || 0 })
+        .catch((error) => { console.error('AI message counter failed:', error instanceof Error ? error.message : 'unknown'); return { alert: null } })
+      if (completed.alert) ctx.quotaNotice = quotaAlertText(completed.alert)
+    }
     if (recorded.crossedWarning) {
       await say(ctx, `ℹ️ Tu tienda ya usó cerca del ${recorded.status.percent}% de su presupuesto mensual de IA. Cuando se agote, los botones seguirán funcionando.`)
     }
     return { ok: true, value }
   } catch (error) {
+    if (ref) await releaseMessage(ctx.db, ctx.env, ref).catch(() => undefined)
     await recordAiUsage(ctx.db, ctx.env, { storeId: ctx.store.id, feature, usage: usageFromError(error), status: 'error' })
     const category = error instanceof GeminiRequestError ? error.category : 'request'
     const code = geminiFailureCode(error)
