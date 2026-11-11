@@ -199,6 +199,35 @@ app.post('/', publicStore, zValidator('json', createOrderSchema), async (c) => {
 })
 
 // Public coupon preview for the cart. The order endpoint validates it again.
+// What the buyer did after the order was registered, as seen from the browser. These are attempts,
+// never proof of delivery: WhatsApp does not report back, so `whatsapp_sent` stays 0 and the order
+// keeps its status until the merchant confirms it. Only the browser that created the order can
+// record them (its checkout key must match), and each order accepts a bounded number of events.
+const BUYER_WHATSAPP_ACTIONS = ['whatsapp_abierto', 'foto_compartida', 'foto_cancelada', 'foto_no_disponible'] as const
+const MAX_BUYER_EVENTS_PER_ORDER = 12
+const buyerEventSchema = z.object({
+  displayId: z.string().regex(/^PED-\d{8}-[A-F0-9]{8}$/),
+  checkoutKey: z.string().regex(/^[\w.-]{16,100}$/),
+  action: z.enum(BUYER_WHATSAPP_ACTIONS),
+  photos: z.number().int().min(0).max(10).optional(),
+})
+
+app.post('/whatsapp-event', publicStore, zValidator('json', buyerEventSchema), async (c) => {
+  const store = c.get('store')!
+  const body = c.req.valid('json')
+  const db = c.env.DB
+  const order = await db.prepare('SELECT id FROM orders WHERE store_id = ? AND display_id = ? AND idempotency_key = ?')
+    .bind(store.id, body.displayId, body.checkoutKey).first<{ id: number }>()
+  if (!order) return c.json({ error: 'Order not found' }, 404)
+  const note = body.action === 'foto_compartida' && body.photos ? `${body.photos} foto${body.photos === 1 ? '' : 's'}` : null
+  // The cap is enforced inside the INSERT, so concurrent requests cannot exceed it.
+  const inserted = await db.prepare(`INSERT INTO order_events (order_id, event_type, to_value, note, performed_by)
+    SELECT ?, 'comprador_whatsapp', ?, ?, 'comprador'
+    WHERE (SELECT COUNT(*) FROM order_events WHERE order_id = ? AND event_type = 'comprador_whatsapp') < ?`)
+    .bind(order.id, body.action, note, order.id, MAX_BUYER_EVENTS_PER_ORDER).run()
+  return c.json({ recorded: Number(inserted.meta.changes || 0) > 0 }, 202)
+})
+
 app.post('/coupon', publicStore, async (c) => {
   const body = await c.req.json().catch(() => null) as { code?: unknown; subtotal?: unknown } | null
   const subtotal = Number(body?.subtotal)

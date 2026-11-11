@@ -8,6 +8,12 @@
       "port": 8788
     },
     {
+      "name": "api-local-pedidos",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "cd worker && npx wrangler dev --port 8788 --persist-to ../.tmp/fase3-local --var COMMERCE_ENABLED:true --var PUBLIC_STORE_BASE_URL:https://app.tiendiaexpres.com"],
+      "port": 8788
+    },
+    {
       "name": "panel-local",
       "runtimeExecutable": "cmd",
       "runtimeArgs": ["/c", "cd frontend && npx vite --port 5173 --strictPort"],

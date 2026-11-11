@@ -67,7 +67,9 @@ test.describe('whatsapp message tab', () => {
     await page.goto('/#demo')
     await page.getByRole('tab', { name: 'Mensaje de WhatsApp' }).click()
     const panel = page.locator('#showcase-panel')
-    for (const text of ['Solicitud de pedido · SneakerHub Premium', 'PED-20261111-7F3A92C1', 'Kinetik Aero Carbon', 'SKU: KINETIK-06-40', 'Cantidad: 1 × 389.900 = 389.900', 'Subtotal: 389.900 COP', 'Envío: Por cotizar']) await expect(panel, text).toContainText(text)
+    for (const text of ['Solicitud de pedido · SneakerHub Premium', 'PED-20261111-7F3A92C1', 'Kinetik Aero Carbon', 'SKU: KINETIK-06-40', 'Cantidad: 1 × 389.900 = 389.900', 'Subtotal: 389.900 COP', 'Envío: Por cotizar', `Ver producto: ${APP}/producto/KINETIK-06`]) await expect(panel, text).toContainText(text)
+    await expect(panel).not.toContainText('seed-images')
+    await expect(panel.getByRole('img', { name: /Vista previa del enlace/ })).toBeVisible()
     await expect(page.locator('#demo')).toContainText('el cliente y su dirección son de ejemplo')
     await page.waitForTimeout(800) // fade-in finished before measuring contrast
     const results = await new AxeBuilder({ page }).include('#demo').withTags(WCAG).analyze()

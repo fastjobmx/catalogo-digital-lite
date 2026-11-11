@@ -1,7 +1,8 @@
 // Renders the example WhatsApp order message as the merchant receives it (a chat view).
 // Text is real HTML: readable, selectable and indexable. Used by the showcase's WhatsApp tab.
 import type { ReactNode } from 'react'
-import { orderCustomer, orderMessageLines, orderTime } from '../../content/orderMessage'
+import { orderCustomer, orderMessageLines, orderPreview, orderTime } from '../../content/orderMessage'
+import { products } from '../../content/media'
 import { Icon } from './Icon'
 
 /** WhatsApp inline formatting: *bold* and _italics_. */
@@ -16,9 +17,19 @@ function format(line: string): ReactNode[] {
   })
 }
 
+const preview = products.find((p) => p.sku === 'KINETIK-06')
+
 function Bubble({ compact }: { compact?: boolean }) {
   return (
     <div className={`relative max-w-[min(34rem,92%)] rounded-xl rounded-tl-none bg-white text-[#111b21] shadow-[0_1px_0.5px_rgba(11,20,26,.13)] ${compact ? 'px-2 py-1.5 text-[0.5rem] leading-[1.35]' : 'px-3.5 py-2.5 text-[0.82rem] leading-[1.45] md:text-[0.9rem]'}`}>
+      {/* Link preview: the real main photo of the product, as the product page publishes it. */}
+      <div className={`mb-2 overflow-hidden rounded-lg bg-[#f0f2f5] ${compact ? 'flex gap-1.5' : 'flex gap-3'}`}>
+        <img src={preview?.src} alt={compact ? '' : `Vista previa del enlace: foto real de ${preview?.name}`} width={480} height={480} loading="lazy" className={`shrink-0 object-cover ${compact ? 'size-9' : 'size-20 md:size-24'}`} />
+        <div className={`min-w-0 self-center ${compact ? 'pr-1.5' : 'pr-3'}`}>
+          <p className={`truncate font-semibold ${compact ? 'text-[0.48rem]' : 'text-[0.85rem]'}`}>{orderPreview.title}</p>
+          <p className={`truncate text-[#54656f] ${compact ? 'text-[0.42rem]' : 'text-xs'}`}>{orderPreview.domain}</p>
+        </div>
+      </div>
       {orderMessageLines.map((line, i) => (
         <p key={i} className={`whitespace-pre-wrap ${line ? '' : compact ? 'h-1.5' : 'h-3'}`}>{format(line)}</p>
       ))}

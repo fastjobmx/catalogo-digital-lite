@@ -7,7 +7,10 @@ import { useStore } from '../contexts/StoreContext'
 import ProductImage from '../components/ProductImage'
 import PriceTag from '../components/PriceTag'
 import ProductCard from '../components/ProductCard'
-import { buildWhatsAppOrderMessage, getCheckoutIdempotencyKey, goToWhatsApp, prepareWhatsAppTab, shouldOpenWhatsAppInSameTab, whatsappLink } from '../lib/whatsapp'
+import { buildWhatsAppOrderMessage, getCheckoutIdempotencyKey, goToWhatsApp, prepareWhatsAppTab, productPageUrl, shouldOpenWhatsAppInSameTab, whatsappLink } from '../lib/whatsapp'
+import { canSharePhotos, recordBuyerAction } from '../lib/orderShare'
+import { TENANT_SLUG } from '../lib/tenant'
+import { OrderSendPanel, type OrderSendState } from '../components/orders/OrderSendPanel'
 import { createOrder, getProduct, type ProductApi } from '../services/api'
 import { resolveImageUrl } from '../lib/imageSources'
 import { IS_PUBLIC_DEMO } from '../lib/publicDemo'
@@ -43,7 +46,7 @@ export default function ProductPage() {
   const [lightbox, setLightbox] = useState(false)
   const [whatsappBusy, setWhatsappBusy] = useState(false)
   const [whatsappNotice, setWhatsappNotice] = useState('')
-  const [whatsappUrl, setWhatsappUrl] = useState<string | null>(null)
+  const [sendState, setSendState] = useState<OrderSendState | null>(null)
 
   useEffect(() => {
     if (!requestedSku || listedProduct || loading || !backendAvailable) return
@@ -190,8 +193,9 @@ export default function ProductPage() {
       return
     }
     // Desktop: tab opened inside the click; phones and in-app browsers use this tab (goToWhatsApp).
-    const popup = prepareWhatsAppTab()
-    setWhatsappUrl(null)
+    const offerPhotoStep = shouldOpenWhatsAppInSameTab() && canSharePhotos()
+    const popup = offerPhotoStep ? null : prepareWhatsAppTab()
+    setSendState(null)
     setWhatsappBusy(true)
     setWhatsappNotice('Verificando precio y disponibilidad…')
     try {
@@ -246,12 +250,15 @@ export default function ProductPage() {
       }
       const idempotencyKey = await getCheckoutIdempotencyKey(JSON.stringify(payload))
       const registered = await createOrder(payload, idempotencyKey)
-      const message = buildWhatsAppOrderMessage({ items: registered.items.map((orderItem) => ({ productId: String(orderItem.productId || ''), variantId: orderItem.variantId, sku: orderItem.sku, name: orderItem.name, price: orderItem.price, image: orderItem.imageUrl || null, size: orderItem.size, color: orderItem.color, quantity: orderItem.quantity })), currency: registered.currency, storeName: store.name, orderDisplayId: registered.displayId, date: new Date().toLocaleString('es-CO') })
+      const message = buildWhatsAppOrderMessage({ items: registered.items.map((orderItem) => ({ productId: String(orderItem.productId || ''), variantId: orderItem.variantId, sku: orderItem.sku, name: orderItem.name, price: orderItem.price, image: orderItem.imageUrl || null, size: orderItem.size, color: orderItem.color, quantity: orderItem.quantity, productUrl: productPageUrl(currentProduct.sku, TENANT_SLUG) })), currency: registered.currency, storeName: store.name, orderDisplayId: registered.displayId, date: new Date().toLocaleString('es-CO') })
       const url = whatsappLink(phone, message)
       if (!url) throw new Error('WhatsApp no está configurado para este comercio.')
-      setWhatsappUrl(url)
-      setWhatsappNotice(`Pedido ${registered.displayId} registrado. Abriendo WhatsApp: el mensaje no se envía hasta que pulses Enviar. Si no se abre, toca «Abrir WhatsApp».`)
-      goToWhatsApp(url, popup)
+      setWhatsappNotice('')
+      setSendState({ displayId: registered.displayId, checkoutKey: idempotencyKey, whatsappUrl: url, message, photos: registered.items.map((orderItem) => ({ name: orderItem.name, imageUrl: orderItem.imageUrl })), autoOpened: !offerPhotoStep })
+      if (!offerPhotoStep) {
+        recordBuyerAction(registered.displayId, idempotencyKey, 'whatsapp_abierto')
+        goToWhatsApp(url, popup)
+      }
     } catch {
       popup?.close()
       setWhatsappNotice('No pudimos verificar el inventario. Inténtalo de nuevo antes de enviar el pedido.')
@@ -461,16 +468,7 @@ export default function ProductPage() {
             El pedido se abre en WhatsApp y no se envía hasta que tú lo confirmes en la conversación.
             </p>}
           {whatsappNotice && <p className="text-xs text-muted" role="status">{whatsappNotice}</p>}
-          {whatsappUrl && (
-            <a
-              href={whatsappUrl}
-              target={shouldOpenWhatsAppInSameTab() ? undefined : '_blank'}
-              rel="noopener noreferrer"
-              className="inline-flex items-center justify-center gap-2 min-h-[44px] px-5 rounded-btn border border-[#25D366] text-[#128C4A] font-semibold hover:bg-[#25D366]/10 transition-colors"
-            >
-              <MessageCircle size={18} /> Abrir WhatsApp
-            </a>
-          )}
+          {sendState && <OrderSendPanel state={sendState} storeName={store.name} />}
 
           {/* Garantías */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">

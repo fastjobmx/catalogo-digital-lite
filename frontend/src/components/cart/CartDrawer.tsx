@@ -6,7 +6,10 @@ import { useStore } from '../../contexts/StoreContext'
 import { useCatalog } from '../../contexts/CatalogContext'
 import { ApiRequestError, createOrder, getProducts, validateCoupon } from '../../services/api'
 import { formatMoney } from '../../lib/format'
-import { buildWhatsAppOrderMessage, getCheckoutIdempotencyKey, goToWhatsApp, prepareWhatsAppTab, shouldOpenWhatsAppInSameTab, whatsappLink } from '../../lib/whatsapp'
+import { buildWhatsAppOrderMessage, getCheckoutIdempotencyKey, goToWhatsApp, prepareWhatsAppTab, productPageUrl, shouldOpenWhatsAppInSameTab, whatsappLink } from '../../lib/whatsapp'
+import { canSharePhotos, recordBuyerAction } from '../../lib/orderShare'
+import { TENANT_SLUG } from '../../lib/tenant'
+import { OrderSendPanel, type OrderSendState } from '../orders/OrderSendPanel'
 import type { CartItem } from '../../contexts/CartContext'
 import { IS_PUBLIC_DEMO } from '../../lib/publicDemo'
 
@@ -25,7 +28,7 @@ export default function CartDrawer() {
   const [checkoutBusy, setCheckoutBusy] = useState(false)
   const [checkoutMessage, setCheckoutMessage] = useState('')
   // Manual fallback when the automatic jump to WhatsApp is blocked (popup blockers, in-app browsers).
-  const [whatsappUrl, setWhatsappUrl] = useState<string | null>(null)
+  const [sendState, setSendState] = useState<OrderSendState | null>(null)
   const [confirmClear, setConfirmClear] = useState(false)
   const [couponInput, setCouponInput] = useState('')
   const [coupon, setCoupon] = useState<{ code: string; discount: number } | null>(null)
@@ -34,7 +37,7 @@ export default function CartDrawer() {
   const [marketingConsent, setMarketingConsent] = useState(false)
 
   // Any cart change invalidates the previewed discount; the server validates it again.
-  useEffect(() => { setCoupon(null); setWhatsappUrl(null) }, [subtotal])
+  useEffect(() => { setCoupon(null); setSendState(null) }, [subtotal])
 
   const applyCoupon = async () => {
     const code = couponInput.trim().toUpperCase()
@@ -86,8 +89,10 @@ export default function CartDrawer() {
 
     // En computador abrimos la pestaña dentro del clic para que el navegador la permita; en
     // celulares y navegadores de apps se usa esta misma pestaña (ver goToWhatsApp).
-    const whatsappWindow = prepareWhatsAppTab()
-    setWhatsappUrl(null)
+    // Phones that can share photos stay on this page (the buyer chooses text and/or photo).
+    const offerPhotoStep = shouldOpenWhatsAppInSameTab() && canSharePhotos()
+    const whatsappWindow = offerPhotoStep ? null : prepareWhatsAppTab()
+    setSendState(null)
 
     setCheckoutBusy(true)
     setCheckoutMessage('Verificando precios y disponibilidad…')
@@ -163,8 +168,9 @@ export default function CartDrawer() {
       }
       const idempotencyKey = await getCheckoutIdempotencyKey(JSON.stringify(payload))
       const registered = await createOrder(payload, idempotencyKey)
+      const productSkuOf = (productId?: string) => currentItems.find((entry) => String(entry.productId) === String(productId))?.productSku
       const message = buildWhatsAppOrderMessage({
-        items: registered.items.map((item) => ({ productId: String(item.productId || ''), variantId: item.variantId, sku: item.sku, name: item.name, price: item.price, image: item.imageUrl || null, size: item.size, color: item.color, quantity: item.quantity })),
+        items: registered.items.map((item) => ({ productId: String(item.productId || ''), variantId: item.variantId, sku: item.sku, name: item.name, price: item.price, image: item.imageUrl || null, size: item.size, color: item.color, quantity: item.quantity, productUrl: productPageUrl(productSkuOf(item.productId), TENANT_SLUG) })),
         currency: registered.currency,
         storeName: store.name,
         orderDisplayId: registered.displayId,
@@ -179,9 +185,13 @@ export default function CartDrawer() {
       })
       const url = whatsappLink(phone, message)
       if (!url) throw new Error('No se pudo construir el enlace de WhatsApp.')
-      setWhatsappUrl(url)
-      setCheckoutMessage(`Pedido ${registered.displayId} registrado. Abriendo WhatsApp: el mensaje solo se envía cuando pulses Enviar. Si no se abre, toca «Abrir WhatsApp».`)
-      goToWhatsApp(url, whatsappWindow)
+      const photos = registered.items.map((item) => ({ name: item.name, imageUrl: item.imageUrl }))
+      setCheckoutMessage('')
+      setSendState({ displayId: registered.displayId, checkoutKey: idempotencyKey, whatsappUrl: url, message, photos, autoOpened: !offerPhotoStep })
+      if (!offerPhotoStep) {
+        recordBuyerAction(registered.displayId, idempotencyKey, 'whatsapp_abierto')
+        goToWhatsApp(url, whatsappWindow)
+      }
     } catch (error) {
       whatsappWindow?.close()
       if (error instanceof ApiRequestError && error.code === 'COUPON_INVALID') { setCoupon(null); setCheckoutMessage(error.message); return }
@@ -393,7 +403,8 @@ export default function CartDrawer() {
         {/* Pie fijo: el botón de envío siempre visible, también en celulares. */}
         {items.length > 0 && (
           <div className="shrink-0 border-t border-line bg-surface px-5 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] space-y-2">
-            {!IS_PUBLIC_DEMO && <button
+            {/* Once registered, the send panel takes over (a cart change resets it). */}
+            {!IS_PUBLIC_DEMO && !sendState && <button
               onClick={handleWhatsAppCheckout}
               disabled={checkoutBusy || containsUnavailableItem}
               className="w-full inline-flex items-center justify-center gap-2 bg-[#25D366] text-white
@@ -406,16 +417,7 @@ export default function CartDrawer() {
             {IS_PUBLIC_DEMO && <p className="rounded-btn bg-canvas px-4 py-3 text-center text-sm font-semibold text-muted" role="status">Demo de catálogo: no se aceptan pedidos ni pagos.</p>}
             {checkoutMessage && <p className="text-xs text-muted" role="status">{checkoutMessage}</p>}
 
-            {whatsappUrl && (
-              <a
-                href={whatsappUrl}
-                target={shouldOpenWhatsAppInSameTab() ? undefined : '_blank'}
-                rel="noopener noreferrer"
-                className="w-full inline-flex items-center justify-center gap-2 min-h-[44px] rounded-btn border border-[#25D366] text-[#128C4A] font-semibold hover:bg-[#25D366]/10 transition-colors"
-              >
-                <MessageCircle size={18} /> Abrir WhatsApp
-              </a>
-            )}
+            {sendState && <OrderSendPanel state={sendState} storeName={store.name} />}
           </div>
         )}
       </div>
