@@ -23,6 +23,8 @@ import { releaseExpiredReservations } from './ai/credits'
 import trialRoutes from './routes/trial'
 import seoRoutes from './routes/seo'
 import emailRoutes from './routes/email'
+import whatsappRoutes from './routes/whatsapp'
+import { maintainWhatsApp } from './whatsapp/processor'
 import { purgeEmailLogs } from './email/send'
 import { pollDeliveryStatus } from './email/webhooks'
 import { cleanupExpiredTrials } from './services/trials'
@@ -101,6 +103,23 @@ export type Env = {
  MASTER_WEBHOOK_SECRET?: string
  MASTER_ADMIN_TELEGRAM_IDS?: string
  MASTER_ENV_LABEL?: string
+ /** Asistente administrativo por WhatsApp (Cloud API oficial). Apagado salvo WHATSAPP_ADMIN_BOT_ENABLED = 'true'. */
+ WHATSAPP_ADMIN_BOT_ENABLED?: string
+ WHATSAPP_ACCESS_TOKEN?: string
+ WHATSAPP_APP_SECRET?: string
+ WHATSAPP_VERIFY_TOKEN?: string
+ WHATSAPP_PHONE_NUMBER_ID?: string
+ WHATSAPP_ACCOUNT_ID?: string
+ /** Graph API version (default v26.0) and the public number shown in wa.me links (digits with country code). */
+ WHATSAPP_GRAPH_VERSION?: string
+ WHATSAPP_DISPLAY_NUMBER?: string
+ /** Pilot: comma-separated store ids allowed on the channel (empty = every store). */
+ WHATSAPP_PILOT_STORE_IDS?: string
+ /** Estimated Meta rates per category in USD micros, e.g. {"service":800,"utility":800}. Only for reports. */
+ WHATSAPP_RATES_USD_MICROS?: string
+ WHATSAPP_MONITOR_DAILY_MESSAGES?: string
+ /** Extra host suffixes allowed for media downloads (comma separated). */
+ WHATSAPP_MEDIA_HOSTS?: string
  }
  Variables: {
  isAdmin: boolean
@@ -153,6 +172,7 @@ app.route('/api/auth', authRoutes)
 app.route('/api/master', masterRoutes)
 app.route('/api/seo', seoRoutes)
 app.route('/api/email', emailRoutes)
+app.route('/api/whatsapp', whatsappRoutes)
 
 // Rutas protegidas (requieren autenticación admin)
 app.route('/api/admin', adminRoutes)
@@ -189,6 +209,7 @@ const worker = {
   context.waitUntil(releaseExpiredReservations(env.DB).catch((error) => console.error('AI credit reservation cleanup failed:', error instanceof Error ? error.message : 'unknown')))
   // Estudio Creativo: primero libera trabajos caídos; después avanza la cola de fotos pendientes.
   context.waitUntil(maintainCreativeJobs(env.DB).then(() => processPendingPhotoJobs(env)).then(() => processPendingVideoJobs(env)).catch((error) => console.error('Creative jobs maintenance failed:', error instanceof Error ? error.message : 'unknown')))
+  context.waitUntil(maintainWhatsApp(env, env.DB).catch((error) => console.error('WhatsApp maintenance failed:', error instanceof Error ? error.message : 'unknown')))
   context.waitUntil(cleanupAssistantMemory(env.DB).catch((error) => console.error('Assistant memory cleanup failed:', error instanceof Error ? error.message : 'unknown')))
  },
 }
