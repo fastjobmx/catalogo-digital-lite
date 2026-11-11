@@ -3,6 +3,7 @@
 // buildWhatsAppOrderMessage) and the order number format (worker/src/routes/orders.ts →
 // generateDisplayId: PED-YYYYMMDD-XXXXXXXX). Product, size, SKU, price and photo are the real
 // SneakerHub data (public API, 2026-11-11); the customer is an example and the page says so.
+// Since 2026-11-11 the message links the product page ("Ver producto") instead of the long photo URL.
 // If the platform's message format changes, update this file too.
 import { site } from '../config/site'
 
@@ -12,7 +13,8 @@ const product = {
   sku: 'KINETIK-06-40',
   price: 389_900,
   quantity: 1,
-  photo: `${site.appUrl}/seed-images/sneakerhub/KINETIK-06.jpg`,
+  /** Public product page: WhatsApp builds the link preview (real main photo) from its Open Graph tags. */
+  url: `${site.appUrl}/producto/KINETIK-06`,
 }
 
 const money = (n: number) => Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')
@@ -33,7 +35,7 @@ export const orderMessageLines: string[] = [
   `1. *${product.name}* (${product.size})`,
   `   SKU: ${product.sku}`,
   `   Cantidad: ${product.quantity} × ${money(product.price)} = ${money(lineTotal)}`,
-  `   Foto: ${product.photo}`,
+  `   Ver producto: ${product.url}`,
   '',
   `*Subtotal:* ${money(lineTotal)} COP`,
   '*Envío:* Por cotizar',
@@ -41,6 +43,9 @@ export const orderMessageLines: string[] = [
   '',
   '_Solicitud registrada. El envío se confirma con la tienda. Este mensaje no se ha enviado hasta que pulses Enviar en WhatsApp._',
 ]
+
+/** Link preview card WhatsApp shows for the first link (title and domain as the page publishes them). */
+export const orderPreview = { title: `${product.name} | SneakerHub Premium`, domain: new URL(site.appUrl).host }
 
 export const orderCustomer = 'Ana Gómez'
 export const orderTime = '10:32 a. m.'

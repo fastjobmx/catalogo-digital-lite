@@ -86,7 +86,7 @@ export function Showcase() {
         </div>
         <p className="mt-6 text-sm text-ink-soft md:mt-16">
           {isMessage
-            ? 'Así te llega cada pedido: el formato es el que genera la tienda y el producto es real de SneakerHub; el cliente y su dirección son de ejemplo. Tu cliente revisa el mensaje y lo envía desde su WhatsApp.'
+            ? 'Así te llega cada pedido: el formato es el que genera la tienda y el producto es real de SneakerHub; el cliente y su dirección son de ejemplo. El enlace del producto muestra su foto cuando WhatsApp genera la vista previa, y desde el celular tu cliente también puede enviarte la foto. El mensaje lo envía tu cliente desde su WhatsApp.'
             : `Capturas reales de la tienda piloto, tomadas desde el ${date}. Los productos, precios y existencias pueden cambiar en la tienda.`}
         </p>
       </div>

@@ -47,6 +47,16 @@ const EVENT_LABELS: Record<string, string> = {
   shipping_cost: 'Costo del envío', shipping_notes: 'Notas de envío', delivery_method: 'Método de entrega', delivered_at: 'Fecha de entrega',
   delivery_receiver: 'Receptor', delivery_notes: 'Observaciones de entrega', delivery_reference: 'Referencia de entrega', internal_note: 'Notas internas',
   shipping_document: 'Foto de guía registrada',
+  comprador_whatsapp: 'Comprador (no confirma envío)',
+}
+
+/** What the buyer did after registering the order. WhatsApp never reports back: none of these
+ * means the message reached the store, so the order is confirmed by the team as always. */
+export const BUYER_WHATSAPP_ACTIONS: Record<string, string> = {
+  whatsapp_abierto: 'abrió WhatsApp con el pedido',
+  foto_compartida: 'compartió la foto desde su celular',
+  foto_cancelada: 'canceló compartir la foto',
+  foto_no_disponible: 'su celular no permitió compartir la foto',
 }
 
 export function eventLabel(type: string): string { return EVENT_LABELS[type] || type.replaceAll('_', ' ') }
@@ -56,5 +66,6 @@ export function valueLabel(type: string, value: string | null): string {
   if (type === 'payment_status') return PAYMENT_STATUS[value]?.label || value
   if (type === 'shipping_status') return SHIPPING_STATUS[value]?.label || value
   if (type === 'delivery_method') return DELIVERY_METHODS[value] || value
+  if (type === 'comprador_whatsapp') return BUYER_WHATSAPP_ACTIONS[value] || value
   return value
 }

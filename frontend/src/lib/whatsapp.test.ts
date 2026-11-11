@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { buildWhatsAppOrderMessage } from './whatsapp'
+import { buildWhatsAppOrderMessage, productPageUrl } from './whatsapp'
 import type { CartItem } from '../contexts/CartContext'
 
 const items: CartItem[] = [
@@ -50,6 +50,26 @@ describe('buildWhatsAppOrderMessage', () => {
     expect(message).toContain('PED-20261102-ABCD')
     expect(message.match(/Foto: https:\/\/preview\.example\/api\/assets\/SH-[123]\.jpg/g)).toHaveLength(3)
     expect(message).toContain('no se ha enviado hasta que pulses Enviar')
+  })
+
+  it('uses the short product page link (link preview with the real photo) instead of the long photo URL', () => {
+    Object.defineProperty(globalThis, 'window', { configurable: true, value: { location: { origin: 'https://app.example' } } })
+    const linked = [1, 2].map((n) => ({
+      productId: String(n), sku: `SH-${n}-42`, name: `Tenis ${n}`, price: 1000, image: `/api/assets/SH-${n}.jpg`, quantity: 1,
+      productUrl: productPageUrl(`SH-${n}`, 'mi-tienda', 'https://app.example'),
+    }))
+    const message = buildWhatsAppOrderMessage({ items: linked, currency: 'COP', storeName: 'Mi tienda', orderDisplayId: 'PED-20261111-ABCDEF12' })
+    expect(message).toContain('Ver producto: https://app.example/t/mi-tienda/producto/SH-1')
+    expect(message).toContain('Ver producto: https://app.example/t/mi-tienda/producto/SH-2')
+    expect(message).not.toContain('/api/assets/')
+    expect(message).toContain('*Tenis 1*')
+    expect(message).toContain('*Tenis 2*')
+  })
+
+  it('builds product links for the main store and for /t/<slug> stores', () => {
+    expect(productPageUrl('KINETIK-06', null, 'https://app.example')).toBe('https://app.example/producto/KINETIK-06')
+    expect(productPageUrl('LM 139/A', 'luz-magica', 'https://app.example')).toBe('https://app.example/t/luz-magica/producto/LM%20139%2FA')
+    expect(productPageUrl(undefined, 'luz-magica', 'https://app.example')).toBeNull()
   })
 
   it('does not invent a photo for products without one', () => {

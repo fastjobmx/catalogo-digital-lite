@@ -94,3 +94,38 @@ describe('public order requests', () => {
   expect((await h.request(`/api/orders/${created.id}`, { method: 'PATCH', token, body: { status: 'entregado', expectedRevision: 1 } })).status).toBe(409)
  })
 })
+
+describe('buyer WhatsApp events (attempts, never delivery)', () => {
+ const event = (payload: Record<string, unknown>, store?: string) => h.request('/api/orders/whatsapp-event', { method: 'POST', body: payload, store })
+ const created = async (key = 'buyer-events-key-00001') => (await (await post(body(), key)).json() as { displayId: string }).displayId
+
+ it('records attempts in the order history and never marks the order as sent', async () => {
+  const displayId = await created()
+  expect((await event({ displayId, checkoutKey: 'buyer-events-key-00001', action: 'whatsapp_abierto' })).status).toBe(202)
+  expect((await event({ displayId, checkoutKey: 'buyer-events-key-00001', action: 'foto_compartida', photos: 2 })).status).toBe(202)
+  const rows = h.db.query<{ to_value: string; note: string | null; performed_by: string }>("SELECT to_value, note, performed_by FROM order_events WHERE event_type = 'comprador_whatsapp' ORDER BY id")
+  expect(rows).toEqual([
+   { to_value: 'whatsapp_abierto', note: null, performed_by: 'comprador' },
+   { to_value: 'foto_compartida', note: '2 fotos', performed_by: 'comprador' },
+  ])
+  expect(h.db.query<{ status: string; whatsapp_sent: number }>('SELECT status, whatsapp_sent FROM orders WHERE display_id = ?', displayId)[0]).toEqual({ status: 'pendiente', whatsapp_sent: 0 })
+ })
+
+ it('requires the checkout key of the browser that created the order', async () => {
+  const displayId = await created()
+  expect((await event({ displayId, checkoutKey: 'someone-else-key-000001', action: 'whatsapp_abierto' })).status).toBe(404)
+  expect((await event({ displayId: 'PED-20260101-ABCDEF12', checkoutKey: 'buyer-events-key-00001', action: 'whatsapp_abierto' })).status).toBe(404)
+  expect(h.db.query("SELECT id FROM order_events WHERE event_type = 'comprador_whatsapp'")).toHaveLength(0)
+ })
+
+ it('rejects unknown actions such as a claimed delivery', async () => {
+  const displayId = await created()
+  expect((await event({ displayId, checkoutKey: 'buyer-events-key-00001', action: 'enviado' })).status).toBe(400)
+ })
+
+ it('caps the number of buyer events per order', async () => {
+  const displayId = await created()
+  for (let i = 0; i < 15; i += 1) await event({ displayId, checkoutKey: 'buyer-events-key-00001', action: 'foto_cancelada' })
+  expect(h.db.query("SELECT id FROM order_events WHERE event_type = 'comprador_whatsapp'")).toHaveLength(12)
+ })
+})
