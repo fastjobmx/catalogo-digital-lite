@@ -42,7 +42,8 @@ def main() -> None:
     for name in ('mobile-home', 'mobile-catalog', 'mobile-product', 'mobile-cart'):
         sizes[name] = webp(SNAP / f'{name}.png', OUT / f'{name}.webp', 720, 84)
         webp(SNAP / f'{name}.png', OUT / f'{name}-480.webp', 480, 70)
-    for name in ('desktop-home', 'desktop-product'):
+    # desktop-cart comes from scripts/snapshot-desktop-cart.mjs.
+    for name in ('desktop-home', 'desktop-product', 'desktop-cart'):
         sizes[name] = webp(SNAP / f'{name}.png', OUT / f'{name}.webp', 1440, 80)
         webp(SNAP / f'{name}.png', OUT / f'{name}-960.webp', 960, 80)
     for product in data['products']:

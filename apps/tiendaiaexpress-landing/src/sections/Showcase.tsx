@@ -8,7 +8,7 @@ import { PhoneFrame } from '../components/ui/PhoneFrame'
 const VIEWS = [
   { key: 'home', label: 'Inicio', desktop: desktop.home, phone: screens.home, phoneAlt: 'Inicio de SneakerHub en el celular' },
   { key: 'product', label: 'Producto', desktop: desktop.product, phone: screens.product, phoneAlt: 'Ficha de producto de SneakerHub en el celular' },
-  { key: 'cart', label: 'Carrito', desktop: desktop.product, phone: screens.cart, phoneAlt: 'Carrito de SneakerHub con el botón Enviar pedido por WhatsApp' },
+  { key: 'cart', label: 'Carrito', desktop: desktop.cart, phone: screens.cart, phoneAlt: 'Carrito de SneakerHub con el botón Enviar pedido por WhatsApp' },
 ] as const
 
 const date = new Date(capturedAt).toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Bogota' })
@@ -72,7 +72,7 @@ export function Showcase() {
             <PhoneFrame key={view.phone} src={view.phone} alt={view.phoneAlt} width="clamp(8.5rem, 22vw, 17rem)" className="animate-[fade-up_.6s_var(--ease-out-expo)]" />
           </div>
         </div>
-        <p className="mt-6 text-sm text-ink-soft md:mt-16">Capturas reales tomadas el {date}. Los productos, precios y existencias pueden cambiar en la tienda.</p>
+        <p className="mt-6 text-sm text-ink-soft md:mt-16">Capturas reales de la tienda piloto, tomadas desde el {date}. Los productos, precios y existencias pueden cambiar en la tienda.</p>
       </div>
     </section>
   )

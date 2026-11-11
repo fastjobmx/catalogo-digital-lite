@@ -12,6 +12,8 @@ import desktopHome from '../assets/sneakerhub/desktop-home.webp'
 import desktopHome960 from '../assets/sneakerhub/desktop-home-960.webp'
 import desktopProduct from '../assets/sneakerhub/desktop-product.webp'
 import desktopProduct960 from '../assets/sneakerhub/desktop-product-960.webp'
+import desktopCart from '../assets/sneakerhub/desktop-cart.webp'
+import desktopCart960 from '../assets/sneakerhub/desktop-cart-960.webp'
 
 const productImages = import.meta.glob('../assets/sneakerhub/product-*.webp', { eager: true, import: 'default' }) as Record<string, string>
 const templateImages = import.meta.glob('../assets/templates/*.webp', { eager: true, import: 'default' }) as Record<string, string>
@@ -29,6 +31,8 @@ export type ScreenKey = keyof typeof screens
 export const desktop = {
   home: { src: desktopHome, srcSet: `${desktopHome960} 960w, ${desktopHome} 1440w` },
   product: { src: desktopProduct, srcSet: `${desktopProduct960} 960w, ${desktopProduct} 1440w` },
+  /** Real cart drawer on desktop (scripts/snapshot-desktop-cart.mjs, 2026-11-11). */
+  cart: { src: desktopCart, srcSet: `${desktopCart960} 960w, ${desktopCart} 1440w` },
 }
 
 export type Product = { sku: string; name: string; brand: string; price: number; category: string; sizes: string[]; url: string; image: string }
