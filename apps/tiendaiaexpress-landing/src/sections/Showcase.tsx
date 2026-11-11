@@ -1,5 +1,5 @@
 // "Una tienda real. Una experiencia real." — authentic captures of the SneakerHub pilot store.
-import { useState } from 'react'
+import { useState, type KeyboardEvent } from 'react'
 import { capturedAt, desktop, productCount, categories, screens, store } from '../content/media'
 import { site } from '../config/site'
 import { Badge, Button, SectionHeading } from '../components/ui/primitives'
@@ -15,6 +15,16 @@ const date = new Date(capturedAt).toLocaleDateString('es-CO', { day: 'numeric', 
 
 export function Showcase() {
   const [view, setView] = useState<(typeof VIEWS)[number]>(VIEWS[0])
+  // ARIA tabs pattern: arrows, Home and End move between tabs (roving tabindex).
+  const onTabKey = (e: KeyboardEvent<HTMLButtonElement>) => {
+    const i = VIEWS.findIndex((v) => v.key === view.key)
+    const next = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: VIEWS.length - 1 }[e.key]
+    if (next === undefined) return
+    e.preventDefault()
+    const target = VIEWS[(next + VIEWS.length) % VIEWS.length]
+    setView(target)
+    document.getElementById(`tab-${target.key}`)?.focus()
+  }
   return (
     <section id="demo" aria-labelledby="demo-title" className="relative overflow-hidden bg-paper py-24 md:py-36">
       <div className="wrap">
@@ -40,7 +50,9 @@ export function Showcase() {
               id={`tab-${v.key}`}
               aria-selected={view.key === v.key}
               aria-controls="showcase-panel"
+              tabIndex={view.key === v.key ? 0 : -1}
               onClick={() => setView(v)}
+              onKeyDown={onTabKey}
               className={`min-h-11 rounded-full px-5 font-display text-sm font-bold uppercase tracking-wide transition-colors ${view.key === v.key ? 'bg-forest text-ivory' : 'bg-forest/6 text-forest hover:bg-forest/12'}`}
             >
               {v.label}

@@ -26,7 +26,7 @@ function HeroCopy() {
           <Logo variant="isotipo" width={34} decorative priority className="rounded-lg" />
           {site.concept}
         </p>
-        <h1 className="display text-[min(14.5vw,8.6svh)] text-forest lg:text-[clamp(3.4rem,7.1vw,8.4rem)]">
+        <h1 id="hero-title" className="display text-[min(14.5vw,8.6svh)] text-forest lg:text-[clamp(3.4rem,7.1vw,8.4rem)]">
           <span className="intro-line -mt-[0.16em] block overflow-hidden pb-[0.04em] pt-[0.16em]"><span className="block">Tu tienda</span></span>
           <span className="intro-line -mt-[0.16em] block overflow-hidden pb-[0.04em] pt-[0.16em]">
             <span className="block">
@@ -45,10 +45,12 @@ function HeroCopy() {
         </p>
         <div className="intro-3 mt-6 flex flex-col gap-3 lg:mt-8 xs:flex-row xs:flex-wrap">
           <Button href="#contacto" variant="forest" size="lg" icon="arrowRight">Quiero mi tienda</Button>
-          <Button href={site.demoStoreUrl} variant="outline-dark" size="lg" icon="arrowUpRight" external>Ver una tienda real</Button>
+          <Button href="#tiendas" variant="outline-dark" size="lg" icon="arrowDown">Ver tiendas reales</Button>
         </div>
         <p className="intro-3 mt-4 text-[0.95rem] text-ink-soft">
           ¿Querés verlo con tus productos? <a href={site.trialUrl} target="_blank" rel="noopener noreferrer" className="font-bold text-forest underline decoration-lime decoration-[3px] underline-offset-4 hover:decoration-forest">Probalo gratis, sin registrarte<span className="sr-only"> (se abre en una pestaña nueva)</span></a>
+          <span aria-hidden="true"> · </span>
+          <a href="#planes" className="font-bold text-forest underline decoration-lime decoration-[3px] underline-offset-4 hover:decoration-forest">Conocer planes</a>
         </p>
       </div>
     </div>
@@ -360,7 +362,6 @@ export function Story() {
 
   return (
     <section id="inicio" aria-labelledby="hero-title" className="relative bg-ivory">
-      <h2 id="hero-title" className="sr-only">Inicio</h2>
       <HeroCopy />
       <div ref={track} className="story-track">
         <span id="como-funciona" className="story-anchor block" aria-hidden="true" />

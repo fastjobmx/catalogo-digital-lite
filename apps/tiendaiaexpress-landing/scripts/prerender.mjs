@@ -8,11 +8,13 @@ const dist = resolve('dist')
 const { render } = await import(pathToFileURL(resolve('dist-ssr/entry-server.js')).href)
 const template = await readFile(resolve(dist, 'index.html'), 'utf8')
 if (!template.includes('<!--app-html-->')) throw new Error('placeholder <!--app-html--> not found')
-const html = template.replace('<!--app-html-->', render())
+// Function replacer: the page contains prices with "$", which a string replacement would interpret.
+const appHtml = render()
+const html = template.replace('<!--app-html-->', () => appHtml)
 await writeFile(resolve(dist, 'index.html'), html)
 
 const notFound = template
-  .replace(/<title>[^<]*<\/title>/, '<title>Página no encontrada · Tienda IA Express</title>')
+  .replace(/<title>[^<]*<\/title>/, '<title>Página no encontrada · TiendIA Exprés</title>')
   .replace(/<meta name="robots" content="[^"]*" \/>/, '<meta name="robots" content="noindex, nofollow" />')
   .replace(/<link rel="canonical"[^>]*>\s*/, '')
   .replace(/<script type="module"[^>]*><\/script>/, '')

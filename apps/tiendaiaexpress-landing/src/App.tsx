@@ -4,7 +4,10 @@ import { Assistant } from './sections/Assistant'
 import { Capabilities } from './sections/Capabilities'
 import { Showcase } from './sections/Showcase'
 import { Benefits } from './sections/Benefits'
-import { Compare, Faq, Plans } from './sections/Commerce'
+import { Compare, Conditions, Faq, Plans, Setup } from './sections/Commerce'
+import { Stores } from './sections/Stores'
+import { PhotoStudio } from './sections/PhotoStudio'
+import { StructuredData } from './seo/StructuredData'
 import { Contact } from './sections/Contact'
 import { Footer } from './sections/Footer'
 import { Trial } from './sections/Trial'
@@ -18,14 +21,19 @@ export function App() {
         <Assistant />
         <Capabilities />
         <Showcase />
+        <Stores />
+        <PhotoStudio />
         <Trial />
         <Benefits />
         <Compare />
         <Plans />
+        <Setup />
+        <Conditions />
         <Faq />
         <Contact />
       </main>
       <Footer />
+      <StructuredData />
     </>
   )
 }

@@ -2,24 +2,26 @@
 // still has to send. Nothing is stored or sent by this site.
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { site, whatsappLink } from '../config/site'
-import { plans } from '../content/copy'
-import { PLAN_EVENT } from './Commerce'
+import { plans } from '../content/plans'
+import { PLAN_EVENT, type PlanChoice } from './Commerce'
 import { Button } from '../components/ui/primitives'
 import { Icon } from '../components/ui/Icon'
 
-type Fields = { nombre: string; negocio: string; ciudad: string; vende: string; plan: string }
+type Fields = { nombre: string; negocio: string; ciudad: string; vende: string; plan: string; modalidad: string }
 type Errors = Partial<Record<keyof Fields, string>>
-const EMPTY: Fields = { nombre: '', negocio: '', ciudad: '', vende: '', plan: 'Todavía no sé' }
+const EMPTY: Fields = { nombre: '', negocio: '', ciudad: '', vende: '', plan: 'Todavía no sé', modalidad: 'Todavía no sé' }
+const MODALIDADES = ['Todavía no sé', 'Pago mensual', 'Pago anual']
 const MIN_FILL_MS = 2500
 
 export function buildMessage(f: Fields) {
   return [
-    'Hola, quiero mi tienda con Tienda IA Express',
+    'Hola, quiero mi tienda con TiendIA Exprés',
     `Nombre: ${f.nombre.trim()}`,
     `Negocio: ${f.negocio.trim()}`,
     `Ciudad: ${f.ciudad.trim()}`,
     `Vendo: ${f.vende.trim()}`,
     `Plan de interés: ${f.plan}`,
+    `Modalidad de pago: ${f.modalidad}`,
   ].join('\n')
 }
 
@@ -43,7 +45,10 @@ export function Contact() {
   const form = useRef<HTMLFormElement>(null)
 
   useEffect(() => {
-    const onPlan = (e: Event) => setFields((f) => ({ ...f, plan: String((e as CustomEvent).detail) }))
+    const onPlan = (e: Event) => {
+      const { plan, billing } = (e as CustomEvent<PlanChoice>).detail
+      setFields((f) => ({ ...f, plan, modalidad: billing === 'anual' ? 'Pago anual' : 'Pago mensual' }))
+    }
     window.addEventListener(PLAN_EVENT, onPlan)
     return () => window.removeEventListener(PLAN_EVENT, onPlan)
   }, [])
@@ -117,13 +122,17 @@ export function Contact() {
               <textarea id="f-vende" name="vende" rows={3} required maxLength={300} value={fields.vende} onChange={set('vende')} aria-invalid={Boolean(errors.vende)} aria-describedby={errors.vende ? 'e-vende' : 'h-vende'} className={`${field} resize-none`} />
               {errors.vende ? <p id="e-vende" className="mt-1.5 text-sm font-semibold text-[#d6b4ff]">{errors.vende}</p> : <p id="h-vende" className="mt-1.5 text-sm text-mist">Por ejemplo: ropa deportiva, accesorios, comida casera.</p>}
             </div>
-            <div className="sm:col-span-2">
-              <label htmlFor="f-plan" className="text-sm font-semibold">Plan de interés</label>
-              <select id="f-plan" name="plan" value={fields.plan} onChange={set('plan')} className={`${field} appearance-none bg-[url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' fill='none' stroke='%23c6f25b' stroke-width='2'%3E%3Cpath d='M5 8l5 5 5-5'/%3E%3C/svg%3E")] bg-[length:20px] bg-[right_1rem_center] bg-no-repeat pr-12`}>
-                <option>Todavía no sé</option>
-                {plans.map((p) => <option key={p.key}>{p.name}</option>)}
-              </select>
-            </div>
+            {([
+              ['plan', 'Plan de interés', ['Todavía no sé', ...plans.map((p) => p.name)]],
+              ['modalidad', 'Modalidad de pago', MODALIDADES],
+            ] as const).map(([key, label, options]) => (
+              <div key={key}>
+                <label htmlFor={`f-${key}`} className="text-sm font-semibold">{label}</label>
+                <select id={`f-${key}`} name={key} value={fields[key]} onChange={set(key)} className={`${field} appearance-none bg-[url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' fill='none' stroke='%23c6f25b' stroke-width='2'%3E%3Cpath d='M5 8l5 5 5-5'/%3E%3C/svg%3E")] bg-[length:20px] bg-[right_1rem_center] bg-no-repeat pr-12`}>
+                  {options.map((o) => <option key={o}>{o}</option>)}
+                </select>
+              </div>
+            ))}
             <div className="hidden" aria-hidden="true">
               <label htmlFor="f-web">No completar</label>
               <input id="f-web" ref={honeypot} name="sitio_web" type="text" tabIndex={-1} autoComplete="off" />
