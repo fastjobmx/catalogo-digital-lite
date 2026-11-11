@@ -39,12 +39,25 @@ export async function handleCommerceText(ctx: AssistantContext, text: string): P
   // The product in focus, or the only product of the last list shown (an unequivocal antecedent).
   const focus = session.state.focusSku || (session.state.lastSkus?.length === 1 ? session.state.lastSkus[0] : undefined)
   let intent = parseCommerce(text)
+  if (state?.ask === 'reference' && state.intent.kind === 'create_product' && state.intent.skuAsk) {
+    const answer = fold(text).trim()
+    const choice = /^(?:es\s+)?(?:la\s+)?(?:referencia|ref|codigo|sku)\b|^si\b/.test(answer) ? 'yes' : /^(?:es\s+)?(?:parte\s+del\s+|el\s+)?nombre\b|^no\b/.test(answer) ? 'no' : null
+    if (choice) { await startProduct(ctx, settleReference(state.intent, choice === 'yes')); return true }
+  }
   if (state?.ask === 'new_product' && state.intent.kind === 'create_product' && /^(?:es\s+)?(?:un\s+producto\s+)?nuevo\b|^crealo\b|^crea(?:r)?\s+(?:el\s+)?producto\b/.test(fold(text).trim())) {
     await startProduct(ctx, state.intent)
     return true
   }
   if (state?.ask && !(intent && intent.kind !== 'stock' && intent.kind !== 'correction')) {
     if (await continueClarification(ctx, state, text, focus)) return true
+  }
+  if (!intent) {
+    // "Agrega tenis Jordan1 talla 40, cinco pares, a 300 mil": a new product stated with a reference, or with a
+    // word that may be one. It goes through the same checks (existing reference, doubtful word) before any draft.
+    const reading = parseNewProduct(text)
+    if (reading?.direct && reading.references.length <= 1 && (reading.intent.sku || reading.intent.skuAsk)) {
+      if (reading.intent.sku || !matchProducts(await loadCatalog(ctx), reading.intent.name).length) { await startProduct(ctx, reading.intent); return true }
+    }
   }
   if (!intent && ctx.env.GEMINI_API_KEY && looksCommercial(text)) intent = await extractCommerceWithAi(ctx, text)
   if (!intent) return false
@@ -100,13 +113,13 @@ async function offerNewProduct(ctx: AssistantContext, text: string): Promise<boo
   if (!reading) return false
   // Without a reference or a price it reads as a restock of something misspelled ("agrega 2 pantalones talla 32"):
   // the usual "no encontré" answer stays.
-  if (!reading.references.length && !(reading.direct && reading.intent.price)) return false
+  if (!reading.references.length && !reading.intent.skuAsk && !(reading.direct && reading.intent.price)) return false
   if (reading.references.length > 1) {
     await remember(ctx, undefined)
     await say(ctx, `Veo varias referencias en tu mensaje (${escapeHtml(reading.references.join(', '))}) y ninguna existe en <b>${escapeHtml(ctx.store.name)}</b>. Para no mezclar productos, dímelos uno por uno, por ejemplo: “agrega tenis blancos ${escapeHtml(reading.references[0]!)}, tallas 38 y 39, cinco de cada una, a 180 mil”.`)
     return true
   }
-  if (reading.direct && reading.intent.sku) { await startProduct(ctx, reading.intent); return true }
+  if (reading.direct && (reading.intent.sku || reading.intent.skuAsk)) { await startProduct(ctx, reading.intent); return true }
   await remember(ctx, { intent: reading.intent, ask: 'new_product' })
   const label = reading.intent.sku ? `la referencia <b>${escapeHtml(reading.intent.sku)}</b>` : `<b>${escapeHtml(reading.intent.name)}</b>`
   await say(ctx, `No encontré ${label} en <b>${escapeHtml(ctx.store.name)}</b>. ¿Es un producto nuevo? Si es uno que ya tienes, dime su nombre o su código tal como aparece en tu tienda.`, {
@@ -230,7 +243,24 @@ async function choosePhoto(ctx: AssistantContext, product: CatalogProduct): Prom
   })
 }
 
+/** The merchant said whether the doubtful word is the reference (it leaves the name) or part of the name. */
+function settleReference(intent: Extract<CommerceIntent, { kind: 'create_product' }>, isReference: boolean): Extract<CommerceIntent, { kind: 'create_product' }> {
+  const word = intent.skuAsk
+  if (!word || !isReference) return { ...intent, skuAsk: null }
+  const without = (value: string) => value.split(/\s+/).filter((part) => fold(part) !== fold(word)).join(' ').trim()
+  const name = without(intent.name)
+  return { ...intent, skuAsk: null, sku: word.toUpperCase(), name: name.length >= 2 ? name : intent.name, brand: intent.brand && fold(intent.brand) === fold(word) ? null : intent.brand }
+}
+
 async function startProduct(ctx: AssistantContext, intent: Extract<CommerceIntent, { kind: 'create_product' }>): Promise<void> {
+  if (intent.skuAsk && !intent.sku) {
+    // "Jordan1" may be a reference or a model name: ask before preparing anything.
+    await remember(ctx, { intent, ask: 'reference' })
+    await say(ctx, `Antes de preparar el producto: ¿<b>${escapeHtml(intent.skuAsk)}</b> es la referencia (código) o es parte del nombre?`, {
+      inline_keyboard: [[{ text: '🔖 Es la referencia', callback_data: cb(ctx, 'ref:yes') }, { text: '🏷 Es el nombre', callback_data: cb(ctx, 'ref:no') }], cancelRow(ctx)],
+    })
+    return
+  }
   await remember(ctx, undefined)
   const catalog = await loadCatalog(ctx)
   // Same name, or the same product words with only a colour added ("Sandalias Guess" vs "Sandalias Guess negras").
@@ -380,7 +410,7 @@ function correctIntent(intent: CommerceIntent, correction: Extract<CommerceInten
 
 /** Buttons of the commerce conversation: cm:<store>:<verb>[:…]. */
 export async function handleCommerceCallback(ctx: AssistantContext, data: string): Promise<boolean> {
-  const match = data.match(/^cm:(\d+):(pick|mode|photo|cancel|switch|amt|restock|new)(?::([a-z0-9]+))?(?::(\d+))?$/)
+  const match = data.match(/^cm:(\d+):(pick|mode|photo|cancel|switch|amt|restock|new|ref)(?::([a-z0-9]+))?(?::(\d+))?$/)
   if (!match) return false
   if (Number(match[1]) !== ctx.store.id) {
     await say(ctx, `Ese botón pertenece a otra tienda y no lo apliqué. Ahora estás administrando <b>${escapeHtml(ctx.store.name)}</b>.`)
@@ -391,6 +421,11 @@ export async function handleCommerceCallback(ctx: AssistantContext, data: string
   const verb = match[2]!
   if (verb === 'cancel') { await remember(ctx, undefined); await say(ctx, 'Listo, no hice nada.', backToMenu()); return true }
   if (verb === 'switch') return false // handled by the text router (deferred request)
+  if (verb === 'ref') {
+    if (state?.ask !== 'reference' || state.intent.kind !== 'create_product' || !['yes', 'no'].includes(match[3] || '')) { await say(ctx, 'Esa pregunta ya venció. Pídemelo de nuevo.'); return true }
+    await startProduct(ctx, settleReference(state.intent, match[3] === 'yes'))
+    return true
+  }
   if (verb === 'new') {
     if (state?.ask !== 'new_product' || state.intent.kind !== 'create_product') { await say(ctx, 'Esa pregunta ya venció. Pídemelo de nuevo.'); return true }
     await startProduct(ctx, state.intent)

@@ -251,3 +251,84 @@ describe('expresiones colombianas', () => {
     expect(parseNewProduct('agrega 3 negras talla 38')).toBeNull()
   })
 })
+
+describe('seguridad: nombres que parecen referencias y «de cada talla»', () => {
+  it('«Jordan1» no se toma por referencia: se pregunta, y cada respuesta deja el borrador correcto', async () => {
+    expect(referencesIn('tenis Jordan1 Max90 iphone15 ad2')).toEqual([])
+    expect(referencesIn('tenis AD223 pm100 SAN-1 ref-7')).toEqual(['AD223', 'PM100', 'SAN-1', 'REF-7'])
+    await say('Agrega tenis Jordan1 talla 40, cinco pares, a 300 mil')
+    expect(pending()).toEqual([])
+    expect(last()).toContain('¿<b>Jordan1</b> es la referencia (código) o es parte del nombre?')
+    expect(buttons().map((button) => button.text)).toEqual(['🔖 Es la referencia', '🏷 Es el nombre', '✖ Cancelar'])
+    await tap(/Es el nombre/)
+    expect(draft().fields.sku).toBeUndefined()
+    expect(draft().fields.name).toMatch(/Jordan1/i)
+    expect(draft().fields.price).toBe(300000)
+    await say('cancelar')
+    await say('Agrega tenis Jordan1 talla 40, cinco pares, a 300 mil')
+    await tap(/Es la referencia/)
+    expect(draft().fields).toMatchObject({ sku: 'JORDAN1', price: 300000 })
+    expect(draft().fields.name).not.toMatch(/Jordan1/i)
+    expect(skus(tienda)).toEqual(['SAN-1'])
+  })
+
+  it('la pregunta de referencia se puede responder con palabras o cancelar, y vencida no crea nada', async () => {
+    await say('Créame unos tenis Jordan1 talla 40 a 300 mil')
+    await say('es parte del nombre')
+    expect(pending().map((row) => row.action)).toEqual(['create_product'])
+    await say('cancelar')
+    await say('Créame unos tenis Jordan1 talla 40 a 300 mil')
+    const reference = buttons().find((button) => /Es la referencia/.test(button.text))!.callback_data!
+    await tap(/Cancelar/)
+    await send(callbackUpdate(OWNER, reference))
+    expect(pending()).toEqual([])
+    expect(last()).toContain('ya venció')
+  })
+
+  it('un producto existente cuyo nombre termina en número se repone sin preguntar por la referencia', async () => {
+    await seedCatalog(h.db, tienda, { products: [{ sku: 'TJ-01', name: 'Tenis Jordan1', price: 300000, variants: [{ size: '40', color: 'Rojo', stock: 2 }] }] })
+    await say('llegaron 3 tenis Jordan1 talla 40')
+    expect(pending()).toHaveLength(1)
+    expect(last()).toContain('2 → <b>5</b>')
+    expect(skus(tienda)).toEqual(['SAN-1', 'TJ-01'])
+  })
+
+  it('«de cada talla» con varios colores pregunta el color y solo toca las variantes de ese color', async () => {
+    const ids = await seedCatalog(h.db, tienda, { products: [{ sku: 'CAM-1', name: 'Camiseta básica', price: 40000, variants: [{ size: 'M', color: 'Negro', stock: 1 }, { size: 'L', color: 'Negro', stock: 1 }] }] })
+    for (const size of ['M', 'L']) h.db.query("INSERT INTO product_variants (product_id, sku, name, size, color, stock, sort_order) VALUES (?, ?, ?, ?, 'Blanco', 7, 9)", ids['CAM-1'], `CAM-1-B${size}`, `Blanco ${size}`, size)
+    await say('llegaron cinco de cada talla de la camiseta básica')
+    expect(pending()).toEqual([])
+    expect(last()).toContain('¿De qué color')
+    await say('negras')
+    // The preview names every size that will change, before anything is saved.
+    expect(last()).toContain('Negro · talla M: 1 → <b>6</b> (+5)')
+    expect(last()).toContain('Negro · talla L: 1 → <b>6</b> (+5)')
+    expect(last()).not.toContain('Blanco')
+    expect(stocks(tienda, 'CAM-1')).toEqual([1, 1, 7, 7])
+    await tap(/Confirmar/)
+    expect(stocks(tienda, 'CAM-1')).toEqual([6, 6, 7, 7])
+  })
+
+  it('«de cada talla» no toca variantes inactivas ni otros productos, y nombrar el color evita la pregunta', async () => {
+    const ids = await seedCatalog(h.db, tienda, { products: [{ sku: 'CAM-2', name: 'Buzo térmico', price: 90000, variants: [
+      { size: 'S', color: 'Gris', stock: 0 }, { size: 'M', color: 'Gris', stock: 2 }, { size: 'XL', color: 'Gris', stock: 9 },
+    ] }] })
+    h.db.query('UPDATE product_variants SET is_active = 0 WHERE id = ?', ids['CAM-2#XL'])
+    await say('llegaron tres grises de cada talla del buzo térmico')
+    expect(last()).toContain('talla S: 0 → <b>3</b>')
+    expect(last()).toContain('talla M: 2 → <b>5</b>')
+    expect(last()).not.toContain('XL')
+    await tap(/Confirmar/)
+    expect(stocks(tienda, 'CAM-2')).toEqual([3, 5, 9])
+    expect(stocks(tienda, 'SAN-1')).toEqual([1, 2])
+  })
+
+  it('«de cada talla» sin confirmar no cambia nada, y Corregir ajusta la cantidad antes de aplicar', async () => {
+    await say('cuantas sandalias me quedan?')
+    await say('llegaron cinco pares de cada talla')
+    expect(stocks(tienda, 'SAN-1')).toEqual([1, 2])
+    await tap(/Cancelar/)
+    expect(stocks(tienda, 'SAN-1')).toEqual([1, 2])
+    expect(applied()).toBe(0)
+  })
+})

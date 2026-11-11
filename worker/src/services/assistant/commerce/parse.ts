@@ -152,10 +152,25 @@ const ARRIVAL = /^(?:llegaron|llego|recibimos|recibi|compramos|compre|entraron)$
  * Sizes ("2xl") and amounts ("80mil", "180k") start with a digit and never match. */
 const BARE_REFERENCE = /^[a-z]{1,12}[-._]?\d[a-z0-9._-]{0,48}$/i
 
+/** A code and not a name: it has a separator ("SAN-1"), or a short prefix with two or more digits ("AD223", "pm100").
+ * A capitalised word or a long word ending in a number ("Jordan1", "Max90", "iphone15") reads like a model name. */
+function looksLikeCode(raw: string): boolean {
+  if (/^[a-z]{1,12}[-._]\d/i.test(raw)) return true
+  return /^[a-z]{1,4}\d{2,}[a-z0-9._-]*$/i.test(raw) && !/^[A-Z][a-z]+\d/.test(raw)
+}
+
+function codeTokens(text: string): Token[] {
+  return tokenize(text).filter((token) => token.raw.length >= 3 && BARE_REFERENCE.test(token.raw) && !sizeOf(token.word))
+}
+
 /** Codes written in a product description, in order and without repeats. */
 export function referencesIn(text: string): string[] {
-  const found = tokenize(text).filter((token) => token.raw.length >= 3 && BARE_REFERENCE.test(token.raw) && !sizeOf(token.word)).map((token) => token.raw.toUpperCase())
-  return [...new Set(found)]
+  return [...new Set(codeTokens(text).filter((token) => looksLikeCode(token.raw)).map((token) => token.raw.toUpperCase()))]
+}
+
+/** Words that could be a reference or part of the name ("Jordan1"), as written. The merchant decides. */
+export function doubtfulReferencesIn(text: string): string[] {
+  return [...new Set(codeTokens(text).filter((token) => !looksLikeCode(token.raw)).map((token) => token.raw))]
 }
 
 function parseCreate(text: string, lower: string, loose = false): CommerceIntent | null {
@@ -176,6 +191,7 @@ function parseCreate(text: string, lower: string, loose = false): CommerceIntent
   // Without the word "referencia", a single code in the description is the reference; two or more are left for the merchant to say.
   const bare = named ? [] : referencesIn(region)
   const reference = named ?? (bare.length === 1 ? bare[0]! : null)
+  const doubtful = reference || bare.length ? [] : doubtfulReferencesIn(region)
   const used = new Set<number>(layout?.used || [])
   words.forEach((token, index) => { if (reference && token.word === fold(reference)) used.add(index) })
   let stocks: Array<{ size: string; quantity: number }> = (layout?.lines || []).map((line) => ({ size: line.size!, quantity: line.quantity }))
@@ -214,7 +230,7 @@ function parseCreate(text: string, lower: string, loose = false): CommerceIntent
   }
   if (!nouns.length) return null
   const name = [capitalize(nouns.join(' ')), brand, colorWord].filter(Boolean).join(' ')
-  return result({ kind: 'create_product', name, brand, color, sizes: [...new Set(sizes)], price, sku: reference, stocks, priceAsk })
+  return result({ kind: 'create_product', name, brand, color, sizes: [...new Set(sizes)], price, sku: reference, stocks, priceAsk, skuAsk: doubtful.length === 1 ? doubtful[0]! : null })
 }
 
 export type NewProductReading = {
