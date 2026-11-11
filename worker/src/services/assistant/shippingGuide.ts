@@ -14,8 +14,7 @@ import { can } from '../../tenancy/access'
 import { adminStoreUrl } from '../../tenancy/stores'
 import { ORDER_STATUS_LABELS, findOrder, transitionOrder, type OrderRow } from '../orders'
 import { DocumentError, sha256Hex, storeOrderDocument } from '../orderDocuments'
-import { downloadTelegramImage } from '../telegramProductImages'
-import { readSession, say, sayPhoto, updateSessionState, type AssistantContext } from './context'
+import { fetchImage, readSession, say, sayPhoto, updateSessionState, type AssistantContext } from './context'
 import { escapeHtml, formatMoney } from './tools'
 import { fold, parseMoney } from './commerce/language'
 
@@ -122,7 +121,7 @@ export async function startGuideFromPhoto(ctx: AssistantContext, fileId: string,
   if (!can(ctx.role, 'orders.manage')) { await say(ctx, 'Tu rol en esta tienda no permite actualizar pedidos.'); return }
   if (!ctx.env.ASSETS) { await say(ctx, 'El almacenamiento de fotos no está disponible en este momento. No guardé nada; puedes registrar la guía escribiendo los datos.'); return }
   let image
-  try { image = await downloadTelegramImage(ctx.botToken, fileId) }
+  try { image = await fetchImage(ctx, fileId) }
   catch { await say(ctx, 'No pude descargar o leer esa imagen. Envíala como foto (JPG, PNG o WebP) o escribe los datos de la guía.'); return }
   const sha = await sha256Hex(image.bytes)
   const known = await ctx.db.prepare(

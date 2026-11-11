@@ -1,5 +1,5 @@
 import { applyConfirmedTelegramProductCreation, createCatalogCategory, productLimit } from '../business'
-import { deleteTelegramDraftImages, deleteTelegramDraftTempImages, downloadTelegramImage, promoteTelegramDraftImages, storeTelegramDraftImage } from '../telegramProductImages'
+import { deleteTelegramDraftImages, deleteTelegramDraftTempImages, promoteTelegramDraftImages, storeTelegramDraftImage } from '../telegramProductImages'
 import {
   createTelegramProductDraft, mergeGeminiProductFields, missingProductDraftFields, parseProductDraftFieldReply,
   suggestSku, telegramProductDraftSchema, type ProductDraftField, type ProductDraftMissingField, type TelegramProductDraft,
@@ -7,7 +7,7 @@ import {
 import { roleAllows } from '../../tenancy/access'
 import { publicStoreUrl, slugify } from '../../tenancy/stores'
 import { bytesToBase64, type TelegramMessage } from './telegramApi'
-import { say, sayPhoto, rememberTurn, type AssistantContext } from './context'
+import { fetchImage, say, sayPhoto, rememberTurn, type AssistantContext } from './context'
 import { analyzeProductPhotos } from './ai'
 import { escapeHtml, formatMoney } from './tools'
 import { advanceAfterPublishedProduct } from './onboarding'
@@ -252,7 +252,7 @@ export async function receiveProductPhoto(ctx: AssistantContext, active: Pending
     if (document && (!document.mime_type?.startsWith('image/') || !/\.(jpe?g|png|webp)$/i.test(document.file_name || ''))) throw new Error('TELEGRAM_IMAGE_FORMAT_UNSUPPORTED')
     const fileId = message.photo?.at(-1)?.file_id || document?.file_id
     if (!fileId) throw new Error('TELEGRAM_IMAGE_FORMAT_UNSUPPORTED')
-    const image = await downloadTelegramImage(ctx.botToken, fileId)
+    const image = await fetchImage(ctx, fileId)
     const stored = await storeTelegramDraftImage(ctx.env.ASSETS, active.operation.operation_id, image, fileId)
     // Re-read the draft so several photos sent as an album are all kept.
     for (let attempt = 0; attempt < 4; attempt++) {

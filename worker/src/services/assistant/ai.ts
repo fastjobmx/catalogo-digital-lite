@@ -31,7 +31,7 @@ export async function withAiBudget<T extends { usage?: TokenUsage; model?: strin
     return { ok: false, message: BUDGET_MESSAGES[budget.reason || 'budget_exhausted'] }
   }
   // Quota of AI messages (off by default). One interaction counts once, however many calls it needs.
-  const ref = ctx.updateId > 0 ? { storeId: ctx.store.id, eventKey: `tg:${ctx.updateId}`, feature, voiceSeconds: ctx.voiceSeconds, fingerprint: ctx.fingerprint } : null
+  const ref = ctx.updateId > 0 ? { storeId: ctx.store.id, eventKey: `${ctx.channel ? 'wa' : 'tg'}:${ctx.updateId}`, feature, voiceSeconds: ctx.voiceSeconds, fingerprint: ctx.fingerprint } : null
   if (ref) {
     const reservation = await reserveMessage(ctx.db, ctx.env, ref).catch((error) => {
       // A counter failure must never take the assistant down: the interaction proceeds uncounted and is logged.

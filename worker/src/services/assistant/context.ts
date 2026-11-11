@@ -2,7 +2,8 @@ import type { Env } from '../../index'
 import { listTelegramMemberships, type Membership, type StoreRole } from '../../tenancy/access'
 import { PRIMARY_STORE_ID } from '../../tenancy/stores'
 import { escapeHtml } from './tools'
-import { sendTelegramMessage, sendTelegramPhoto, type TelegramSendMessageResponse } from './telegramApi'
+import { downloadTelegramFile, sendChatAction, sendTelegramMessage, sendTelegramPhoto, type TelegramSendMessageResponse } from './telegramApi'
+import { downloadTelegramImage, type ValidatedTelegramImage } from '../telegramProductImages'
 
 export type AssistantStore = {
   id: number
@@ -13,7 +14,28 @@ export type AssistantStore = {
   planCode: string
 }
 
-/** Everything a single Telegram update needs, bound to exactly one store. */
+/** Parts of the assistant that depend on Telegram itself and are not offered on other channels yet. */
+export type ChannelFeature = 'batches' | 'team' | 'panel_password' | 'onboarding'
+
+/**
+ * Transport of a channel other than Telegram (WhatsApp). The engine never talks to it directly:
+ * say(), sayPhoto(), showTyping() and the fetch* helpers below route here when a context carries one.
+ * A context without a channel is Telegram and behaves exactly as before.
+ */
+export interface AssistantChannel {
+  name: 'whatsapp'
+  unsupported: ReadonlySet<ChannelFeature>
+  helpText?: string
+  accessHelpText?: string
+  send(html: string, replyMarkup?: Record<string, unknown>): Promise<TelegramSendMessageResponse>
+  sendPhoto(photo: string, caption: string, replyMarkup?: Record<string, unknown>): Promise<void>
+  typing(): Promise<void>
+  downloadImage(fileId: string): Promise<ValidatedTelegramImage>
+  downloadFile(fileId: string, maxBytes: number): Promise<Uint8Array>
+  downloadVoice(fileId: string): Promise<{ mimeType: 'audio/ogg'; data: string; seconds?: number }>
+}
+
+/** Everything a single update needs, bound to exactly one store. */
 export interface AssistantContext {
   db: D1Database
   env: Env['Bindings']
@@ -32,6 +54,8 @@ export interface AssistantContext {
   fingerprint?: string
   /** Quota notice (80 % / 100 %) to send after the reply of this update, so it never comes before the answer. */
   quotaNotice?: string
+  /** Set only for channels other than Telegram. */
+  channel?: AssistantChannel
 }
 
 export type SessionState = {
@@ -107,11 +131,36 @@ export async function loadAssistantStore(db: D1Database, storeId: number, fallba
 
 /** Sends a message with the environment banner and, for multi-store users, the store name. */
 export async function say(ctx: AssistantContext, text: string, replyMarkup?: Record<string, unknown>): Promise<TelegramSendMessageResponse> {
+  if (ctx.channel) return ctx.channel.send(`${banner(ctx, isMainMenu(replyMarkup))}${text}`, usableMarkup(replyMarkup))
   return sendTelegramMessage(ctx.botToken, ctx.chatId, `${banner(ctx, isMainMenu(replyMarkup))}${text}`, 'HTML', usableMarkup(replyMarkup))
 }
 
 export async function sayPhoto(ctx: AssistantContext, photo: string, caption: string, replyMarkup?: Record<string, unknown>): Promise<void> {
+  if (ctx.channel) { await ctx.channel.sendPhoto(photo, `${banner(ctx)}${caption}`, usableMarkup(replyMarkup)); return }
   await sendTelegramPhoto(ctx.botToken, ctx.chatId, photo, `${banner(ctx)}${caption}`, usableMarkup(replyMarkup))
+}
+
+/** "Typing…" while a slower step runs. Cosmetic: failures are ignored. */
+export async function showTyping(ctx: AssistantContext): Promise<void> {
+  if (ctx.channel) { await ctx.channel.typing().catch(() => undefined); return }
+  await sendChatAction(ctx.botToken, ctx.chatId)
+}
+
+/** Photo sent by the merchant, validated as a raster image, from whichever channel it came. */
+export async function fetchImage(ctx: AssistantContext, fileId: string): Promise<ValidatedTelegramImage> {
+  return ctx.channel ? ctx.channel.downloadImage(fileId) : downloadTelegramImage(ctx.botToken, fileId)
+}
+
+/** File sent by the merchant, with a strict size bound. */
+export async function fetchFile(ctx: AssistantContext, fileId: string, maxBytes: number): Promise<Uint8Array> {
+  return ctx.channel ? ctx.channel.downloadFile(fileId, maxBytes) : (await downloadTelegramFile(ctx.botToken, fileId, maxBytes)).bytes
+}
+
+/** True (after telling the merchant) when this part of the assistant is not offered on the current channel. */
+export async function unavailableHere(ctx: AssistantContext, feature: ChannelFeature): Promise<boolean> {
+  if (!ctx.channel?.unsupported.has(feature)) return false
+  await say(ctx, 'Eso todavía no está disponible por WhatsApp. Puedes hacerlo desde el panel de tu tienda o desde el asistente de Telegram.')
+  return true
 }
 
 /** The main menu always names the active store, even for single-store owners. */

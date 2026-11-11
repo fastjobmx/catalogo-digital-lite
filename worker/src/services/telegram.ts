@@ -11,11 +11,11 @@ import { PRIMARY_STORE_ID } from '../tenancy/stores'
 import { roleAllows, type Membership, type StoreRole } from '../tenancy/access'
 import { consumeAccessToken, linkTelegramToUser, normalizeLinkCode, upsertMembership } from './platformUsers'
 import {
-  answerCallback, downloadTelegramVoice, sendChatAction, sendTelegramMessage,
+  answerCallback, downloadTelegramVoice, sendTelegramMessage,
   type TelegramMessage, type TelegramUpdate,
 } from './assistant/telegramApi'
 import {
-  loadAssistantStore, membershipsForTelegramUser, readSession, rememberTurn, say, updateSessionState, writeSession,
+  loadAssistantStore, membershipsForTelegramUser, readSession, rememberTurn, say, showTyping, updateSessionState, writeSession,
   type AssistantContext,
 } from './assistant/context'
 import { ACCESS_HELP_TEXT, backToMenu, greeting, HELP_TEXT, inventoryKeyboard, mainMenuKeyboard, orderMenuKeyboard, storePickerKeyboard, storePickerText, switchedStoreKeyboard } from './assistant/menus'
@@ -61,27 +61,52 @@ async function buildContext(update: TelegramUpdate, env: Env['Bindings'], db: D1
   if (!botToken || !message || !from || message.chat.type !== 'private' || message.chat.id !== from.id) return null
   const telegramUserId = String(from.id)
   const available = memberships ?? await membershipsForTelegramUser(db, env, telegramUserId)
+  return openAssistantContext(
+    { db, env, botToken, chatId: message.chat.id, telegramUserId, firstName: from.first_name || '', updateId: update.update_id },
+    available,
+    update.callback_query ? { id: update.callback_query.id, data: update.callback_query.data } : null,
+  )
+}
+
+/** Who is writing and through which transport, before a store is chosen. */
+export type AssistantIdentity = Pick<AssistantContext, 'db' | 'env' | 'botToken' | 'chatId' | 'telegramUserId' | 'firstName' | 'updateId' | 'channel'>
+
+/**
+ * Chooses the store this update acts on, shared by every channel: only real memberships, the store
+ * picker when it is ambiguous, suspended stores refused, and a store switch never inherits pending work.
+ */
+export async function openAssistantContext(
+  identity: AssistantIdentity,
+  available: Membership[],
+  callback: { id?: string; data?: string } | null,
+): Promise<AssistantContext | null> {
+  const { db, env, botToken, telegramUserId } = identity
   if (!available.length) return null
+  const send = (text: string, markup?: Record<string, unknown>) => identity.channel
+    ? identity.channel.send(text, markup)
+    : sendTelegramMessage(botToken, identity.chatId, text, 'HTML', markup)
+  // Only Telegram buttons need an acknowledgement.
+  const acknowledge = async () => { if (callback?.id && !identity.channel) await answerCallback(botToken, callback.id).catch(() => undefined) }
   const session = await readSession(db, telegramUserId)
-  const selection = update.callback_query?.data?.match(/^s:select:(\d+)$/)
+  const selection = callback?.data?.match(/^s:select:(\d+)$/)
   const forbiddenSelection = Boolean(selection && !available.some((membership) => membership.storeId === Number(selection[1])))
   let storeId = selection && !forbiddenSelection ? Number(selection[1]) : session.activeStoreId
   if (!storeId || !available.some((membership) => membership.storeId === storeId)) storeId = available.length === 1 ? available[0]!.storeId : null
   if (!storeId || forbiddenSelection) {
-    if (forbiddenSelection && update.callback_query) {
-      await answerCallback(botToken, update.callback_query.id).catch(() => undefined)
-      await sendTelegramMessage(botToken, message.chat.id, 'No tienes acceso a esa tienda. Elige una de las tiendas que administras:', 'HTML', storePickerKeyboard(available))
+    if (forbiddenSelection && callback) {
+      await acknowledge()
+      await send('No tienes acceso a esa tienda. Elige una de las tiendas que administras:', storePickerKeyboard(available))
       return null
     }
-    await sendTelegramMessage(botToken, message.chat.id, storePickerText(from.first_name || '', available), 'HTML', storePickerKeyboard(available))
-    if (update.callback_query) await answerCallback(botToken, update.callback_query.id).catch(() => undefined)
+    await send(storePickerText(identity.firstName, available), storePickerKeyboard(available))
+    if (callback) await acknowledge()
     return null
   }
   const membership = available.find((item) => item.storeId === storeId)!
   const store = await loadAssistantStore(db, storeId, env.STORE_CURRENCY || 'COP')
   if (!store) return null
   if (store.status === 'suspended') {
-    await sendTelegramMessage(botToken, message.chat.id, `La tienda <b>${escapeHtml(store.name)}</b> está suspendida en este momento. Si crees que es un error, contacta a soporte.`, 'HTML')
+    await send(`La tienda <b>${escapeHtml(store.name)}</b> está suspendida en este momento. Si crees que es un error, contacta a soporte.`)
     return null
   }
   let cancelledOnSwitch = 0
@@ -90,7 +115,7 @@ async function buildContext(update: TelegramUpdate, env: Env['Bindings'], db: D1
     const cancelled = await db.prepare(
       `UPDATE telegram_operations SET status = 'cancelled', completed_at = datetime('now')
        WHERE chat_id = ? AND status = 'pending' AND store_id <> ?`,
-    ).bind(String(message.chat.id), storeId).run()
+    ).bind(String(identity.chatId), storeId).run()
     cancelledOnSwitch = Number(cancelled.meta.changes || 0)
     await writeSession(db, telegramUserId, storeId, {})
     if (session.activeStoreId) {
@@ -98,10 +123,7 @@ async function buildContext(update: TelegramUpdate, env: Env['Bindings'], db: D1
         .bind(String(storeId), JSON.stringify({ from: session.activeStoreId, cancelledPending: cancelledOnSwitch }), `telegram:${telegramUserId}`, storeId).run()
     }
   }
-  return {
-    db, env, botToken, chatId: message.chat.id, telegramUserId, firstName: from.first_name || '', updateId: update.update_id,
-    store, role: membership.role, memberships: available, cancelledOnSwitch,
-  }
+  return { ...identity, store, role: membership.role, memberships: available, cancelledOnSwitch }
 }
 
 export async function processTelegramUpdate(
@@ -116,9 +138,17 @@ export async function processTelegramUpdate(
   }
   const ctx = await buildContext(update, env, db, options.memberships)
   if (!ctx) return
+  await dispatchAssistantUpdate(ctx, update)
+}
+
+/**
+ * The assistant itself: one update (text, button, photo, document or voice note) inside one store.
+ * Every channel ends here; a channel other than Telegram hands its message in this same shape.
+ */
+export async function dispatchAssistantUpdate(ctx: AssistantContext, update: TelegramUpdate): Promise<void> {
   try {
     if (update.callback_query) {
-      await answerCallback(ctx.botToken, update.callback_query.id).catch(() => undefined)
+      if (!ctx.channel) await answerCallback(ctx.botToken, update.callback_query.id).catch(() => undefined)
       await handleCallback(ctx, update.callback_query.data || '')
       return
     }
@@ -294,9 +324,9 @@ async function handleMenu(ctx: AssistantContext, key: string): Promise<void> {
   switch (key) {
     case 'm:menu': await say(ctx, '¿Qué hacemos ahora?', mainMenuKeyboard(ctx.memberships.length > 1)); return
     case 'm:switch_store': await showStorePicker(ctx); return
-    case 'm:access': await say(ctx, ACCESS_HELP_TEXT, { inline_keyboard: [[{ text: '🔄 Ver mis tiendas', callback_data: 'm:switch_store' }], [{ text: '↩ Menú principal', callback_data: 'm:menu' }]] }); return
+    case 'm:access': await say(ctx, ctx.channel?.accessHelpText ?? ACCESS_HELP_TEXT, { inline_keyboard: [[{ text: '🔄 Ver mis tiendas', callback_data: 'm:switch_store' }], [{ text: '↩ Menú principal', callback_data: 'm:menu' }]] }); return
     case 'm:new_product': await beginProductDraft(ctx); return
-    case 'm:help': await say(ctx, HELP_TEXT, backToMenu()); return
+    case 'm:help': await say(ctx, ctx.channel?.helpText ?? HELP_TEXT, backToMenu()); return
     case 'm:panel_password': await sendPanelPasswordReset(ctx); return
     case 'm:inventory': await readAndReply(ctx, 'get_inventory', {}, inventoryKeyboard()); return
     case 'm:low_stock': await readAndReply(ctx, 'get_low_stock', { threshold: 5 }, inventoryKeyboard()); return
@@ -406,17 +436,20 @@ async function handleVoice(ctx: AssistantContext, message: TelegramMessage): Pro
   const voice = message.voice || message.audio!
   if (!ctx.env.GEMINI_API_KEY) { await say(ctx, 'Las notas de voz necesitan la IA, que aún no está activada. Escríbeme tu solicitud, por favor.'); return }
   if (voice.duration > 120) { await say(ctx, 'La nota de voz es muy larga. Envíame una de máximo 2 minutos.'); return }
-  if (message.audio && !/ogg|opus/i.test(message.audio.mime_type || '')) { await say(ctx, 'Envíame el audio como nota de voz de Telegram (mantén presionado el micrófono).'); return }
-  await sendChatAction(ctx.botToken, ctx.chatId)
-  let audio: { mimeType: 'audio/ogg'; data: string }
+  if (message.audio && !/ogg|opus/i.test(message.audio.mime_type || '')) { await say(ctx, ctx.channel ? 'Envíame el audio como nota de voz (mantén presionado el micrófono).' : 'Envíame el audio como nota de voz de Telegram (mantén presionado el micrófono).'); return }
+  await showTyping(ctx)
+  let audio: { mimeType: 'audio/ogg'; data: string; seconds?: number }
   try {
-    audio = await downloadTelegramVoice(ctx.botToken, voice.file_id)
+    audio = ctx.channel ? await ctx.channel.downloadVoice(voice.file_id) : await downloadTelegramVoice(ctx.botToken, voice.file_id)
   } catch (error) {
-    console.error('Telegram voice download failed:', error instanceof Error ? error.message : 'unknown')
+    console.error('Voice download failed:', error instanceof Error ? error.message : 'unknown')
     await say(ctx, 'No pude escuchar la nota de voz. ¿Puedes enviarla otra vez o escribirlo?')
     return
   }
-  ctx.voiceSeconds = Math.max(1, Math.round(voice.duration || 1))
+  // Channels that do not announce the duration measure it from the audio itself.
+  const seconds = voice.duration || audio.seconds || 1
+  if (seconds > 120) { await say(ctx, 'La nota de voz es muy larga. Envíame una de máximo 2 minutos.'); return }
+  ctx.voiceSeconds = Math.max(1, Math.round(seconds))
   const outcome = await interpretRequest(ctx, 'Interpreta la nota de voz adjunta.', audio)
   if (!outcome.ok) { await say(ctx, outcome.message); return }
   const transcript = outcome.value.transcript?.trim()
@@ -454,7 +487,7 @@ async function handleCommand(ctx: AssistantContext, text: string): Promise<boole
     case '/mensajes': await showConsumption(ctx); return true
     case '/menu': await say(ctx, '¿Qué hacemos ahora?', mainMenuKeyboard(ctx.memberships.length > 1)); return true
     case '/ayuda':
-    case '/help': if (!await onboardingHelp(ctx)) await say(ctx, HELP_TEXT, backToMenu()); return true
+    case '/help': if (!await onboardingHelp(ctx)) await say(ctx, ctx.channel?.helpText ?? HELP_TEXT, backToMenu()); return true
     case '/tienda':
     case '/tiendas':
     case '/cambiar_tienda':
@@ -604,7 +637,7 @@ async function handleText(ctx: AssistantContext, text: string): Promise<void> {
       case 'greeting': await say(ctx, greeting(ctx.firstName, ctx.store.name), mainMenuKeyboard(ctx.memberships.length > 1)); return
       case 'thanks': await say(ctx, '¡Con gusto! Aquí estoy cuando me necesites. 🙌'); return
       case 'menu': await say(ctx, '¿Qué hacemos ahora?', mainMenuKeyboard(ctx.memberships.length > 1)); return
-      case 'help': if (!await onboardingHelp(ctx)) await say(ctx, HELP_TEXT, backToMenu()); return
+      case 'help': if (!await onboardingHelp(ctx)) await say(ctx, ctx.channel?.helpText ?? HELP_TEXT, backToMenu()); return
       case 'palette_ideas': await showPaletteIdeas(ctx, text); return
       case 'template_ideas': await showTemplatePicker(ctx); return
       case 'switch_store': await showStorePicker(ctx); return
@@ -638,7 +671,7 @@ async function handleText(ctx: AssistantContext, text: string): Promise<void> {
     await say(ctx, 'No estoy seguro de haber entendido. ¿Quieres hacer alguna de estas cosas?', mainMenuKeyboard(ctx.memberships.length > 1))
     return
   }
-  await sendChatAction(ctx.botToken, ctx.chatId)
+  await showTyping(ctx)
   const outcome = await interpretRequest(ctx, text)
   if (!outcome.ok) {
     await say(ctx, `${outcome.message}\n\nMientras tanto, puedes usar el menú:`, mainMenuKeyboard(ctx.memberships.length > 1))
@@ -676,7 +709,7 @@ async function handleProposal(ctx: AssistantContext, proposal: Proposal, origina
       await say(ctx, `💡 <b>Ideas para tu catálogo</b>\n${deterministicAdvice(facts).map((tip) => `• ${escapeHtml(tip)}`).join('\n')}`, backToMenu())
       return
     }
-    await sendChatAction(ctx.botToken, ctx.chatId)
+    await showTyping(ctx)
     const outcome = await answerWithStoreFacts(ctx, question, facts, action === 'ask_ai' ? 'pregunta' : 'consejos')
     if (!outcome.ok) {
       await say(ctx, action === 'catalog_advice'
@@ -699,7 +732,7 @@ async function handleProposal(ctx: AssistantContext, proposal: Proposal, origina
     ).bind(ctx.store.id, sku).first<{ sku: string; name: string; description: string | null; brand: string | null; category: string | null; variants: string | null }>()
     if (!product) { await say(ctx, `No encontré el producto ${escapeHtml(sku)}.`); return }
     if (!ctx.env.GEMINI_API_KEY) { await say(ctx, 'Redactar descripciones necesita la IA, que aún no está activada.'); return }
-    await sendChatAction(ctx.botToken, ctx.chatId)
+    await showTyping(ctx)
     const outcome = await draftProductDescription(ctx, { name: product.name, description: product.description, category: product.category, brand: product.brand, variants: (product.variants || '').split(', ').filter(Boolean), tone: typeof params.tone === 'string' ? params.tone : undefined })
     if (!outcome.ok) { await say(ctx, outcome.message); return }
     await updateSessionState(ctx, { lastSkus: [product.sku] })
@@ -715,7 +748,7 @@ async function handleProposal(ctx: AssistantContext, proposal: Proposal, origina
     await proposeChange(ctx, action, params, proposal.summary || undefined)
     return
   }
-  await say(ctx, 'Eso todavía no lo puedo hacer desde Telegram. Puedes hacerlo desde el panel de tu tienda.', backToMenu())
+  await say(ctx, ctx.channel ? 'Eso todavía no lo puedo hacer desde aquí. Puedes hacerlo desde el panel de tu tienda.' : 'Eso todavía no lo puedo hacer desde Telegram. Puedes hacerlo desde el panel de tu tienda.', backToMenu())
 }
 
 /**

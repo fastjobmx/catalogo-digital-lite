@@ -1,5 +1,5 @@
 import type { AssistantContext } from './context'
-import { say } from './context'
+import { say, unavailableHere } from './context'
 import { adminStoreUrl, publicStoreUrl } from '../../tenancy/stores'
 import { roleAllows } from '../../tenancy/access'
 import { TEMPLATE_KEYS, TEMPLATE_LABELS, TEMPLATE_DESIGNS, templatePalette, type TemplateKey } from '../templates'
@@ -25,6 +25,8 @@ export async function getOnboarding(ctx: AssistantContext): Promise<OnboardingRe
 
 /** Auto-start only for owner accounts and stores created after this migration. */
 export async function showOnboardingForStart(ctx: AssistantContext): Promise<boolean> {
+  // The guided set-up belongs to the Telegram account that started it; other channels go straight to the menu.
+  if (ctx.channel?.unsupported.has('onboarding')) return false
   if (ctx.role !== 'owner') return false
   let progress = await getOnboarding(ctx)
   if (!progress) {
@@ -47,6 +49,7 @@ export async function showOnboardingForStart(ctx: AssistantContext): Promise<boo
 
 /** Explicit /continuar opts into the flow for any owner, including legacy stores. */
 export async function continueOnboarding(ctx: AssistantContext): Promise<void> {
+  if (await unavailableHere(ctx, 'onboarding')) return
   if (ctx.role !== 'owner') { await say(ctx, 'Solo el propietario puede iniciar esta configuración guiada. Pídele que te agregue desde el panel.'); return }
   let progress = await getOnboarding(ctx)
   if (progress?.status === 'completed') {

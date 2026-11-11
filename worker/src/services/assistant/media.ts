@@ -1,6 +1,6 @@
-import { downloadTelegramImage, deleteTelegramDraftImages, deleteTelegramDraftTempImages, promoteTelegramDraftImages, storeTelegramDraftImage } from '../telegramProductImages'
+import { deleteTelegramDraftImages, deleteTelegramDraftTempImages, promoteTelegramDraftImages, storeTelegramDraftImage } from '../telegramProductImages'
 import { roleAllows } from '../../tenancy/access'
-import { readSession, say, sayPhoto, updateSessionState, type AssistantContext } from './context'
+import { fetchImage, readSession, say, sayPhoto, updateSessionState, type AssistantContext } from './context'
 import { proposeChange, type PendingOperation } from './operations'
 import { escapeHtml } from './tools'
 import { backToMenu } from './menus'
@@ -22,7 +22,7 @@ export async function proposeStoreImage(ctx: AssistantContext, kind: 'banner' | 
   if (!ctx.env.ASSETS) { await say(ctx, 'El almacenamiento de imágenes no está disponible. No cambié nada.'); return }
   let image
   try {
-    image = await downloadTelegramImage(ctx.botToken, fileId)
+    image = await fetchImage(ctx, fileId)
   } catch {
     await say(ctx, 'No pude usar esa imagen. Envía una foto JPG, PNG o WebP de buena calidad.')
     return
@@ -89,7 +89,7 @@ export async function receiveAttachPhoto(ctx: AssistantContext, fileId: string):
   const pending = await getPendingAttach(ctx)
   if (!pending || !ctx.env.ASSETS) { await say(ctx, 'No hay fotos pendientes por agregar.'); return }
   let image
-  try { image = await downloadTelegramImage(ctx.botToken, fileId) }
+  try { image = await fetchImage(ctx, fileId) }
   catch { await say(ctx, 'No pude usar esa imagen. Envía una foto JPG, PNG o WebP.'); return }
   const stored = await storeTelegramDraftImage(ctx.env.ASSETS, pending.operation.operation_id, image, fileId)
   for (let attempt = 0; attempt < 4; attempt++) {

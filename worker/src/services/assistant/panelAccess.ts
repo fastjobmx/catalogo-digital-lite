@@ -2,12 +2,13 @@
  * a reset link of the panel account linked to it. The link goes only to that account's channels
  * (verified email or this same Telegram chat) and is never written in the conversation text. */
 import { maskEmail, sendAdminPasswordReset, type ResetTarget } from '../passwordReset'
-import { say, type AssistantContext } from './context'
+import { say, unavailableHere, type AssistantContext } from './context'
 import { escapeHtml } from './tools'
 
 const back = { inline_keyboard: [[{ text: '↩ Menú principal', callback_data: 'm:menu' }]] }
 
 export async function sendPanelPasswordReset(ctx: AssistantContext): Promise<void> {
+  if (await unavailableHere(ctx, 'panel_password')) return
   const user = await ctx.db.prepare(
     `SELECT id, email, display_name AS displayName, password_hash IS NOT NULL AS hasPassword, email_verified_at IS NOT NULL AS emailVerified
      FROM platform_users WHERE telegram_user_id = ? AND status = 'active'`,

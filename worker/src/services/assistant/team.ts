@@ -2,7 +2,7 @@
  * privilege role chosen by the owner) and revoke access. Every change is audited. */
 import { can, INVITABLE_ROLES, ROLE_LABELS, type StoreRole } from '../../tenancy/access'
 import { createAccessToken, upsertMembership } from '../platformUsers'
-import { say, type AssistantContext } from './context'
+import { say, unavailableHere, type AssistantContext } from './context'
 import { escapeHtml } from './tools'
 
 const ROLE_HELP: Record<StoreRole, string> = {
@@ -26,6 +26,7 @@ async function botUsername(ctx: AssistantContext): Promise<string | null> {
 }
 
 export async function showTeam(ctx: AssistantContext): Promise<void> {
+  if (await unavailableHere(ctx, 'team')) return
   if (!can(ctx.role, 'team.manage')) { await say(ctx, 'Solo el propietario o un administrador pueden ver y gestionar el equipo.'); return }
   const members = (await ctx.db.prepare(
     `SELECT u.id, u.display_name AS name, m.role, CASE WHEN u.telegram_user_id IS NULL THEN 0 ELSE 1 END AS linked

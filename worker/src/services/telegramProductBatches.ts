@@ -1,6 +1,6 @@
 import type { AssistantContext } from './assistant/context'
 import type { TelegramMessage } from './assistant/telegramApi'
-import { say } from './assistant/context'
+import { say, unavailableHere } from './assistant/context'
 import { escapeHtml, formatMoney } from './assistant/tools'
 import { roleAllows } from '../tenancy/access'
 import { adminStoreUrl, publicStoreUrl, slugify } from '../tenancy/stores'
@@ -112,6 +112,7 @@ async function explainTelegramBatchDisabled(ctx: AssistantContext): Promise<void
 }
 
 export async function startTelegramBatch(ctx: AssistantContext): Promise<void> {
+  if (await unavailableHere(ctx, 'batches')) return
   if (!roleAllows(ctx.role, 'admin')) { await say(ctx, 'Tu rol no permite publicar productos. Pídeselo al propietario o a un administrador.'); return }
   if (!await isTelegramBatchEnabled(ctx)) { await explainTelegramBatchDisabled(ctx); return }
   const active = await activeTelegramBatch(ctx)
