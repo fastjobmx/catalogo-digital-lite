@@ -57,7 +57,7 @@ async function assertCategoryInStore(db: D1Database, categoryId: unknown, storeI
 /** Active (non-archived) products against the store plan's max_products. */
 export async function productLimit(db: D1Database, storeId: number): Promise<{ count: number; max: number | null; plan: string | null }> {
   const row = await db.prepare(
-    `SELECT (SELECT COUNT(*) FROM products WHERE store_id = s.id AND is_archived = 0) AS count, p.max_products AS max, p.name AS plan
+    `SELECT (SELECT COUNT(*) FROM products WHERE store_id = s.id AND is_archived = 0) AS count, CASE WHEN p.products_unlimited = 1 THEN NULL ELSE p.max_products END AS max, p.name AS plan
      FROM stores s LEFT JOIN plans p ON p.code = s.plan_code WHERE s.id = ?`,
   ).bind(storeId).first<{ count: number; max: number | null; plan: string | null }>()
   return { count: Number(row?.count || 0), max: row?.max ?? null, plan: row?.plan ?? null }

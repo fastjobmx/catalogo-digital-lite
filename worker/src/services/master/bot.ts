@@ -279,11 +279,11 @@ async function showOwners(ctx: MasterContext): Promise<void> {
 
 async function showConfig(ctx: MasterContext): Promise<void> {
   const plans = await ctx.db.prepare(
-    `SELECT code, name, setup_price AS setup, monthly_price AS monthly, currency, ai_monthly_budget_micros AS budget, max_products AS maxProducts
+    `SELECT code, name, setup_price AS setup, monthly_price AS monthly, currency, ai_monthly_budget_micros AS budget, CASE WHEN products_unlimited = 1 THEN NULL ELSE max_products END AS maxProducts
      FROM plans WHERE is_active = 1 AND code <> 'legacy' ORDER BY sort_order`,
-  ).all<{ code: string; name: string; setup: number; monthly: number; currency: string; budget: number; maxProducts: number }>()
+  ).all<{ code: string; name: string; setup: number; monthly: number; currency: string; budget: number; maxProducts: number | null }>()
   const money = (amount: number, currency: string) => `${currency} ${amount.toLocaleString('es-CO')}`
-  const planLines = (plans.results || []).map((plan) => `• <b>${escapeHtml(plan.name)}</b> (<code>${escapeHtml(plan.code)}</code>) · IA ${formatUsd(plan.budget)}/mes · hasta ${plan.maxProducts} productos · ` +
+  const planLines = (plans.results || []).map((plan) => `• <b>${escapeHtml(plan.name)}</b> (<code>${escapeHtml(plan.code)}</code>) · IA ${formatUsd(plan.budget)}/mes · ${plan.maxProducts === null ? 'productos ilimitados' : `hasta ${plan.maxProducts} productos`} · ` +
     (plan.setup || plan.monthly ? `${money(plan.setup, plan.currency)} inicial + ${money(plan.monthly, plan.currency)}/mes` : 'precio por definir'))
   const prices = geminiPrices(ctx.env)
   const cap = Number(ctx.env.PLATFORM_AI_MONTHLY_CAP_MICROS || 0)
@@ -998,7 +998,7 @@ async function answerQuestion(ctx: MasterContext, question: string): Promise<voi
   const [summary, stores, plans] = await Promise.all([
     platformSummary(ctx.db),
     listStores(ctx.db),
-    ctx.db.prepare(`SELECT code, name, ai_monthly_budget_micros AS aiBudgetMicros, max_products AS maxProducts, monthly_price AS monthlyPrice, currency FROM plans WHERE is_active = 1 AND code <> 'legacy' ORDER BY sort_order`).all(),
+    ctx.db.prepare(`SELECT code, name, ai_monthly_budget_micros AS aiBudgetMicros, CASE WHEN products_unlimited = 1 THEN NULL ELSE max_products END AS maxProducts, monthly_price AS monthlyPrice, currency FROM plans WHERE is_active = 1 AND code <> 'legacy' ORDER BY sort_order`).all(),
   ])
   // Facts only: no owner contact data and no configuration values leave the Worker.
   const facts = {

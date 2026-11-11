@@ -21,6 +21,8 @@ export async function showConsumption(ctx: AssistantContext): Promise<void> {
     lines.push(`Mensajes con IA este ciclo: <b>${info.used}</b>`)
     if (info.policy === 'monitored') lines.push('Tu plan incluye uso conversacional ampliado.')
   }
+  if (info.photos.included !== null) lines.push(`Mejoras de fotos con IA: <b>${info.photos.used}</b> de <b>${info.photos.included}</b>`)
+  if (info.descriptions.included !== null) lines.push(`Descripciones con IA: <b>${info.descriptions.used}</b> de <b>${info.descriptions.included}</b>`)
   lines.push(`Ciclo: del ${formatCycleDate(info.cycle.start)} al ${formatCycleDate(info.cycle.end)}${info.cycle.provisional ? ' (mes calendario)' : ''}`)
   if (info.lastActivityAt) lines.push(`Última actividad: ${info.lastActivityAt.slice(0, 16).replace('T', ' ')} UTC`)
   lines.push('', 'Los botones, la ayuda y las consultas de inventario no gastan mensajes.')

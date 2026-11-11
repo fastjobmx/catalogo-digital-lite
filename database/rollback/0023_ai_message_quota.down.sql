@@ -9,6 +9,10 @@ DELETE FROM plans WHERE code IN ('emprendedor', 'negocio', 'mayorista')
     AND NOT EXISTS (SELECT 1 FROM stores WHERE stores.plan_code = plans.code);
 ALTER TABLE stores DROP COLUMN ai_monthly_messages_override;
 ALTER TABLE stores DROP COLUMN ai_cycle_anchor_day;
+ALTER TABLE plans DROP COLUMN ai_budget_policy;
+ALTER TABLE plans DROP COLUMN ai_description_monthly;
+ALTER TABLE plans DROP COLUMN ai_photo_monthly;
+ALTER TABLE plans DROP COLUMN products_unlimited;
 ALTER TABLE plans DROP COLUMN ai_usage_policy;
 ALTER TABLE plans DROP COLUMN ai_monthly_messages;
 ALTER TABLE plans DROP COLUMN annual_price;

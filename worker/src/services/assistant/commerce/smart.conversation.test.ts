@@ -74,6 +74,20 @@ describe('creating a product from one sentence', () => {
     expect(h.db.query("SELECT COUNT(*) AS n FROM products WHERE store_id = ? AND sku = 'AD223'", tienda)).toEqual([{ n: 0 }])
   })
 
+  it('a quantity or price said wrong can be corrected while the product is still a draft (by text or voice)', async () => {
+    h.env.GEMINI_API_KEY = ''
+    await say('Agrega unos tenis Adidas blancos, referencia AD223, tallas 38, 39 y 40, cinco pares de cada una, precio 180 mil pesos')
+    // A dictated sentence arrives with its final full stop, as a voice transcript does.
+    await say('No, las 39 son 6, no 5.')
+    expect(last()).not.toContain('Envíame las fotos del producto para continuar')
+    expect(all()).toContain('Talla 39: <b>6 u.</b>')
+    expect(all()).toContain('Total: 16 u.')
+    expect(draft().variants.map((variant: { size: string; stock: number }) => [variant.size, variant.stock])).toEqual([['38', 5], ['39', 6], ['40', 5]])
+    await say('el precio es 170 mil, no 180 mil')
+    expect(draft().fields.price).toBe(170000)
+    expect(h.db.query("SELECT COUNT(*) AS n FROM products WHERE store_id = ? AND sku = 'AD223'", tienda)).toEqual([{ n: 0 }])
+  })
+
   it('a reference that already exists is a restock question, never a second product', async () => {
     await say('Agrega unos tenis Nike blancos, referencia NK203, tallas 38 y 39, tres pares de cada una, precio 180 mil')
     expect(last()).toContain('ya existe')

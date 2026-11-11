@@ -1,4 +1,5 @@
 import type { Env } from '../index'
+import { watchAllowances } from './messageQuota'
 
 /** Conservative default estimates in USD micros per million tokens. They are
  * configurable per installation because provider prices change; reports always
@@ -49,10 +50,11 @@ export async function checkAiBudget(db: D1Database, env: Partial<Env['Bindings']
   const period = currentPeriod()
   const row = await db.prepare(
     `SELECT s.status, s.ai_enabled, s.ai_monthly_budget_micros AS budget, s.ai_warn_percent AS warnPercent,
-            COALESCE(u.estimated_cost_micros, 0) AS spent
+            COALESCE(u.estimated_cost_micros, 0) AS spent, p.ai_budget_policy AS budgetPolicy
      FROM stores s LEFT JOIN ai_usage_monthly u ON u.store_id = s.id AND u.period = ?
+     LEFT JOIN plans p ON p.code = s.plan_code
      WHERE s.id = ?`,
-  ).bind(period, storeId).first<{ status: string; ai_enabled: number; budget: number; warnPercent: number; spent: number }>()
+  ).bind(period, storeId).first<{ status: string; ai_enabled: number; budget: number; warnPercent: number; spent: number; budgetPolicy: string | null }>()
   if (!row) return { allowed: false, reason: 'store_unavailable', period, spentMicros: 0, budgetMicros: 0, percent: 0, warn: false }
   const budget = Number(row.budget || 0)
   const spent = Number(row.spent || 0)
@@ -60,7 +62,8 @@ export async function checkAiBudget(db: D1Database, env: Partial<Env['Bindings']
   const base = { period, spentMicros: spent, budgetMicros: budget, percent, warn: percent >= Number(row.warnPercent || 80) }
   if (row.status === 'suspended' || row.status === 'cancelled') return { ...base, allowed: false, reason: 'store_unavailable' }
   if (!row.ai_enabled) return { ...base, allowed: false, reason: 'disabled' }
-  if (budget <= 0 || spent >= budget) return { ...base, allowed: false, reason: 'budget_exhausted' }
+  // Plans with budget policy 'observe' (the new commercial plans) only alert at the budget; they are never cut off by it.
+  if ((budget <= 0 || spent >= budget) && row.budgetPolicy !== 'observe') return { ...base, allowed: false, reason: 'budget_exhausted' }
   const cap = Number(env.PLATFORM_AI_MONTHLY_CAP_MICROS || 0)
   if (cap > 0) {
     const total = await db.prepare('SELECT COALESCE(SUM(estimated_cost_micros), 0) AS total FROM ai_usage_monthly WHERE period = ?').bind(period).first<{ total: number }>()
@@ -108,6 +111,8 @@ export async function recordAiUsage(
       ).bind(input.storeId, `Consumo IA estimado ${status.percent}% del presupuesto mensual`).run()
     }
   }
+  // Plans that include a monthly number of photos / descriptions: tell the platform when it is being reached (never blocks).
+  if (input.status === 'ok') await watchAllowances(db, input.storeId, input.feature)
   return { crossedWarning, status }
 }
 

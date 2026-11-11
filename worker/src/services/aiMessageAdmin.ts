@@ -22,6 +22,7 @@ export function publicConsumption(info: Consumption) {
     cycle: { key: info.cycle.key, start: info.cycle.start, end: info.cycle.end, source: info.cycle.source, provisional: info.cycle.provisional },
     used: info.used, limit: info.limit, remaining: info.remaining, percent: info.percent,
     lastActivityAt: info.lastActivityAt, voiceMessages: info.voiceMessages,
+    photos: info.photos, descriptions: info.descriptions,
     costs: { aiMicros: info.aiCostMicros, transcriptionMicros: info.transcriptionCostMicros, isEstimate: true },
   }
 }
@@ -81,4 +82,51 @@ export async function setStoreMessageSettings(
       .bind(String(store.id), JSON.stringify({ before: current, after: next }), actor, store.id),
   ])
   return { store, cycleAnchorDay: next.anchor, monthlyMessagesOverride: next.override }
+}
+
+const CATEGORY_OF: Record<string, string> = {
+  interpretacion: 'conversaciones', consejos: 'conversaciones', pregunta: 'conversaciones',
+  voz: 'voz',
+  estudio_imagen: 'fotos', foto_packshot: 'fotos', foto_premium: 'fotos',
+  descripcion: 'descripciones',
+}
+
+/** Measured (estimated-from-tokens) AI cost by category over the last N days, from the usage events that already exist.
+ * Distinguishes conversations, voice (with the audio share recorded in the message ledger), photos, descriptions and the rest.
+ * Infrastructure (Workers, D1, R2, email) is NOT measurable per store: the operator passes the monthly figure from the provider invoices. */
+export async function aiCostReport(db: D1Database, options: { days?: number; infraMonthlyMicros?: number } = {}) {
+  const days = Math.min(365, Math.max(1, Math.round(options.days || 30)))
+  const since = `-${days} days`
+  const { results } = await db.prepare(
+    `SELECT feature, status, COUNT(*) AS calls, COALESCE(SUM(prompt_tokens), 0) AS promptTokens, COALESCE(SUM(output_tokens), 0) AS outputTokens, COALESCE(SUM(estimated_cost_micros), 0) AS costMicros
+     FROM ai_usage_events WHERE created_at >= datetime('now', ?) GROUP BY feature, status`,
+  ).bind(since).all<{ feature: string; status: string; calls: number; promptTokens: number; outputTokens: number; costMicros: number }>()
+  const categories: Record<string, { calls: number; errors: number; blocked: number; promptTokens: number; outputTokens: number; costMicros: number; avgCostPerCallMicros: number | null }> = {}
+  for (const row of results || []) {
+    const name = CATEGORY_OF[row.feature] || 'otros'
+    const entry = categories[name] ||= { calls: 0, errors: 0, blocked: 0, promptTokens: 0, outputTokens: 0, costMicros: 0, avgCostPerCallMicros: null }
+    if (row.status === 'ok') { entry.calls += Number(row.calls); entry.promptTokens += Number(row.promptTokens); entry.outputTokens += Number(row.outputTokens); entry.costMicros += Number(row.costMicros) }
+    else if (row.status === 'error') entry.errors += Number(row.calls)
+    else entry.blocked += Number(row.calls)
+  }
+  for (const entry of Object.values(categories)) entry.avgCostPerCallMicros = entry.calls ? Math.round(entry.costMicros / entry.calls) : null
+  const transcription = await db.prepare(
+    `SELECT COUNT(*) AS notes, COALESCE(SUM(audio_seconds), 0) AS seconds, COALESCE(SUM(transcription_cost_micros), 0) AS micros
+     FROM ai_message_ledger WHERE channel = 'telegram_voice' AND status = 'consumed' AND created_at >= datetime('now', ?)`,
+  ).bind(since).first<{ notes: number; seconds: number; micros: number }>()
+  const top = await db.prepare(
+    `SELECT s.slug, COALESCE(SUM(e.estimated_cost_micros), 0) AS costMicros, COUNT(*) AS calls
+     FROM ai_usage_events e JOIN stores s ON s.id = e.store_id WHERE e.status = 'ok' AND e.created_at >= datetime('now', ?) GROUP BY s.id ORDER BY costMicros DESC LIMIT 10`,
+  ).bind(since).all()
+  const total = Object.values(categories).reduce((sum, entry) => sum + entry.costMicros, 0)
+  const infra = options.infraMonthlyMicros && options.infraMonthlyMicros > 0 ? Math.round((options.infraMonthlyMicros * days) / 30) : null
+  return {
+    windowDays: days, isEstimate: true,
+    note: 'Costos estimados con los tokens registrados y los precios configurados; no son la factura del proveedor.',
+    categories,
+    transcription: { voiceNotes: Number(transcription?.notes || 0), audioSeconds: Number(transcription?.seconds || 0), estimatedAudioShareMicros: Number(transcription?.micros || 0), isEstimate: true },
+    topStores: top.results || [],
+    totals: { aiCostMicros: total, infrastructureMicros: infra, infrastructureMeasured: false },
+    infrastructure: 'Workers, D1, R2 y correo se facturan por cuenta: no hay medición por tienda. Se prorratea solo si se informa el costo mensual de la factura.',
+  }
 }

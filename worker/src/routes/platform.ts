@@ -18,13 +18,14 @@ import { ConversionError, convertTrial, discardActivationRequest, listActivation
 import { getTrialSettings, setTrialSettings, SettingsError } from '../services/trialSettings'
 import { aiUsageAlerts, currentBillingPeriod, generateInvoices, listInvoices, setDomainStatus, setInvoiceStatus } from '../services/billing'
 
-import { AiMessageAdminError, platformConsumption, setStoreMessageSettings, storeConsumptionDetail } from '../services/aiMessageAdmin'
+import { aiCostReport, AiMessageAdminError, platformConsumption, setStoreMessageSettings, storeConsumptionDetail } from '../services/aiMessageAdmin'
 
 const app = new Hono<Env>()
 app.use('*', platformAuth)
 
 // Consumption of AI messages per store and cycle (observation; the counter never blocks unless the mode is 'enforce').
 app.get('/ai-messages', async (c) => c.json(await platformConsumption(c.env.DB, c.env, { limit: Number(c.req.query('limit') || 200) })))
+app.get('/ai-costs', async (c) => c.json(await aiCostReport(c.env.DB, { days: Number(c.req.query('days') || 30), infraMonthlyMicros: Math.round(Number(c.req.query('infraMonthlyUsd') || 0) * 1_000_000) })))
 app.get('/stores/:slug/ai-messages', async (c) => {
   try { return c.json(await storeConsumptionDetail(c.env.DB, c.env, c.req.param('slug'))) } catch (error) { return fail(c, error) }
 })
@@ -52,7 +53,7 @@ function fail(c: Context<Env>, error: unknown) {
 }
 
 app.get('/summary', async (c) => c.json(await platformSummary(c.env.DB)))
-app.get('/plans', async (c) => c.json({ items: (await c.env.DB.prepare('SELECT code, name, setup_price AS setupPrice, monthly_price AS monthlyPrice, currency, ai_monthly_budget_micros AS aiBudgetMicros, max_products AS maxProducts, features_json AS features FROM plans WHERE is_active = 1 ORDER BY sort_order').all()).results || [] }))
+app.get('/plans', async (c) => c.json({ items: (await c.env.DB.prepare('SELECT code, name, setup_price AS setupPrice, monthly_price AS monthlyPrice, currency, ai_monthly_budget_micros AS aiBudgetMicros, CASE WHEN products_unlimited = 1 THEN NULL ELSE max_products END AS maxProducts, products_unlimited AS productsUnlimited, ai_monthly_messages AS aiMonthlyMessages, ai_photo_monthly AS aiPhotoMonthly, ai_description_monthly AS aiDescriptionMonthly, ai_budget_policy AS aiBudgetPolicy, features_json AS features FROM plans WHERE is_active = 1 ORDER BY sort_order').all()).results || [] }))
 app.get('/events', async (c) => c.json({ items: await recentEvents(c.env.DB, { level: c.req.query('level'), limit: Number(c.req.query('limit') || 20) }) }))
 app.get('/health', async (c) => c.json({ items: await storesHealth(c.env.DB) }))
 app.get('/stores', async (c) => c.json({ items: await listStores(c.env.DB, { status: c.req.query('status'), query: c.req.query('q') }) }))

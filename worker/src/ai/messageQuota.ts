@@ -13,7 +13,10 @@ export type QuotaMode = 'off' | 'shadow' | 'enforce'
 
 /** Features that are a merchant conversation with the AI. Photos, documents and brand analysis are paid with
  * credits and are administered separately. */
-export const COUNTED_FEATURES = new Set(['interpretacion', 'voz', 'descripcion', 'consejos', 'pregunta'])
+export const COUNTED_FEATURES = new Set(['interpretacion', 'voz', 'consejos', 'pregunta'])
+/** Included separately in the commercial offer (own monthly figures), so they do not use the message quota. */
+export const PHOTO_FEATURES = ['estudio_imagen', 'foto_packshot', 'foto_premium'] as const
+export const DESCRIPTION_FEATURE = 'descripcion'
 
 /** Gemini audio is billed at about 32 tokens per second; used only to label the share of a voice note. */
 const AUDIO_TOKENS_PER_SECOND = 32
@@ -93,7 +96,11 @@ export async function resolveLimit(db: D1Database, storeId: number): Promise<Quo
 
 const LIVE = `(status = 'consumed' OR (status = 'reserved' AND created_at > datetime('now', '${RESERVATION_TTL}')))`
 
+export type Allowance = { used: number; included: number | null; remaining: number | null }
+
 export type Consumption = {
+  photos: Allowance
+  descriptions: Allowance
   storeId: number
   planCode: string | null
   policy: QuotaPolicy
@@ -117,7 +124,22 @@ export async function getConsumption(db: D1Database, storeId: number, now = new 
      FROM ai_message_ledger WHERE store_id = ? AND cycle_key = ? AND status = 'consumed'`,
   ).bind(storeId, cycle.key).first<{ used: number; lastAt: string | null; cost: number; transcription: number; voice: number }>()
   const used = Number(row?.used || 0)
+  // Photo enhancements and descriptions: observed from the existing usage events, in the same billing cycle (UTC window of the Bogota days).
+  const from = `${cycle.start} 05:00:00`
+  const to = `${cycle.end} 05:00:00`
+  const events = await db.prepare(
+    `SELECT COALESCE(SUM(CASE WHEN feature IN (${PHOTO_FEATURES.map(() => '?').join(',')}) THEN 1 ELSE 0 END), 0) AS photos,
+            COALESCE(SUM(CASE WHEN feature = ? THEN 1 ELSE 0 END), 0) AS descriptions
+     FROM ai_usage_events WHERE store_id = ? AND status = 'ok' AND created_at >= ? AND created_at < ?`,
+  ).bind(...PHOTO_FEATURES, DESCRIPTION_FEATURE, storeId, from, to).first<{ photos: number; descriptions: number }>()
+  const included = await db.prepare(
+    `SELECT p.ai_photo_monthly AS photos, p.ai_description_monthly AS descriptions FROM stores s LEFT JOIN plans p ON p.code = s.plan_code WHERE s.id = ?`,
+  ).bind(storeId).first<{ photos: number | null; descriptions: number | null }>()
+  const allowance = (usedCount: number, figure: number | null | undefined): Allowance => ({
+    used: usedCount, included: figure ?? null, remaining: figure === null || figure === undefined ? null : Math.max(0, figure - usedCount),
+  })
   return {
+    photos: allowance(Number(events?.photos || 0), included?.photos), descriptions: allowance(Number(events?.descriptions || 0), included?.descriptions),
     storeId, planCode: limit.planCode, policy: limit.policy, cycle, used, limit: limit.limit,
     remaining: limit.limit === null ? null : Math.max(0, limit.limit - used),
     percent: limit.limit ? Math.min(999, Math.round((used / limit.limit) * 100)) : null,
@@ -239,6 +261,29 @@ async function onceEvent(db: D1Database, storeId: number, code: string, detail: 
   const seen = await db.prepare(`SELECT 1 AS x FROM platform_events WHERE store_id = ? AND code = ? AND created_at > datetime('now', ?) LIMIT 1`).bind(storeId, code, within).first()
   if (seen) return
   await db.prepare(`INSERT INTO platform_events (store_id, level, source, code, detail) VALUES (?, 'warning', 'ai', ?, ?)`).bind(storeId, code, detail).run().catch(() => undefined)
+}
+
+/** Observation only: the included photos / descriptions of a plan are not enforced, so the platform is told
+ * (once per cycle and threshold) when a store reaches 80 % and 100 % of them. Never blocks and never throws. */
+export async function watchAllowances(db: D1Database, storeId: number, feature: string, now = new Date()): Promise<void> {
+  const isPhoto = (PHOTO_FEATURES as readonly string[]).includes(feature)
+  if (!isPhoto && feature !== DESCRIPTION_FEATURE) return
+  try {
+    const info = await getConsumption(db, storeId, now)
+    const allowance = isPhoto ? info.photos : info.descriptions
+    if (!allowance.included || allowance.included <= 0) return
+    const code = isPhoto ? 'AI_PHOTOS' : 'AI_DESCRIPTIONS'
+    for (const threshold of [80, 100] as const) {
+      if (allowance.used * 100 < allowance.included * threshold) continue
+      const tag = `[${info.cycle.key}]`
+      const seen = await db.prepare(`SELECT 1 AS x FROM platform_events WHERE store_id = ? AND code = ? AND detail LIKE ? LIMIT 1`).bind(storeId, `${code}_${threshold}`, `%${tag}%`).first()
+      if (seen) continue
+      await db.prepare(`INSERT INTO platform_events (store_id, level, source, code, detail) VALUES (?, ?, 'ai', ?, ?)`)
+        .bind(storeId, threshold === 100 ? 'warning' : 'info', `${code}_${threshold}`, `${tag} ${allowance.used} de ${allowance.included} incluidos (solo observación, no bloquea)`).run()
+    }
+  } catch (error) {
+    console.error('Allowance watch failed:', error instanceof Error ? error.message : 'unknown')
+  }
 }
 
 /** SHA-256 (first 16 hex chars) of the normalized text: lets us detect loops without storing the message. */

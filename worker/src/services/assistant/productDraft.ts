@@ -13,6 +13,8 @@ import { escapeHtml, formatMoney } from './tools'
 import { advanceAfterPublishedProduct } from './onboarding'
 import { backToMenu } from './menus'
 import type { PendingOperation } from './operations'
+import { parseCommerce } from './commerce/parse'
+import { sameColor, sameSize } from './commerce/language'
 
 export type PendingProductDraft = { operation: PendingOperation; draft: TelegramProductDraft }
 type DraftCategory = { id: number; name: string; slug: string }
@@ -323,8 +325,40 @@ async function suggestFromPhotos(ctx: AssistantContext, active: PendingProductDr
   return { operation: saved || active.operation, draft: saved ? next : draft }
 }
 
+/** "No, las 39 son seis, no cinco" / "el precio es 170 mil, no 180 mil" while the product is still a draft:
+ * fixes the draft (nothing is saved to the catalogue yet) and says what changed. Returns false when the text is not a correction. */
+async function correctDraftFromText(ctx: AssistantContext, active: PendingProductDraft, text: string): Promise<boolean> {
+  const intent = parseCommerce(text)
+  if (!intent || intent.kind !== 'correction') return false
+  const draft = structuredClone(active.draft)
+  let changed = ''
+  if (intent.field === 'quantity') {
+    const variants = draft.variants || []
+    const explicit = Boolean(intent.size || intent.color)
+    const targets = variants.filter((variant) => (!intent.size || sameSize(variant.size, intent.size)) && (!intent.color || sameColor(variant.color, intent.color))
+      && (intent.from === null || variant.stock === Number(intent.from)))
+    if (!targets.length || (!explicit && variants.length !== 1)) return false
+    const quantity = Number(intent.to)
+    if (!Number.isInteger(quantity) || quantity < 0 || quantity > 100_000) return false
+    for (const variant of targets) variant.stock = quantity
+    changed = targets.map((variant) => `${variant.size ? `Talla ${variant.size}` : 'Cantidad'}: <b>${quantity} u.</b>`).join(' · ')
+  } else if (intent.field === 'price') {
+    const amount = Number(intent.to)
+    if (!Number.isInteger(amount) || amount <= 0) return false
+    draft.fields.price = amount
+    changed = `Precio: <b>${formatMoney(amount, ctx.store.currency)}</b>`
+  } else return false
+  const saved = await saveDraft(ctx, active.operation, draft)
+  if (!saved) { await say(ctx, 'El borrador cambió mientras escribías. Revisa el último mensaje y vuelve a intentarlo.'); return true }
+  const total = (draft.variants || []).reduce((sum, variant) => sum + (variant.stock ?? 0), 0)
+  await say(ctx, `Corregido. ${changed}${intent.field === 'quantity' ? `\nTotal: ${total} u.` : ''}\nNada se guardó todavía.`)
+  await promptProductDraft(ctx, saved, draft)
+  return true
+}
+
 export async function acceptProductDraftText(ctx: AssistantContext, active: PendingProductDraft, text: string): Promise<void> {
   const awaiting = active.draft.editField || active.draft.awaiting
+  if (!awaiting && await correctDraftFromText(ctx, active, text)) return
   if (!awaiting) {
     await say(ctx, active.draft.images.length
       ? 'Usa los botones para continuar, o envíame otra foto.'

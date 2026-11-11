@@ -213,13 +213,14 @@ function parseCorrection(lower: string): CommerceIntent | null {
 
 /** Parses one message into a commerce intent, or null when it is not a commerce request. */
 export function parseCommerce(raw: string): CommerceIntent | null {
-  const text = raw.trim()
+  // A transcribed voice note ends with a full stop ("…son 6, no 5."): it must not hide the last number.
+  const text = raw.trim().replace(/[.!¡]+$/, '').trim()
   if (!text || text.startsWith('/') || text.length > 400) return null
   const lower = numberWordsToDigits(text)
   const tokens = tokenize(text)
   const question = /\?\s*$/.test(text) || /^(?:cuant[oa]s?|que|cual(?:es)?|como|donde|dime|decime|muestrame|mostrame|ensename|ver|lista)\b/.test(lower)
 
-  if (/\b(?:corrig\w*|correg\w*|perdon|me\s+equivoque|error)\b/.test(lower) || /^\s*(?:no|mejor)\s*,?\s+\S+(?:\s+\S+)?\s*\.?$/.test(lower) ||/\bno\s+(?:es|era)\b|\s+no\s+\S+\s*$/.test(lower)) {
+  if (/\b(?:corrig\w*|correg\w*|perdon|me\s+equivoque|error)\b/.test(lower) || /^\s*(?:no|mejor)\s*,?\s+\S+(?:\s+\S+)?\s*\.?$/.test(lower) ||/\bno\s+(?:es|era)\b|\s+no\s+\S+(?:\s+(?:mil|millones?|pesos))?\s*$/.test(lower)) {
     const correction = parseCorrection(lower)
     if (correction) return correction
   }
