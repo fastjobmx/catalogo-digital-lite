@@ -55,7 +55,8 @@ const ENTRIES: Entry[] = [
     blurb: 'Ropa y tenis para dama, caballero y niño, con pedidos por WhatsApp.',
     image: { capture: 'muy-parcero' },
     order: 2,
-    authorized: false, // Pendiente: autorización del comercio.
+    authorized: true,
+    authorizedBy: 'Autorización del comercio confirmada por el propietario de la plataforma el 2026-11-11.',
   },
   {
     slug: 'luz-magica',
@@ -65,7 +66,8 @@ const ENTRIES: Entry[] = [
     blurb: 'Tocadores, espejos LED y muebles fabricados a la medida, con domicilios en Medellín.',
     image: { capture: 'luz-magica' },
     order: 3,
-    authorized: false, // Pendiente: autorización del comercio.
+    authorized: true,
+    authorizedBy: 'Autorización del comercio confirmada por el propietario de la plataforma el 2026-11-11.',
   },
 ]
 

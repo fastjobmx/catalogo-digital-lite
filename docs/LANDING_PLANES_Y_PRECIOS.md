@@ -51,20 +51,20 @@ Capturas en `docs/capturas-landing-planes/` (escritorio 1440 px y móvil 390 px)
 
 Observación fuera del alcance (no se tocó la app): `app.tiendiaexpres.com/` y `/t/sneakerhub-premium` muestran la misma tienda y cada una se declara canónica: contenido duplicado. Recomendación para una próxima entrega del panel: canonical de `/` hacia `/t/sneakerhub-premium` (o redirección).
 
-## 5. Tiendas reales (Implementado · Verificado · **Pendiente de aprobación**)
+## 5. Tiendas reales (Implementado · Verificado)
 
 Auditoría de solo lectura en producción (2026-11-11):
 
 | Tienda | Estado | Productos | Plantilla | URL pública | ¿En la landing? |
 |---|---|---|---|---|---|
 | SneakerHub Premium | activa | 21 | personalizada | `/t/sneakerhub-premium` | **Sí** (piloto propia) |
-| MUY PARCERO | activa | 24 | personalizada | `/t/muy-parcero` | Lista; **falta autorización del comercio** |
-| Luz Mágica | activa | 115 | boutique | `/t/luz-magica` | Lista; **falta autorización del comercio** |
+| MUY PARCERO | activa | 24 | personalizada | `/t/muy-parcero` | **Sí** (autorización confirmada el 2026-11-11) |
+| Luz Mágica | activa | 115 | boutique | `/t/luz-magica` | **Sí** (autorización confirmada el 2026-11-11) |
 | Imperio Nova | activa | 6 | premium | `/t/imperio-nova` | No: la portada aún no tiene imagen |
 | DistribuMax | activa | 0 | editorial | — | No: sin productos |
 | Prueba TiendIA Exprés | borrador | 0 | — | — | No: interna |
 
-Gestión editorial (no existía un servicio; se eligió una configuración simple y segura sin tocar la API): `src/content/stores.ts`. Por tienda: autorizada sí/no y quién la autorizó, orden, texto, categoría, plantilla e imagen. Una tienda aparece **solo si está autorizada y su captura está en `src/assets/stores/`**; las capturas de MUY PARCERO y Luz Mágica quedaron fuera de `src/` (en `scripts/.stores/`, ignorado por git), así que ni siquiera se publican como archivos sueltos. Incluir una tienda en la landing **no cambia su estado, plan ni datos** y no muestra ventas, personas ni cifras privadas. Procedimiento en el encabezado de `stores.ts`.
+Gestión editorial (no existía un servicio; se eligió una configuración simple y segura sin tocar la API): `src/content/stores.ts`. Por tienda: autorizada sí/no y quién la autorizó, orden, texto, categoría, plantilla e imagen. Una tienda aparece **solo si está autorizada y su captura está en `src/assets/stores/`**; las capturas de tiendas no autorizadas quedan fuera de `src/` (en `scripts/.stores/`, ignorado por git), así que ni siquiera se publican como archivos sueltos. MUY PARCERO y Luz Mágica se agregaron tras confirmarse su autorización (2026-11-11); con tres tiendas, la invitación «Tu negocio puede ser el próximo» pasa a una franja de ancho completo. Incluir una tienda en la landing **no cambia su estado, plan ni datos** y no muestra ventas, personas ni cifras privadas. Procedimiento en el encabezado de `stores.ts`.
 
 SneakerHub conserva su demostración interactiva; la tarjeta reutiliza su captura de catálogo (la demo usa inicio, producto y carrito), sin capturas nuevas duplicadas.
 
@@ -152,7 +152,7 @@ Publicadas como **resumen** con «los términos completos se entregan por escrit
 - Cambios de plan con valor confirmado antes; cambios de precio con aviso y sin afectar el periodo pagado (definir días de anticipación).
 - Configuración inicial: **cantidad de productos incluida en la carga inicial** por plan (publicado: «se acuerda al contratar»).
 - Alcance de «soporte prioritario».
-- Autorización escrita de MUY PARCERO y Luz Mágica para aparecer como ejemplos.
+- Conservar el respaldo de la autorización de MUY PARCERO y Luz Mágica (confirmada en el chat el 2026-11-11).
 - Páginas legales completas (Términos y Política de privacidad siguen sin URL; el pie enlaza «Condiciones comerciales»).
 
 ## 11. Pruebas ejecutadas
@@ -184,7 +184,7 @@ Modificados: `index.html`, `src/App.tsx`, `src/content/copy.ts`, `src/config/sit
 ## 14. Procedimiento de publicación (solo con autorización)
 
 1. Aprobar §9 y §10 (al menos IVA, cuotas IA y cómo se cargan, condiciones resumidas). Si se crean los planes en la base, hacerlo antes con respaldo, como las migraciones anteriores.
-2. Si MUY PARCERO o Luz Mágica autorizan: `authorized: true` y `authorizedBy` en `src/content/stores.ts`, copiar sus `.webp` de `scripts/.stores/optimized/` a `src/assets/stores/`.
+2. Tiendas de ejemplo: SneakerHub, MUY PARCERO y Luz Mágica ya están incluidas. Para sumar otra: `authorized: true` y `authorizedBy` en `src/content/stores.ts`, y su captura en `src/assets/stores/`.
 3. Verificar:
    ```
    cd apps/tiendaiaexpress-landing

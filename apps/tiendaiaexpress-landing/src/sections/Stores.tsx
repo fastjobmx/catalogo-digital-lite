@@ -40,14 +40,15 @@ export function Stores() {
               </article>
             </li>
           ))}
-          <li className="flex">
-            <article className="on-dark flex w-full flex-col justify-between gap-8 rounded-[2rem] bg-forest p-7 text-ivory md:p-9">
+          {/* Full-width call to action when the stores fill whole rows; otherwise it takes the free cell. */}
+          <li className={`flex ${showcaseStores.length % 3 === 0 ? 'lg:col-span-3' : ''} ${showcaseStores.length % 2 === 0 ? 'sm:col-span-2 lg:col-span-1' : ''}`}>
+            <article className={`on-dark flex w-full flex-col justify-between gap-8 rounded-[2rem] bg-forest p-7 text-ivory md:p-9 ${showcaseStores.length % 3 === 0 ? 'lg:flex-row lg:items-center' : ''}`}>
               <div>
                 <span className="grid size-12 place-items-center rounded-2xl bg-lime text-forest"><Icon name="store" size={24} /></span>
                 <h3 className="mt-6 font-display text-2xl font-bold leading-tight md:text-3xl">Tu negocio puede ser el próximo.</h3>
                 <p className="mt-3 text-mist">Mirá cómo quedan tus productos con una vista previa gratis, o escribinos y armamos tu tienda con vos.</p>
               </div>
-              <div className="flex flex-col gap-2.5">
+              <div className="flex shrink-0 flex-col gap-2.5">
                 <Button href="#contacto" variant="lime" icon="arrowRight">Quiero mi tienda</Button>
                 <Button href="#planes" variant="outline-light">Conocer planes</Button>
               </div>
