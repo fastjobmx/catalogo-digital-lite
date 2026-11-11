@@ -1,6 +1,6 @@
 # Pedidos por WhatsApp con la fotografía del producto
 
-Fecha: 2026-11-11 · Rama `feat/whatsapp-fotos` (sale de `main` = producción) · **Sin desplegar.**
+Fecha: 2026-11-11 · Rama `feat/whatsapp-fotos` (sale de `main` = producción) · **EN PRODUCCIÓN desde 2026-11-11 (autorizado), ver §10.**
 No se tocaron los bots de Telegram, Resend, planes, inventarios ni comercios. Sin migraciones.
 
 ## 1. Diagnóstico del flujo actual
@@ -117,3 +117,21 @@ Orden: **API → panel → landing**.
 4. Landing: `cd apps/tiendaiaexpress-landing && npm run cf:deploy` (demo actualizada), solo después del panel.
 
 **Reversión:** panel y API a su versión anterior desde Cloudflare (Workers → Deployments) o `wrangler rollback`; landing con Rollback de Pages. No hay migración que revertir; los eventos `comprador_whatsapp` ya registrados quedan en el historial y no afectan nada.
+
+## 10. Publicación (2026-11-11, autorizada)
+
+| Servicio | Antes | Ahora |
+|---|---|---|
+| API `catalogo-lite-api` | `b2f35814-3f47-423d-a0d7-0c1768ab3faf` | `3c61c48a-52be-46b7-a522-cfc1c6c9ca9b` (cron `*/15` activo) |
+| Panel y tiendas `catalogo-digital-ia` | `2410c9f8-3a47-4ef2-b9f2-117091c16927` | `83900c68-b040-4af0-8263-b6768101a99e` |
+| Landing Pages `tiendaiaexpress` | `b51e5018` | `b2a8a0db` (`index-DEYPy-I1.js`, igual al build) |
+
+Sin migraciones. Verificación en producción:
+- `/api/health` 200; `POST /api/orders/whatsapp-event` responde 404 con una clave que no corresponde y 400 con una acción no permitida.
+- Fichas: `og:image` (foto principal real), `og:image:secure_url`, `og:image:type` (`image/jpeg` en SneakerHub, `image/webp` en Luz Mágica), `og:image:alt`, `twitter:image:alt`, `product:price:amount/currency`. `/admin/login` sigue con `noindex`.
+- Código publicado, Android emulado (solo la respuesta del registro del pedido se simuló para no crear pedidos reales ni avisos de Telegram): mensaje con «Ver producto: https://app.tiendiaexpres.com/producto/KINETIK-06» al número real de la tienda, botón «Enviar también la foto», archivo JPEG real de 156 KB, evento `foto_compartida`. Escritorio: WhatsApp se abre solo como antes, evento `whatsapp_abierto`, «Abrir WhatsApp otra vez».
+- Landing: demo «Mensaje de WhatsApp» con «Ver producto» y vista previa (2 pruebas en vivo ✔).
+
+**Pendiente:** prueba en un Android y un iPhone reales con WhatsApp (texto junto a la foto en iOS; vista previa de fichas con foto WebP, como Luz Mágica).
+
+**Reversión:** `cd worker && npx wrangler rollback b2f35814-3f47-423d-a0d7-0c1768ab3faf --config wrangler.production.toml`; panel `cd frontend && node ../worker/node_modules/wrangler/bin/wrangler.js rollback 2410c9f8-3a47-4ef2-b9f2-117091c16927`; landing: Pages → `tiendaiaexpress` → Deployments → `b51e5018` → Rollback. Revertir primero el panel (el panel anterior no llama al endpoint nuevo).
