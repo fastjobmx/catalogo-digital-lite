@@ -196,3 +196,12 @@ Modificados: `index.html`, `src/App.tsx`, `src/content/copy.ts`, `src/config/sit
 4. Publicar: `npm run cf:deploy` (solo el proyecto Pages `tiendaiaexpress`; no toca MOSTRALO PUES!, el panel ni la API).
 5. Comprobar en vivo: `https://tiendiaexpres.com/` (title, precios, JSON-LD con la Prueba de resultados enriquecidos de Google), Lighthouse en vivo y solicitar reindexación en Search Console.
 6. Reversión: volver a publicar el despliegue anterior desde el panel de Cloudflare Pages (Deployments → Rollback) o `git revert` y `npm run cf:deploy`.
+
+## 15. Publicación en producción (2026-11-11, autorizada por el propietario)
+
+- Cloudflare Pages `tiendaiaexpress`, despliegue **`a5172382`** (anterior `a955b85a`, bundle `index-GB1Ln_sy.js` → `index-BVW3Cxt5.js`). Solo se publicó la landing: panel, API, base de datos, bots y MOSTRALO PUES! sin cambios. **Los límites y créditos del backend no se modificaron**: las diferencias de §9 siguen abiertas.
+- Verificación en vivo `https://tiendiaexpres.com/`: title nuevo, `index, follow`, canonical, sitemap con `lastmod` 2026-11-11, 6 `Offer` en JSON-LD, tres planes, tiendas (SneakerHub, MUY PARCERO, Luz Mágica), estudio y condiciones presentes; sin «Catálogo Lite» ni «en definición»; `www` sigue con `noindex`.
+- Pruebas e2e contra producción (`BASE_URL=https://tiendiaexpres.com`): 39 ✔; las 2 que fallan son el aviso de consola descrito abajo.
+- Lighthouse en vivo (`tests/lighthouse/live-*.report.html`): móvil 93 / 100 / 92 / 100 (LCP 3,0 s, CLS 0); escritorio 98 / 100 / 92 / 100 (LCP 0,7 s, CLS 0).
+- **Observación previa a este cambio:** el dominio tiene activo Cloudflare Web Analytics, que inyecta `static.cloudflareinsights.com/beacon.min.js`; la CSP del sitio (igual que antes) lo bloquea. Resultado: un error en consola, «buenas prácticas» 92 y ninguna métrica de Web Analytics. Decidir: permitirlo en la CSP (`script-src https://static.cloudflareinsights.com`, `connect-src https://cloudflareinsights.com`) o desactivar la inyección automática en el panel de Cloudflare.
+- Reversión: Cloudflare Pages → `tiendaiaexpress` → Deployments → `a955b85a` → Rollback.
