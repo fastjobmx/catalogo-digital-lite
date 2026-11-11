@@ -149,7 +149,7 @@ export const faq = [
   },
   {
     q: '¿Qué funciones de IA están disponibles hoy?',
-    a: 'El asistente de Telegram que entiende tus mensajes, las fichas de producto a partir de una foto, la lectura de listas en PDF, la lectura de guías de envío por foto y el estudio fotográfico con IA (packshots y escenarios). Formatos para redes, modelos virtuales y videos están en camino.',
+    a: 'El asistente de Telegram que entiende tus mensajes, las fichas de producto a partir de una foto, la lectura de listas en PDF, la lectura de guías de envío por foto y el estudio fotográfico con IA (packshots y escenarios). Sin IA y sin costo también creás imágenes, carruseles y videos cortos para redes. Los modelos virtuales y el video con IA están en camino.',
   },
   {
     q: '¿Necesito saber de tecnología?',

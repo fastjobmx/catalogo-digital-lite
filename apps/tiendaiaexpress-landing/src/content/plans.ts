@@ -116,23 +116,25 @@ export function planMessage(plan: Pick<Plan, 'name' | 'setup' | 'monthly' | 'ann
 }
 
 /** Optional add-ons. Only what can be offered today; prices only where the owner set one. */
-export const addOns = [
+export type AddOn = { title: string; body: string; price: string; status: 'disponible' | 'consulta' | 'pronto' }
+
+export const addOns: AddOn[] = [
   {
     title: 'Dominio propio',
     body: 'Tu tienda en tu propia dirección (por ejemplo, tunegocio.com), con configuración asistida.',
     price: 'Plan Emprendedor: $99.000 COP al año. Planes Negocio y Mayorista: consultá las condiciones.',
-    status: 'consulta' as const,
+    status: 'consulta',
   },
   {
     title: 'Créditos IA adicionales',
     body: 'Si se terminan las cuotas IA del mes, podés solicitar créditos adicionales desde tu panel.',
     price: 'Valor según la cantidad: te lo confirmamos antes de cargarlos.',
-    status: 'disponible' as const,
+    status: 'disponible',
   },
   {
     title: 'Estudio de contenido',
-    body: 'Piezas para redes y videos cortos de tus productos.',
-    price: '',
-    status: 'pronto' as const,
+    body: 'Imágenes, carruseles y videos cortos para redes con tus productos, desde tu panel. El video con IA llega pronto.',
+    price: 'Incluido en todos los planes, sin consumir créditos IA.',
+    status: 'disponible',
   },
 ]

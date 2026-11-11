@@ -96,16 +96,17 @@ SneakerHub conserva su demostración interactiva; la tarjeta reutiliza su captur
 | Fichas de producto desde una foto | En producción (`foto_a_producto`, 1 crédito) | Disponible |
 | Importación Excel/CSV/PDF | En producción (PDF con IA: `importar_pdf_pagina`, 4 créditos) | Disponible |
 | Herramientas básicas de foto: recorte, encuadre, redimensionar, uniformidad en lote, luz, WebP/JPG | En producción, en el navegador, sin IA | Disponible |
-| Formatos para redes, marca de agua, fondos prediseñados | Formatos para redes en la fase 3 (rama sin publicar); marca de agua y fondos no existen | **Próximamente** |
+| Formatos para redes (1:1, 4:5, 9:16), carruseles y videos cortos automáticos | En producción desde 2026-11-11 (fábrica de creativos, modo convencional, sin IA ni costo) | Disponible (actualizado el 2026-11-11) |
+| Marca de agua, fondos prediseñados | No existen | **Próximamente** |
 | Packshots, escenarios realistas, calzado en escena | En producción (`foto_packshot` 3, `foto_premium` 5 créditos) | Disponible |
-| Modelos virtuales, variantes de color, videos comerciales | No publicados (modelo virtual descartado por fidelidad; video en fase 3 sin desplegar) | **Próximamente** |
+| Modelos virtuales, variantes de color, video con IA | No publicados (modelo virtual descartado por fidelidad; video con IA apagado: sin `GEMINI_VIDEO_MODEL` ni precio de `video_ia_segundo`) | **Próximamente** |
 | Varios administradores con roles | En producción (owner, admin, operator, seller, inventory) | Disponible (Mayorista) |
 | Soporte prioritario | Servicio comercial, no software | Disponible (Mayorista) · **Pendiente de aprobación** del alcance |
 | Reportes comerciales | Solo indicadores básicos del panel | **Próximamente** |
 | Precios al por mayor | No existe | **Próximamente** |
 | Dominio propio | La API resuelve tiendas por dominio, pero ningún dominio está activo y el Worker del panel no recibe dominios de clientes (falta Cloudflare for SaaS o equivalente) | Complemento «Bajo consulta» · **Bloqueado** técnicamente |
 | Créditos IA adicionales | En producción (solicitud desde el panel, aprobación del superadministrador) | Disponible, sin precio |
-| Estudio de contenido | Fase 3 sin publicar | **Próximamente** |
+| Estudio de contenido | Fábrica de creativos en producción (modo convencional); probada en Chromium de escritorio, no en celular, Safari ni Firefox | Disponible, incluido en todos los planes |
 | Cobro en línea | No existe | Se dice claramente que no |
 
 Nota de fidelidad publicada: la foto real es la referencia; la IA trabaja con reglas que le impiden inventar suelas, costuras o partes no visibles, puede equivocarse y cada resultado se compara y aprueba. No se menciona rembg, Real-ESRGAN, Remotion ni VPS, ni costos internos.

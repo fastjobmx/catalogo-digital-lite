@@ -1,5 +1,6 @@
 // "Estudio fotográfico para tus productos". Statuses verified against the platform code
-// (docs/ESTUDIO_FOTOGRAFICO_FASE2.md, in production since 2026-11-10). Anything not running in
+// (docs/ESTUDIO_FOTOGRAFICO_FASE2.md, in production since 2026-11-10; docs/FABRICA_CREATIVOS_FASE3.md,
+// conventional mode in production since 2026-11-11, AI video switched off). Anything not running in
 // production is labelled "Próximamente" and kept out of the available list.
 import { Badge, SectionHeading } from '../components/ui/primitives'
 import { Icon } from '../components/ui/Icon'
@@ -11,7 +12,8 @@ const BASIC: Tool[] = [
   { name: 'Redimensionar', detail: 'Tamaños livianos para que tu tienda cargue rápido.' },
   { name: 'Uniformidad de tamaños', detail: 'El mismo encuadre para un lote de hasta 50 fotos.' },
   { name: 'Correcciones convencionales', detail: 'Ajuste básico de luz, compresión WebP y conversión a JPG.' },
-  { name: 'Formatos para redes', detail: 'Piezas cuadradas y verticales para publicar.', soon: true },
+  { name: 'Formatos para redes', detail: 'Imágenes y carruseles 1:1, 4:5 e historias 9:16 con tu marca, nombre y precio exactos.' },
+  { name: 'Videos cortos automáticos', detail: 'Videos de 6, 10 o 15 segundos armados con tus fotos, listos para descargar.' },
   { name: 'Marca de agua', detail: 'Tu logo sobre tus fotos.', soon: true },
   { name: 'Fondos prediseñados', detail: 'Fondos listos para elegir.', soon: true },
 ]
@@ -22,7 +24,7 @@ const ADVANCED: Tool[] = [
   { name: 'Calzado en escena', detail: 'Escenas pensadas para la categoría de tu producto.' },
   { name: 'Modelos virtuales', detail: 'Prendas presentadas en una persona generada.', soon: true },
   { name: 'Variantes visuales de color', detail: 'Vistas del mismo producto en otros colores.', soon: true },
-  { name: 'Videos comerciales', detail: 'Videos cortos de tus productos.', soon: true },
+  { name: 'Videos con IA', detail: 'Tu foto real animada por inteligencia artificial.', soon: true },
 ]
 
 function ToolList({ tools, onDark }: { tools: Tool[]; onDark?: boolean }) {
