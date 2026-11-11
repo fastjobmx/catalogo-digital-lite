@@ -69,7 +69,7 @@ describe('language: quantities, prices, sizes and typos', () => {
     expect(parseCommerce('la talla es 39 no 38')).toMatchObject({ kind: 'correction', field: 'size', from: '38', to: '39' })
     expect(parseCommerce('quita esa foto y deja la otra')).toMatchObject({ kind: 'remove_photo', product: null })
     expect(parseCommerce('pon 5')).toMatchObject({ kind: 'stock', mode: 'ask' })
-    expect(parseCommerce('Créame unas sandalias negras Guess talla 38 y 39 a 80 mil')).toEqual({ kind: 'create_product', name: 'Sandalias Guess negras', brand: 'Guess', color: 'Negro', sizes: ['38', '39'], price: 80000 })
+    expect(parseCommerce('Créame unas sandalias negras Guess talla 38 y 39 a 80 mil')).toEqual({ kind: 'create_product', name: 'Sandalias Guess negras', brand: 'Guess', color: 'Negro', sizes: ['38', '39'], price: 80000, sku: null, stocks: [], priceAsk: null })
     expect(parseCommerce('Muéstrame los productos que tienen menos de cinco unidades')).toBeNull()
     expect(parseCommerce('hola')).toBeNull()
   })

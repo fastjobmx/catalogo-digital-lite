@@ -116,6 +116,7 @@ export function parseProductDraftFieldReply(
   field: ProductDraftField,
   text: string,
   draft: TelegramProductDraft,
+  currency = 'COP',
 ): { draft: TelegramProductDraft; error?: string } {
   const value = text.trim()
   // Codes, prices and stock lists often arrive with a closing period or emoji-free punctuation.
@@ -138,6 +139,11 @@ export function parseProductDraftFieldReply(
     if (thousands) {
       next.fields.price = Number(thousands[1]) * 1000
       return { draft: next }
+    }
+    // A bare small number ("180") could be $180 or $180.000 in pesos: ask instead of guessing.
+    const bare = compact.match(/^\$?\s*(\d{1,3})$/)
+    if (currency === 'COP' && bare && Number(bare[1]) > 0) {
+      return { draft, error: `¿Son ${bare[1]} pesos o ${bare[1]} mil pesos? Escríbelo completo: <b>${bare[1]} mil</b> o <b>${bare[1]}.000</b>.` }
     }
     const formatted = compact.replace(/(?:pesos|peso|cop|\$|\s)/gi, '')
     if (!/^(?:\d+|\d{1,3}(?:[.,]\d{3})+)$/.test(formatted)) return { draft, error: 'Indica un precio entero válido, por ejemplo 250000 o 250.000.' }

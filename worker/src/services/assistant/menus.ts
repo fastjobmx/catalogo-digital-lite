@@ -66,9 +66,10 @@ export function appearanceKeyboard(): InlineKeyboard {
   ] }
 }
 
-export function operationKeyboard(operationId: string): InlineKeyboard {
+export function operationKeyboard(operationId: string, correctable = false): InlineKeyboard {
   return { inline_keyboard: [[
     { text: '✅ Confirmar', callback_data: `op:confirm:${operationId}` },
+    ...(correctable ? [{ text: '✏️ Corregir', callback_data: `op:fix:${operationId}` }] : []),
     { text: '✖ Cancelar', callback_data: `op:cancel:${operationId}` },
   ], [
     { text: '👁 Ver de nuevo', callback_data: `op:preview:${operationId}` },

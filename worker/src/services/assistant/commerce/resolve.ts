@@ -54,6 +54,10 @@ export function matchProducts(catalog: CatalogProduct[], query: string | null, f
   const words = query ? queryWords(query) : []
   const bySku = query ? catalog.filter((product) => fold(product.sku) === fold(query.trim())) : []
   if (bySku.length) return bySku
+  // A reference written among other words ("tenis AD223") is decisive: it identifies exactly one product.
+  const codes = (query || '').split(' ').map((token) => fold(token)).filter((token) => token.length >= 3 && /[0-9]/.test(token) && /[a-z]/.test(token))
+  const byCode = codes.length ? catalog.filter((product) => codes.includes(fold(product.sku))) : []
+  if (byCode.length === 1) return byCode
   let candidates = catalog
   if (words.length) {
     candidates = catalog.filter((product) => {

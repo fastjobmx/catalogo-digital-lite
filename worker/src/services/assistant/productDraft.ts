@@ -334,7 +334,7 @@ export async function acceptProductDraftText(ctx: AssistantContext, active: Pend
   if (awaiting === 'sku' && /^(no|no tengo|usa(?:r)? (?:el )?(?:sugerido|ese)|ok|dale|s[ií])$/i.test(text.trim()) && active.draft.suggestedSku) {
     text = active.draft.suggestedSku
   }
-  const parsed = parseProductDraftFieldReply(awaiting, text, active.draft)
+  const parsed = parseProductDraftFieldReply(awaiting, text, active.draft, ctx.store.currency)
   if (parsed.error) {
     await say(ctx, parsed.error)
     return

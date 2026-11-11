@@ -64,6 +64,9 @@ export type Env = {
  CREATIVE_AI_MODELS?: string
  GEMINI_VIDEO_MODEL?: string
  GEMINI_VIDEO_PRICE_OUTPUT_MICROS_PER_MTOK?: string
+ /** Telegram assistant: 'false' turns off the natural-language commerce interpreter / voice notes (previous behaviour stays). */
+ TELEGRAM_SMART_INTERPRETER_ENABLED?: string
+ TELEGRAM_VOICE_ENABLED?: string
  /** Catalogue trial without sign-up: 'false' turns it off. */
  TRIALS_ENABLED?: string
  /** Email: provider name ('resend'), sender address and API key (secret). Unset = emails are recorded as not configured. */

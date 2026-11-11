@@ -9,7 +9,7 @@ import { beginProductDraft } from '../productDraft'
 import { publicStoreUrl } from '../../../tenancy/stores'
 import { can, roleAllows } from '../../../tenancy/access'
 import type { CommerceIntent, StockLine } from './intent'
-import { colorOf, fold, quantityOf, sameColor, sameSize, sizeOf } from './language'
+import { colorOf, fold, parseMoney, quantityOf, sameColor, sameSize, sizeOf } from './language'
 import { parseCommerce, parseStockLines } from './parse'
 import { planSoldOut, planStock, sizesOf, type StockPlan } from './plan'
 import { loadCatalog, matchProducts, resolveProduct, variantLabel, type CatalogProduct } from './resolve'
@@ -32,6 +32,8 @@ async function remember(ctx: AssistantContext, state: CommerceState | undefined,
 
 /** Entry point from the text handler. Returns false when the message is not a commerce request. */
 export async function handleCommerceText(ctx: AssistantContext, text: string): Promise<boolean> {
+  // Feature flag: 'false' returns to the previous behaviour (the rest of the assistant keeps working).
+  if (ctx.env.TELEGRAM_SMART_INTERPRETER_ENABLED === 'false') return false
   const session = await readSession(ctx.db, ctx.telegramUserId)
   const state = session.state.commerce
   // The product in focus, or the only product of the last list shown (an unequivocal antecedent).
@@ -108,6 +110,17 @@ async function act(ctx: AssistantContext, intent: CommerceIntent, product: Catal
     case 'set_description': await propose(ctx, intent, product, 'update_product', { sku: product.sku, description: intent.description }); return
     case 'set_category': await propose(ctx, intent, product, 'move_products_to_category', { skus: [product.sku], categoryName: intent.category }); return
     case 'remove_photo': await choosePhoto(ctx, product); return
+    case 'price_clarify': {
+      // "precio 180" could be $180 or $180.000: ask, never assume.
+      await remember(ctx, { intent, sku: product.sku, ask: 'amount' })
+      await say(ctx, `<b>${escapeHtml(product.name)}</b> hoy cuesta ${formatMoney(product.price, ctx.store.currency)}. Escribiste ${intent.amount}: ¿cuánto es?`, {
+        inline_keyboard: [
+          [{ text: formatMoney(intent.amount, ctx.store.currency), callback_data: cb(ctx, 'amt:1') }, { text: formatMoney(intent.amount * 1000, ctx.store.currency), callback_data: cb(ctx, 'amt:1000') }],
+          cancelRow(ctx),
+        ],
+      })
+      return
+    }
     default: await say(ctx, 'Eso todavía no lo puedo hacer desde Telegram.', backToMenu())
   }
 }
@@ -187,18 +200,34 @@ async function startProduct(ctx: AssistantContext, intent: Extract<CommerceInten
   const catalog = await loadCatalog(ctx)
   // Same name, or the same product words with only a colour added ("Sandalias Guess" vs "Sandalias Guess negras").
   const same = catalog.find((product) => fold(product.name) === fold(intent.name)) || matchProducts(catalog, intent.name)[0]
+  // A reference that already exists is a restock or a mistake, never a second product with the same code.
+  const sameSku = intent.sku ? catalog.find((product) => product.sku.toUpperCase() === intent.sku!.toUpperCase()) : undefined
+  const total = intent.stocks.reduce((sum, stock) => sum + stock.quantity, 0)
   const lines = [
     'Voy a preparar este producto:',
     `Nombre: <b>${escapeHtml(intent.name)}</b>`,
-    intent.sizes.length ? `Variantes: ${escapeHtml(intent.sizes.join(', '))}${intent.color ? ` · ${escapeHtml(intent.color)}` : ''}` : null,
-    intent.price ? `Precio: ${formatMoney(intent.price, ctx.store.currency)} (${escapeHtml(ctx.store.currency)}, la moneda configurada de tu tienda)` : 'Precio: pendiente',
-    'Inventario: pendiente de definir',
-    same ? `⚠️ Ya tienes «${escapeHtml(same.name)}» (código ${escapeHtml(same.sku)}). Si es el mismo, cancela y dime cuántas unidades llegaron.` : null,
+    intent.sku ? `Referencia: <b>${escapeHtml(intent.sku)}</b>` : null,
+    intent.price ? `Precio: ${formatMoney(intent.price, ctx.store.currency)} (${escapeHtml(ctx.store.currency)}, la moneda configurada de tu tienda)`
+      : intent.priceAsk ? `Precio: ⚠️ escribiste ${intent.priceAsk}: te pregunto enseguida si son ${formatMoney(intent.priceAsk, ctx.store.currency)} o ${formatMoney(intent.priceAsk * 1000, ctx.store.currency)}` : 'Precio: pendiente',
+    intent.stocks.length
+      ? `Inventario${intent.color ? ` (${escapeHtml(intent.color)})` : ''}:\n${intent.stocks.map((stock) => `• Talla ${escapeHtml(stock.size)}: ${stock.quantity} u.`).join('\n')}\nTotal: ${total} u.`
+      : intent.sizes.length ? `Variantes: ${escapeHtml(intent.sizes.join(', '))}${intent.color ? ` · ${escapeHtml(intent.color)}` : ''}\nInventario: pendiente de definir` : 'Inventario: pendiente de definir',
+    same && !sameSku ? `⚠️ Ya tienes «${escapeHtml(same.name)}» (código ${escapeHtml(same.sku)}). Si es el mismo, cancela y dime cuántas unidades llegaron.` : null,
   ].filter(Boolean)
+  if (sameSku) {
+    await remember(ctx, { intent, sku: sameSku.sku, ask: 'duplicate_sku' })
+    await say(ctx, `${lines.join('\n')}\n\n⚠️ La referencia <b>${escapeHtml(sameSku.sku)}</b> ya existe: <b>${escapeHtml(sameSku.name)}</b>. No creo un producto repetido.${intent.stocks.length ? ' ¿Son unidades que llegaron de ese mismo producto?' : ' Si llegaron unidades, dime cuántas por talla.'}`, {
+      inline_keyboard: [...(intent.stocks.length ? [[{ text: `➕ Sumar a ${sameSku.name}`.slice(0, 60), callback_data: cb(ctx, 'restock') }]] : []), cancelRow(ctx)],
+    })
+    return
+  }
   await notice(ctx, lines.join('\n'))
   await beginProductDraft(ctx, {
     name: intent.name, ...(intent.brand ? { brand: intent.brand } : {}), ...(intent.price ? { price: intent.price } : {}),
-    ...(intent.color ? { color: intent.color } : {}), ...(intent.sizes.length ? { sizes: intent.sizes, askFirst: 'variants' } : {}),
+    ...(intent.sku ? { sku: intent.sku } : {}), ...(intent.color ? { color: intent.color } : {}),
+    ...(intent.stocks.length ? { variants: intent.stocks.map((stock) => ({ size: stock.size, stock: stock.quantity, ...(intent.color ? { color: intent.color } : {}) })) }
+      : intent.sizes.length ? { sizes: intent.sizes } : {}),
+    ...(intent.priceAsk ? { askFirst: 'price' } : !intent.stocks.length && intent.sizes.length ? { askFirst: 'variants' } : {}),
   })
 }
 
@@ -216,6 +245,14 @@ async function continueClarification(ctx: AssistantContext, state: CommerceState
     if (!chosen) return false
     await updateSessionState(ctx, { focusSku: chosen.sku, lastSkus: [chosen.sku] })
     await act(ctx, state.intent, chosen)
+    return true
+  }
+  if (state.ask === 'amount' && state.intent.kind === 'price_clarify') {
+    const catalog = await loadCatalog(ctx)
+    const product = state.sku ? catalog.find((item) => item.sku === state.sku) : undefined
+    const amount = parseMoney(text) ?? (/^\$?\s*\d{1,3}$/.test(text.trim()) || /^\d{1,3}\s*pesos$/.test(lower) ? Number(text.replace(/\D/g, '')) : null)
+    if (!product || !amount) return false
+    await act(ctx, { kind: 'price', mode: state.intent.mode, amount, percent: false, product: null }, product)
     return true
   }
   if (state.ask === 'product_name') {
@@ -292,7 +329,8 @@ function correctIntent(intent: CommerceIntent, correction: Extract<CommerceInten
     if (correction.field === 'quantity') {
       const matches = (!correction.size || sameSize(line.size, correction.size)) && (!correction.color || sameColor(line.color, correction.color))
         && (correction.from === null || line.quantity === quantityOf(correction.from))
-      if (matches && (correction.size || correction.color)) { touched = true; return { ...line, quantity: Number(correction.to) } }
+      // Without a size or colour the correction is only unambiguous when the proposal has a single line.
+      if (matches && (correction.size || correction.color || intent.lines.length === 1)) { touched = true; return { ...line, quantity: Number(correction.to) } }
     }
     if (correction.field === 'size' && (correction.from ? sameSize(line.size, correction.from) : !line.size)) { touched = true; return { ...line, size: correction.to } }
     if (correction.field === 'color' && (correction.from ? sameColor(line.color, correction.from) : !line.color)) { touched = true; return { ...line, color: correction.to } }
@@ -306,7 +344,7 @@ function correctIntent(intent: CommerceIntent, correction: Extract<CommerceInten
 
 /** Buttons of the commerce conversation: cm:<store>:<verb>[:…]. */
 export async function handleCommerceCallback(ctx: AssistantContext, data: string): Promise<boolean> {
-  const match = data.match(/^cm:(\d+):(pick|mode|photo|cancel|switch)(?::([a-z0-9]+))?(?::(\d+))?$/)
+  const match = data.match(/^cm:(\d+):(pick|mode|photo|cancel|switch|amt|restock)(?::([a-z0-9]+))?(?::(\d+))?$/)
   if (!match) return false
   if (Number(match[1]) !== ctx.store.id) {
     await say(ctx, `Ese botón pertenece a otra tienda y no lo apliqué. Ahora estás administrando <b>${escapeHtml(ctx.store.name)}</b>.`)
@@ -329,6 +367,19 @@ export async function handleCommerceCallback(ctx: AssistantContext, data: string
     const product = state?.sku ? catalog.find((item) => item.sku === state.sku) : undefined
     if (!product || state?.intent.kind !== 'stock') { await say(ctx, 'Esa pregunta ya venció. Pídemelo de nuevo.'); return true }
     await act(ctx, { ...state.intent, mode: match[3] === 'set' ? 'set' : 'add' }, product)
+    return true
+  }
+  if (verb === 'amt') {
+    const product = state?.sku ? catalog.find((item) => item.sku === state.sku) : undefined
+    if (!product || state?.intent.kind !== 'price_clarify' || !['1', '1000'].includes(match[3] || '')) { await say(ctx, 'Esa pregunta ya venció. Pídemelo de nuevo.'); return true }
+    await act(ctx, { kind: 'price', mode: state.intent.mode, amount: state.intent.amount * Number(match[3]), percent: false, product: null }, product)
+    return true
+  }
+  if (verb === 'restock') {
+    const product = state?.sku ? catalog.find((item) => item.sku === state.sku) : undefined
+    if (!product || state?.intent.kind !== 'create_product' || state.ask !== 'duplicate_sku' || !state.intent.stocks.length) { await say(ctx, 'Esa pregunta ya venció. Pídemelo de nuevo.'); return true }
+    const color = state.intent.color
+    await act(ctx, { kind: 'stock', mode: 'add', product: product.name, total: null, color, size: null, lines: state.intent.stocks.map((stock) => ({ quantity: stock.quantity, size: stock.size, color })) }, product)
     return true
   }
   if (verb === 'photo') {

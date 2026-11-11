@@ -54,7 +54,7 @@ export type SessionState = {
 export type CommerceState = {
   intent: import('./commerce/intent').CommerceIntent
   sku?: string
-  ask?: 'product' | 'product_name' | 'mode' | 'distribution' | 'color'
+  ask?: 'product' | 'product_name' | 'mode' | 'distribution' | 'color' | 'amount' | 'duplicate_sku'
   options?: number[]
   missing?: number
   operationId?: string

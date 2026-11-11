@@ -178,7 +178,7 @@ async function handleCallback(ctx: AssistantContext, data: string): Promise<void
   }
   const attach = key.match(/^ap:(done|confirm|cancel):([0-9a-f-]{36})$/)
   if (attach) { await handleAttachCallback(ctx, attach[1]!, attach[2]!); return }
-  const operation = key.match(/^op:(preview|confirm|cancel):([0-9a-f-]{36})$/i)
+  const operation = key.match(/^op:(preview|confirm|cancel|fix):([0-9a-f-]{36})$/i)
   if (operation) {
     const [, intent, operationId] = operation
     if (intent === 'cancel') {
@@ -193,6 +193,19 @@ async function handleCallback(ctx: AssistantContext, data: string): Promise<void
     }
     const pending = await getPendingOperation(ctx, operationId)
     if (!pending) { await say(ctx, 'Esa propuesta ya venció o se procesó. Pídemela de nuevo si la necesitas.'); return }
+    if (intent === 'fix') {
+      // The proposal stays pending: the merchant fixes it with a natural message (text or voice) and sees the new summary.
+      const tracked = (await readSession(ctx.db, ctx.telegramUserId)).state.commerce?.operationId === operationId
+      if (!tracked) {
+        await cancelOperation(ctx, operationId)
+        await say(ctx, 'Descarté esa propuesta sin aplicarla. Dime cómo debe quedar el cambio y te muestro un resumen nuevo.', backToMenu())
+        return
+      }
+      await say(ctx, '✏️ ¿Qué dato corrijo? Escríbelo o mándame un audio, por ejemplo: «las M son 5, no 3», «la talla es 39, no 38» o «el precio es 85 mil». Nada se guarda hasta que confirmes.', {
+        inline_keyboard: [[{ text: '✖ Cancelar', callback_data: `op:cancel:${operationId}` }]],
+      })
+      return
+    }
     if (intent === 'preview') {
       await say(ctx, `<b>Revisa este cambio</b>\n${formatOperationPreview(pending, ctx.store.currency)}\n\n<i>Nada cambia hasta que confirmes.</i>`, {
         inline_keyboard: [[{ text: '✅ Confirmar', callback_data: `op:confirm:${operationId}` }, { text: '✖ Cancelar', callback_data: `op:cancel:${operationId}` }]],
@@ -384,6 +397,7 @@ async function handlePhoto(ctx: AssistantContext, message: TelegramMessage): Pro
 }
 
 async function handleVoice(ctx: AssistantContext, message: TelegramMessage): Promise<void> {
+  if (ctx.env.TELEGRAM_VOICE_ENABLED === 'false') { await say(ctx, 'Las notas de voz están desactivadas por ahora. Escríbeme lo que necesitas y lo hago igual.'); return }
   const voice = message.voice || message.audio!
   if (!ctx.env.GEMINI_API_KEY) { await say(ctx, 'Las notas de voz necesitan la IA, que aún no está activada. Escríbeme tu solicitud, por favor.'); return }
   if (voice.duration > 120) { await say(ctx, 'La nota de voz es muy larga. Envíame una de máximo 2 minutos.'); return }

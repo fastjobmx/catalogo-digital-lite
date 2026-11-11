@@ -19,6 +19,8 @@ export interface PendingOperation {
 }
 
 const CATALOG_ACTIONS = new Set(['update_product', 'update_price', 'update_stock'])
+/** Proposals the merchant can fix with a natural message ("las M son 5, no 3") without starting over. */
+export const CORRECTABLE_ACTIONS = new Set(['update_variant_stocks', 'update_price', 'update_stock', 'update_product'])
 const STORE_ACTIONS = new Set([
   'update_store_name', 'update_store_colors', 'update_hero_title', 'update_whatsapp', 'update_business_hours',
   'update_business_info', 'update_social_links', 'update_store_banner', 'update_store_logo',
@@ -358,7 +360,7 @@ export async function proposeChange(ctx: AssistantContext, action: ActionName, p
   }
   const text = `<b>Revisa este cambio</b>${summary ? `\n${escapeHtml(summary)}` : ''}\n\n${formatOperationPreview(record, ctx.store.currency)}\n\n<i>Nada cambia en tu tienda hasta que confirmes. Vence en 15 minutos.</i>`
   if (preview?.photoFileId) await sayPhoto(ctx, preview.photoFileId, text, operationKeyboard(operationId))
-  else await say(ctx, text, operationKeyboard(operationId))
+  else await say(ctx, text, operationKeyboard(operationId, CORRECTABLE_ACTIONS.has(action)))
 }
 
 function parseImages(value: unknown): string[] {

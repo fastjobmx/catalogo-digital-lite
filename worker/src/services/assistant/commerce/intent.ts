@@ -31,7 +31,13 @@ export const commerceIntentSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('create_product'), name: z.string().trim().min(2).max(120), brand: z.string().trim().max(60).nullable(),
     color: z.string().trim().max(30).nullable(), sizes: z.array(z.string().trim().min(1).max(12)).max(30), price: z.number().int().positive().nullable(),
+    /** Reference (SKU) the merchant wrote, units per size when given, and a price that is ambiguous (180 → $180 or $180.000?). */
+    sku: z.string().trim().max(64).nullable().default(null),
+    stocks: z.array(z.object({ size: z.string().trim().min(1).max(12), quantity: z.number().int().min(0).max(100000) })).max(40).default([]),
+    priceAsk: z.number().int().positive().nullable().default(null),
   }),
+  /** A bare small amount ("precio 180"): it is asked, never assumed. */
+  z.object({ kind: z.literal('price_clarify'), mode: z.enum(['set', 'increase', 'decrease']), amount: z.number().int().positive().max(999), product }),
   z.object({ kind: z.literal('stock_query'), product }),
   z.object({ kind: z.literal('product_link'), product }),
   z.object({ kind: z.literal('set_active'), active: z.boolean(), product }),
