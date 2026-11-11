@@ -1,7 +1,7 @@
 # Estudio Creativo IA · Fase 2: estudio fotográfico y producción por lotes
 
 Continúa la arquitectura de [ESTUDIO_CREATIVO_IA.md](ESTUDIO_CREATIVO_IA.md) (fase 1). Misma rama: `feat/estudio-creativo-fase1`.
-Estado: **nada desplegado y ninguna migración aplicada en producción.** Cada paso de publicación necesita autorización expresa (ver «Despliegue»).
+Estado: **EN PRODUCCIÓN desde el 2026-11-10** (autorizado). Ver «Despliegue».
 
 No se tocó MOSTRALO PUES! ni se cambió ningún identificador técnico. El «Estudio IA» anterior (`/admin/estudio`) sigue igual.
 
@@ -216,7 +216,16 @@ Modificados:
 
 ---
 
-## 6. Despliegue (pendiente de autorización)
+## 6. Despliegue
+
+**Realizado el 2026-11-10 (autorizado):**
+- Verificación previa: backend 445 pruebas OK (1 omitida), panel 92 OK (1 omitida), `tsc` OK en ambos, build del panel OK.
+- D1 `catalogo-lite-production-db`: respaldo `.tmp/production-0021/production-pre-0021.sql` (889.677 bytes, SHA-256 `ca0af63c1f9002befddfd7df4a6432f6f43aafa4a0940db0ff1de1900e3cd23b`); Time Travel previo `000003e5-00000000-00005120-9616d39bd38e8644407d9a21ecf5e000`. `0020` y `0021` aplicadas (9 comandos); tablas `brand_kits`, `creative_jobs`, `creative_assets` creadas; 6 tiendas intactas.
+- API `catalogo-lite-api`: `68f94417` → `9f3ff508-6793-4084-8bbb-ffbc01e8886e` (cron `*/15` activo).
+- Panel `catalogo-digital-ia`: → `0729422c-0989-4f54-b008-2ba5c44a7468` (`index-C_WePTAt.js`).
+- Humo: `/api/health` 200, `/api/creative/*` sin sesión 401, `/api/trial/:id/photos/enhance` con prueba inexistente 404, `/t/luz-magica` 200.
+- Reversión: Worker a `68f94417` (el código anterior ignora las tablas nuevas); la base solo con `0021`/`0020` `.down` tras exportar.
+
 
 Orden, cada paso con autorización expresa:
 1. Migraciones 0020 y 0021 en producción (`wrangler d1 migrations apply catalogo-lite-production-db --remote --config wrangler.production.toml`, desde `worker/`).
