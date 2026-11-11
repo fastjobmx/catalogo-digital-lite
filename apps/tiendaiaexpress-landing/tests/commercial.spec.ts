@@ -62,6 +62,19 @@ test.describe('plans and prices', () => {
   })
 })
 
+test.describe('whatsapp message tab', () => {
+  test('shows the order message with the real format and labels the example customer', async ({ page }) => {
+    await page.goto('/#demo')
+    await page.getByRole('tab', { name: 'Mensaje de WhatsApp' }).click()
+    const panel = page.locator('#showcase-panel')
+    for (const text of ['Solicitud de pedido · SneakerHub Premium', 'PED-20261111-7F3A92C1', 'Kinetik Aero Carbon', 'SKU: KINETIK-06-40', 'Cantidad: 1 × 389.900 = 389.900', 'Subtotal: 389.900 COP', 'Envío: Por cotizar']) await expect(panel, text).toContainText(text)
+    await expect(page.locator('#demo')).toContainText('el cliente y su dirección son de ejemplo')
+    await page.waitForTimeout(800) // fade-in finished before measuring contrast
+    const results = await new AxeBuilder({ page }).include('#demo').withTags(WCAG).analyze()
+    expect(results.violations.map((v) => `${v.id}: ${v.nodes.slice(0, 3).map((n) => n.target).join(' | ')}`)).toEqual([])
+  })
+})
+
 test.describe('real stores', () => {
   test('only public store URLs are linked, SneakerHub included', async ({ page }) => {
     await page.goto('/#tiendas')
@@ -101,7 +114,8 @@ test.describe('accessibility', () => {
     await expect(page.getByRole('tab', { name: 'Producto' })).toBeFocused()
     await expect(page.getByRole('tab', { name: 'Producto' })).toHaveAttribute('aria-selected', 'true')
     await page.keyboard.press('End')
-    await expect(page.getByRole('tab', { name: 'Carrito' })).toBeFocused()
+    await expect(page.getByRole('tab', { name: 'Mensaje de WhatsApp' })).toBeFocused()
+    await expect(page.locator('#showcase-panel')).toContainText('Solicitud de pedido · SneakerHub Premium')
 
     await page.locator('#preguntas summary').first().focus()
     await page.keyboard.press('Enter')
