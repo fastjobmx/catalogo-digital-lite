@@ -13,6 +13,8 @@ import ordersRoutes from './routes/orders'
 import platformRoutes from './routes/platform'
 import authRoutes from './routes/auth'
 import masterRoutes from './routes/master'
+import creativeRoutes from './routes/creative'
+import { maintainCreativeJobs } from './creative/jobs'
 import { cleanupAssistantMemory } from './services/assistant/context'
 import { cleanupExpiredTelegramProductAssets } from './services/telegramProductImages'
 import { releaseExpiredReservations } from './ai/credits'
@@ -56,6 +58,8 @@ export type Env = {
  GEMINI_MODEL?: string
  /** Gemini model that returns images (AI Studio). Unset = the studio is not offered. */
  GEMINI_IMAGE_MODEL?: string
+ /** Estudio Creativo IA: modelos extra para el enrutador (JSON sin secretos; ver docs/ESTUDIO_CREATIVO_IA.md). */
+ CREATIVE_AI_MODELS?: string
  /** Catalogue trial without sign-up: 'false' turns it off. */
  TRIALS_ENABLED?: string
  /** Email: provider name ('resend'), sender address and API key (secret). Unset = emails are recorded as not configured. */
@@ -142,6 +146,8 @@ app.route('/api/email', emailRoutes)
 app.route('/api/admin', adminRoutes)
 // Administración de la plataforma (solo superadministrador)
 app.route('/api/platform', platformRoutes)
+// Estudio Creativo IA (owner/admin de la tienda resuelta en el backend)
+app.route('/api/creative', creativeRoutes)
 
 // Manejo de errores global
 app.onError((err, c) => {
@@ -169,6 +175,7 @@ const worker = {
   context.waitUntil(cleanupOrderDocuments(env.DB, env.ASSETS).catch((error) => console.error('Order documents cleanup failed:', error instanceof Error ? error.message : 'unknown')))
   context.waitUntil(cleanupExpiredTrials(env.DB, env.ASSETS).catch((error) => console.error('Trial cleanup failed:', error instanceof Error ? error.message : 'unknown')))
   context.waitUntil(releaseExpiredReservations(env.DB).catch((error) => console.error('AI credit reservation cleanup failed:', error instanceof Error ? error.message : 'unknown')))
+  context.waitUntil(maintainCreativeJobs(env.DB).catch((error) => console.error('Creative jobs maintenance failed:', error instanceof Error ? error.message : 'unknown')))
   context.waitUntil(cleanupAssistantMemory(env.DB).catch((error) => console.error('Assistant memory cleanup failed:', error instanceof Error ? error.message : 'unknown')))
  },
 }

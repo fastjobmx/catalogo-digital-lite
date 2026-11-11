@@ -7,7 +7,7 @@ describe('navegación administrativa visible', () => {
   it('presenta las secciones comerciales y administrativas existentes', () => {
     expect(items.map((item) => item.label)).toEqual([
       'Resumen', 'Productos', 'Inventario', 'Categorías', 'Importar', 'Desde fotos', 'Pedidos',
-      'Apariencia', 'Configuración', 'Usuarios y accesos', 'Cuestionario', 'Simulador IA', 'Estudio IA', 'Créditos IA',
+      'Estudio Creativo', 'Brand Kit', 'Apariencia', 'Configuración', 'Usuarios y accesos', 'Cuestionario', 'Simulador IA', 'Estudio IA', 'Créditos IA',
     ])
   })
 
@@ -21,6 +21,14 @@ describe('navegación administrativa visible', () => {
     expect(isAdminLinkActive('/admin/products', '', products)).toBe(true)
     expect(isAdminLinkActive('/admin/products', '#inventory', products)).toBe(false)
     expect(isAdminLinkActive('/admin/products', '#inventory', inventory)).toBe(true)
+  })
+
+  it('no confunde el Estudio IA existente con el Estudio Creativo IA', () => {
+    const studio = items.find((item) => item.label === 'Estudio IA')!
+    const creative = items.find((item) => item.label === 'Estudio Creativo')!
+    expect(isAdminLinkActive('/admin/estudio-creativo', '', studio)).toBe(false)
+    expect(isAdminLinkActive('/admin/estudio-creativo/brand-kit', '', creative)).toBe(false)
+    expect(isAdminLinkActive('/admin/estudio-creativo', '', creative)).toBe(true)
   })
 
   it('no muestra herramientas de Telegram sin una vista administrativa real', () => {

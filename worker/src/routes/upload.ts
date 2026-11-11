@@ -55,9 +55,9 @@ app.post('/image', adminAuth, async (c) => {
 app.get('/:key{.+}', async (c) => {
  const key = c.req.param('key')
 
- // Draft uploads and order documents (shipping guides with personal data) are private and never
+ // Draft uploads, order documents (shipping guides with personal data) and Estudio Creativo originals are private and never
  // exposed by the public asset route.
- if (key.startsWith('telegram-drafts/') || key.startsWith('trials/') || key.startsWith('order-docs/') || key.includes('..')) return c.json({ error: 'Asset not found' }, 404)
+ if (key.startsWith('telegram-drafts/') || key.startsWith('trials/') || key.startsWith('order-docs/') || key.startsWith('creative-private/') || key.includes('..')) return c.json({ error: 'Asset not found' }, 404)
 
  if (!c.env.ASSETS) {
  return c.json({ error: 'Assets storage not configured' }, 503)

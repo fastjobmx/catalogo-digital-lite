@@ -19,6 +19,8 @@ const ActivationPage = lazy(() => import('./admin/ActivationPage'))
 const AdminImport = lazy(() => import('./admin/pages/Import'))
 const AdminPhotoProducts = lazy(() => import('./admin/pages/PhotoProducts'))
 const AdminStudio = lazy(() => import('./admin/pages/Studio'))
+const CreativeHome = lazy(() => import('./admin/pages/creative/CreativeHome'))
+const CreativeBrandKit = lazy(() => import('./admin/pages/creative/BrandKit'))
 const TrialPage = lazy(() => import('./pages/TrialPage'))
 const AdminUsers = lazy(() => import('./admin/pages/Users'))
 const VerifyEmailPage = lazy(() => import('./admin/VerifyEmailPage'))
@@ -122,6 +124,8 @@ export default function App() {
                     <Route path="creditos" element={page(<AdminCredits />)} />
                     <Route path="usuarios" element={<Suspense fallback={null}><AdminUsers /></Suspense>} />
                     <Route path="estudio" element={<Suspense fallback={null}><AdminStudio /></Suspense>} />
+                    <Route path="estudio-creativo" element={<Suspense fallback={null}><CreativeHome /></Suspense>} />
+                    <Route path="estudio-creativo/brand-kit" element={<Suspense fallback={null}><CreativeBrandKit /></Suspense>} />
                     <Route path="orders" element={page(<AdminOrders />)} />
                   </Route>
                 </>

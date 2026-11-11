@@ -833,3 +833,37 @@ export const emailApi = {
     fetchApi<{ invitation: { delivery: 'email' | 'manual'; activationUrl: string | null } | null; note: string }>(`/api/platform/stores/${slug}/owner-regularization`, { method: 'POST', headers: bearer(token), body: JSON.stringify(payload) }),
 }
 
+
+// ============================================
+// Estudio Creativo IA (fase 1: resumen, Brand Kit y trabajos)
+// ============================================
+export type CreativeModuleStatus = 'disponible' | 'base' | 'proximamente'
+export interface CreativeOverview {
+  name: string
+  description: string
+  aiEnabled: boolean
+  modules: Array<{ key: string; name: string; status: CreativeModuleStatus; summary: string }>
+  tasks: Array<{ task: string; label: string; available: boolean; provider: string | null; model: string | null; reason: string | null }>
+}
+export interface BrandKitApi {
+  brandName: string | null; slogan: string | null; tone: string | null; targetAudience: string | null; logoUrl: string | null
+  colors: string[]; fonts: string[]; visualStyles: string[]; favoriteTemplates: string[]
+  revision: number; updatedBy: string | null; updatedAt: string | null
+}
+export interface BrandKitResponse {
+  kit: BrandKitApi
+  hints: { name: string | null; logoUrl: string | null; primaryColor: string | null }
+  options: { fonts: string[]; visualStyles: Record<string, string>; tones: Record<string, string> }
+}
+export interface CreativeJobApi {
+  id: string; kind: string; status: 'pendiente' | 'en_proceso' | 'completado' | 'fallido' | 'cancelado'
+  errorCode: string | null; requestedBy: string; createdAt: string; finishedAt: string | null
+}
+
+export const creativeApi = {
+  overview: (token: string) => fetchApi<CreativeOverview>('/api/creative/overview', { headers: auth(token) }),
+  brandKit: (token: string) => fetchApi<BrandKitResponse>('/api/creative/brand-kit', { headers: auth(token) }),
+  saveBrandKit: (patch: Partial<Omit<BrandKitApi, 'updatedBy' | 'updatedAt'>>, token: string) =>
+    fetchApi<{ kit: BrandKitApi }>('/api/creative/brand-kit', { method: 'PUT', headers: auth(token), body: JSON.stringify(patch) }),
+  jobs: (token: string) => fetchApi<{ items: CreativeJobApi[] }>('/api/creative/jobs', { headers: auth(token) }),
+}

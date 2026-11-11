@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Package, Boxes, Tag, Settings, LogOut, Bot, Sparkles, ClipboardList,
-  Palette, Menu, X, ExternalLink, ChevronRight, CircleUserRound, Building2, Coins, FileUp, Camera, Wand2, UserCog,
+  Palette, Menu, X, ExternalLink, ChevronRight, CircleUserRound, Building2, Coins, FileUp, Camera, Wand2, UserCog, Brush, SwatchBook,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
@@ -40,6 +40,13 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
   {
     label: 'Ventas', items: [
       { to: '/admin/orders', icon: ClipboardList, label: 'Pedidos' },
+    ],
+  },
+  {
+    label: 'Estudio Creativo IA',
+    items: [
+      { to: '/admin/estudio-creativo', icon: Brush, label: 'Estudio Creativo', exact: true },
+      { to: '/admin/estudio-creativo/brand-kit', icon: SwatchBook, label: 'Brand Kit' },
     ],
   },
   {
