@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "api-local",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "cd worker && npx wrangler dev --port 8788 --persist-to ../.tmp/fase3-local --var GEMINI_VIDEO_MODEL:gemini-omni-1.2-flash --var PUBLIC_STORE_BASE_URL:https://app.tiendiaexpres.com"],
+      "port": 8788
+    },
+    {
+      "name": "panel-local",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "cd frontend && npx vite --port 5173 --strictPort"],
+      "port": 5173
+    }
+  ]
+}

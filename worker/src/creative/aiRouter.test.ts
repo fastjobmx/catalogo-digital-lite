@@ -12,7 +12,9 @@ describe('enrutador de IA', () => {
   it('no ofrece tareas sin modelo, sin credencial o con modelos descontinuados', () => {
     const catalog = buildCatalog({})
     expect(routeTask(catalog, { task: 'video' }, { GEMINI_API_KEY: true })).toMatchObject({ ok: false, reason: 'sin_modelo' })
-    expect(routeTask(catalog, { task: 'render' }, {})).toMatchObject({ ok: false, reason: 'sin_modelo' })
+    expect(routeTask(catalog, { task: 'render' }, {})).toMatchObject({ ok: true, entry: { provider: 'navegador', unitCostMicros: 0 } })
+    expect(routeTask(buildCatalog({ GEMINI_VIDEO_MODEL: 'gemini-omni-1.2-flash' }), { task: 'video' }, { GEMINI_API_KEY: true })).toMatchObject({ ok: true, entry: { model: 'gemini-omni-1.2-flash' } })
+    expect(routeTask(buildCatalog({ GEMINI_VIDEO_MODEL: 'veo-3.1-generate-preview' }), { task: 'video', allowPreview: true }, { GEMINI_API_KEY: true })).toMatchObject({ ok: false, reason: 'descontinuado' })
     expect(routeTask(catalog, { task: 'texto' }, {})).toMatchObject({ ok: false, reason: 'sin_credencial' })
     expect(routeTask(buildCatalog({ GEMINI_MODEL: 'gemini-2.0-flash' }), { task: 'texto' }, { GEMINI_API_KEY: true })).toMatchObject({ ok: false, reason: 'descontinuado' })
     expect(isRetiredModel('imagen-4.0-generate-001')).toBe(true)

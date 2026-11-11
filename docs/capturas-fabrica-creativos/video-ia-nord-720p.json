@@ -1,0 +1,14 @@
+{
+  "input": {
+    "assetId": "1053b0fc-5977-4f27-8973-fd8da43b463b",
+    "format": "banner",
+    "seconds": 4,
+    "resolution": "720p",
+    "motion": "ambiente"
+  },
+  "model": "gemini-omni-1.2-flash",
+  "ms": 22964,
+  "credits": 20,
+  "costMicros": 279849,
+  "bytes": 2040914
+}

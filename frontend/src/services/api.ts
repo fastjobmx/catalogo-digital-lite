@@ -940,3 +940,65 @@ export const creativePhotoApi = {
     return response.blob()
   },
 }
+
+// ---- Fábrica de creativos y video comercial (Estudio Creativo, fase 3) ----
+export type PieceKind = 'imagen' | 'carrusel' | 'video'
+export interface CreativeCopyApi { headline: string; description: string; benefits: string[]; cta: string; hashtags: string[]; short: string; whatsapp: string; social: string }
+export interface CreativeCostApi { composicionConvencional: number; imagenGenerativa: number; videoGenerativo: number; total: number }
+export interface CreativePieceApi {
+  id: string; kind: PieceKind; mode: 'convencional' | 'video_ia'; template: string; format: string; productIds: number[]
+  copy: Partial<CreativeCopyApi>; spec: Record<string, unknown>; status: 'pendiente' | 'aprobado' | 'rechazado'
+  files: Array<{ index: number; contentType: string; bytes: number; width: number | null; height: number | null; durationMs: number | null }>
+  model: string | null; credits: number; costMicros: number; jobId: string | null; campaignId: number | null; campaignName: string | null
+  createdBy: string; reviewedBy: string | null; createdAt: string; updatedAt: string
+}
+export interface VideoAiCatalogApi {
+  available: boolean; reason: string | null; model: string | null; provider: string | null; creditsPerSecond: number | null
+  seconds: number[]; formats: string[]; resolutions: Array<{ key: string; label: string }>
+  motions: Array<{ key: string; label: string; description: string }>; disclaimer: string
+}
+export interface CreativeCatalogApi {
+  formats: Array<{ key: string; label: string; ratio: string; width: number; height: number; video: boolean; use: string }>
+  templates: Array<{ key: string; label: string; description: string; minProducts: number; maxProducts: number; kinds: PieceKind[]; requires: string | null; seconds: number[] }>
+  qualities: Array<{ key: 'estandar' | 'alta'; label: string; description: string }>
+  videoAi: VideoAiCatalogApi
+  campaigns: Array<{ id: number; name: string; status: string }>
+}
+export interface CreativePlanInput { kind: PieceKind; template: string; format: string; productIds: number[]; quality?: string; seconds?: number | null; copy?: Partial<CreativeCopyApi> | null }
+export interface CreativePlanApi<Spec = unknown> { spec: Spec; specHash: string; copy: CreativeCopyApi; defaultCopy: CreativeCopyApi; cost: CreativeCostApi; reusable: CreativePieceApi | null }
+export interface VideoAiInput { productId: number; imageUrl?: string; format: string; seconds: number; resolution: string; motion: string }
+export interface VideoAiQuoteApi { available: boolean; reason: string | null; seconds: number; resolution: string; creditsPerSecond: number | null; totalCredits: number; balance: number; enough: boolean; cost: CreativeCostApi }
+
+const creativeJson = (token: string, body: unknown, key?: string): RequestInit => ({ method: 'POST', headers: { ...auth(token), ...(key ? { 'Idempotency-Key': key } : {}) }, body: JSON.stringify(body) })
+
+export const creativePiecesApi = {
+  catalog: (token: string) => fetchApi<CreativeCatalogApi>(`/api/creative/creatives/catalog?t=${Date.now()}`, { headers: auth(token) }),
+  eligibility: (productIds: number[], token: string) => fetchApi<{ templates: Array<{ key: string; ok: boolean; reason: string | null }> }>('/api/creative/creatives/eligibility', creativeJson(token, { productIds })),
+  plan: <Spec>(input: CreativePlanInput, token: string) => fetchApi<CreativePlanApi<Spec>>('/api/creative/creatives/plan', creativeJson(token, input)),
+  suggestCopy: (input: Pick<CreativePlanInput, 'template' | 'productIds' | 'kind' | 'format'>, key: string, token: string) =>
+    fetchApi<{ copy: CreativeCopyApi; rejected: string[]; credits: number; model: string }>('/api/creative/creatives/copy', creativeJson(token, input, key)),
+  list: (token: string, status?: string) => fetchApi<{ items: CreativePieceApi[] }>(`/api/creative/creatives?${status ? `status=${status}&` : ''}t=${Date.now()}`, { headers: auth(token) }),
+  get: (id: string, token: string) => fetchApi<CreativePieceApi>(`/api/creative/creatives/${id}?t=${Date.now()}`, { headers: auth(token) }),
+  save: (input: CreativePlanInput & { replaces?: string; durationMs?: number }, files: Blob[], key: string, token: string) => {
+    const form = new FormData()
+    form.append('spec', JSON.stringify(input))
+    files.forEach((file, index) => form.append('file', file, `pieza-${index + 1}`))
+    return fetch(`${API_BASE}/api/creative/creatives`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': key, ...tenantHeaders() }, body: form }).then(async (response) => {
+      const data = await response.json().catch(() => ({ error: 'Error desconocido' })) as { piece: CreativePieceApi; replayed: boolean; reused: boolean } & ApiError
+      if (!response.ok) throw new ApiRequestError(data.error || `HTTP ${response.status}`, response.status, data.code)
+      return data
+    })
+  },
+  approve: (id: string, token: string) => fetchApi<CreativePieceApi>(`/api/creative/creatives/${id}/approve`, { method: 'POST', headers: auth(token) }),
+  reject: (id: string, token: string) => fetchApi<CreativePieceApi>(`/api/creative/creatives/${id}/reject`, { method: 'POST', headers: auth(token) }),
+  attachCampaign: (id: string, campaignId: number | null, token: string) => fetchApi<CreativePieceApi>(`/api/creative/creatives/${id}/campaign`, creativeJson(token, { campaignId })),
+  /** Los archivos de las piezas son privados: se descargan con la sesión. */
+  file: async (id: string, index: number, token: string): Promise<Blob> => {
+    const response = await fetch(`${API_BASE}/api/creative/creatives/${id}/files/${index}`, { headers: { Authorization: `Bearer ${token}`, ...tenantHeaders() } })
+    if (!response.ok) throw new ApiRequestError('No se pudo abrir la pieza', response.status)
+    return response.blob()
+  },
+  quoteVideoAi: (input: VideoAiInput, token: string) => fetchApi<VideoAiQuoteApi>('/api/creative/creatives/video-ai/quote', creativeJson(token, input)),
+  createVideoAi: (input: VideoAiInput & { confirmCredits: number }, key: string, token: string) =>
+    fetchApi<{ job: CreativeJobApi | null; piece: CreativePieceApi | null; reused: boolean; replayed: boolean }>('/api/creative/creatives/video-ai', creativeJson(token, input, key)),
+}

@@ -4,7 +4,7 @@ import { AlertCircle, Camera, CheckCircle2, Clock, Images, Loader2, Palette, Spa
 import { useAuth } from '../../../contexts/AuthContext'
 import { ApiRequestError, creativeApi, type CreativeJobApi, type CreativeOverview } from '../../../services/api'
 
-const MODULE_LINK: Record<string, string> = { brand_kit: '/admin/estudio-creativo/brand-kit', foto: '/admin/estudio-creativo/fotos', biblioteca: '/admin/estudio-creativo/biblioteca' }
+const MODULE_LINK: Record<string, string> = { brand_kit: '/admin/estudio-creativo/brand-kit', foto: '/admin/estudio-creativo/fotos', biblioteca: '/admin/estudio-creativo/biblioteca', creativos: '/admin/estudio-creativo/creativos', video: '/admin/estudio-creativo/creativos' }
 const JOB_KIND: Record<string, string> = { foto: 'Mejora de foto', video: 'Video', creativo: 'Creativo', oportunidades: 'Oportunidades', campana: 'Campaña', analitica: 'Analítica' }
 const STATUS_LABEL = { disponible: 'Disponible', base: 'Base lista', proximamente: 'Próximamente' } as const
 const JOB_STATUS: Record<CreativeJobApi['status'], string> = { pendiente: 'Pendiente', en_proceso: 'En proceso', completado: 'Completado', fallido: 'Falló (sin costo)', cancelado: 'Cancelado' }

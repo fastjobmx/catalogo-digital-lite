@@ -3,7 +3,7 @@ import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Package, Boxes, Tag, Settings, LogOut, Bot, Sparkles, ClipboardList,
   Palette, Menu, X, ExternalLink, ChevronRight, CircleUserRound, Building2, Coins, FileUp, Camera, Wand2, UserCog, Brush, SwatchBook, Aperture, Images,
-} from 'lucide-react'
+ Clapperboard } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useStore } from '../contexts/StoreContext'
@@ -47,6 +47,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
     items: [
       { to: '/admin/estudio-creativo', icon: Brush, label: 'Estudio Creativo', exact: true },
       { to: '/admin/estudio-creativo/fotos', icon: Aperture, label: 'Estudio fotográfico' },
+      { to: '/admin/estudio-creativo/creativos', icon: Clapperboard, label: 'Creativos y video' },
       { to: '/admin/estudio-creativo/biblioteca', icon: Images, label: 'Biblioteca' },
       { to: '/admin/estudio-creativo/brand-kit', icon: SwatchBook, label: 'Brand Kit' },
     ],

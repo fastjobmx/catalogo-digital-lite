@@ -18,6 +18,8 @@ export const AI_CREDIT_FEATURES = {
   leer_guia_envio: 'Leer una guía de envío con IA (Telegram)',
   foto_packshot: 'Estudio fotográfico: packshot (fondo, luz, sombra)',
   foto_premium: 'Estudio fotográfico: composición premium',
+  creativo_texto: 'Creativos: sugerir textos comerciales con IA',
+  video_ia_segundo: 'Video generativo con IA (precio por segundo)',
 } as const
 export type AiCreditFeature = keyof typeof AI_CREDIT_FEATURES
 export const isAiCreditFeature = (value: unknown): value is AiCreditFeature => typeof value === 'string' && Object.hasOwn(AI_CREDIT_FEATURES, value)
@@ -107,7 +109,8 @@ export type CreditRun<T> =
 export async function runWithCredits<T extends { usage?: TokenUsage; model?: string }>(
   db: D1Database,
   env: Partial<Env['Bindings']>,
-  input: { storeId: number; feature: AiCreditFeature; key: string; actor: string },
+  /** `units` multiplica el precio de la función (p. ej. segundos de video). Por defecto 1. */
+  input: { storeId: number; feature: AiCreditFeature; key: string; actor: string; units?: number },
   call: () => Promise<T>,
 ): Promise<CreditRun<T>> {
   const blocked = (reason: CreditGateReason): CreditRun<T> => ({ ok: false, reason, message: CREDIT_GATE_MESSAGES[reason] })
@@ -119,7 +122,8 @@ export async function runWithCredits<T extends { usage?: TokenUsage; model?: str
     await recordAiUsage(db, env, { storeId: input.storeId, feature: input.feature, status: 'blocked' })
     return blocked(budget.reason || 'budget_exhausted')
   }
-  const credits = Number(cost?.credits || 0)
+  const units = Number.isInteger(input.units) && input.units! > 0 ? input.units! : 1
+  const credits = Number(cost?.credits || 0) * units
   let reservationId: number | null = null
   if (credits > 0) {
     await releaseExpiredReservations(db, input.storeId)

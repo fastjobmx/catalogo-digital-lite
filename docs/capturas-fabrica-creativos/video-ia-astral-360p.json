@@ -1,0 +1,14 @@
+{
+  "input": {
+    "assetId": "96dfdf70-edec-489e-8935-8a3f4fa0d0c2",
+    "format": "historia",
+    "seconds": 4,
+    "resolution": "360p",
+    "motion": "acercamiento"
+  },
+  "model": "gemini-omni-1.2-flash",
+  "ms": 15559,
+  "credits": 20,
+  "costMicros": 94509,
+  "bytes": 1662106
+}

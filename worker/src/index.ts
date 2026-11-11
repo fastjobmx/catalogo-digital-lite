@@ -16,6 +16,7 @@ import masterRoutes from './routes/master'
 import creativeRoutes from './routes/creative'
 import { maintainCreativeJobs } from './creative/jobs'
 import { processPendingPhotoJobs } from './creative/photoEngine'
+import { processPendingVideoJobs } from './creative/videoEngine'
 import { cleanupAssistantMemory } from './services/assistant/context'
 import { cleanupExpiredTelegramProductAssets } from './services/telegramProductImages'
 import { releaseExpiredReservations } from './ai/credits'
@@ -61,6 +62,8 @@ export type Env = {
  GEMINI_IMAGE_MODEL?: string
  /** Estudio Creativo IA: modelos extra para el enrutador (JSON sin secretos; ver docs/ESTUDIO_CREATIVO_IA.md). */
  CREATIVE_AI_MODELS?: string
+ GEMINI_VIDEO_MODEL?: string
+ GEMINI_VIDEO_PRICE_OUTPUT_MICROS_PER_MTOK?: string
  /** Catalogue trial without sign-up: 'false' turns it off. */
  TRIALS_ENABLED?: string
  /** Email: provider name ('resend'), sender address and API key (secret). Unset = emails are recorded as not configured. */
@@ -177,7 +180,7 @@ const worker = {
   context.waitUntil(cleanupExpiredTrials(env.DB, env.ASSETS).catch((error) => console.error('Trial cleanup failed:', error instanceof Error ? error.message : 'unknown')))
   context.waitUntil(releaseExpiredReservations(env.DB).catch((error) => console.error('AI credit reservation cleanup failed:', error instanceof Error ? error.message : 'unknown')))
   // Estudio Creativo: primero libera trabajos caídos; después avanza la cola de fotos pendientes.
-  context.waitUntil(maintainCreativeJobs(env.DB).then(() => processPendingPhotoJobs(env)).catch((error) => console.error('Creative jobs maintenance failed:', error instanceof Error ? error.message : 'unknown')))
+  context.waitUntil(maintainCreativeJobs(env.DB).then(() => processPendingPhotoJobs(env)).then(() => processPendingVideoJobs(env)).catch((error) => console.error('Creative jobs maintenance failed:', error instanceof Error ? error.message : 'unknown')))
   context.waitUntil(cleanupAssistantMemory(env.DB).catch((error) => console.error('Assistant memory cleanup failed:', error instanceof Error ? error.message : 'unknown')))
  },
 }

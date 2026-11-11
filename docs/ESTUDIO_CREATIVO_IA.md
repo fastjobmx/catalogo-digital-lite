@@ -6,6 +6,8 @@
 Rama: `feat/estudio-creativo-fase1`. Sale de `feat/dominio-seo-correo` (y no de `main`) porque esa rama tiene la migración 0019, que `main` todavía no tiene. Sigue la numeración desde 0020.
 Estado: **no se ha desplegado nada y no se ha aplicado ninguna migración remota.** Antes de publicar hace falta autorización expresa (ver «Despliegue»).
 
+> **Fase 3 (fábrica de creativos y video comercial):** ver [FABRICA_CREATIVOS_FASE3.md](FABRICA_CREATIVOS_FASE3.md).
+>
 > **Fase 2 (estudio fotográfico, biblioteca y lotes):** ver [ESTUDIO_FOTOGRAFICO_FASE2.md](ESTUDIO_FOTOGRAFICO_FASE2.md). Algunos datos de este documento cambiaron allí: los límites de la cola de trabajos y el estado de los módulos de biblioteca y fotografía.
 
 Los identificadores técnicos no cambian: Workers `catalogo-lite-api` y `catalogo-digital-ia`, D1 `catalogo-lite-production-db`, R2 `catalogo-lite-production-assets`. No se tocó MOSTRALO PUES! (`apps/mostralopues-landing`).

@@ -55,7 +55,7 @@ export type RouteDecision =
  * Un modelo que coincida nunca se elige, aunque esté configurado. */
 export const RETIRED_MODELS: RegExp[] = [
   /^imagen-4\.0-generate/, /^gemini-2\.0-flash/, /^gemini-3-pro-preview$/, /^gemini-3\.1-flash-lite-preview$/,
-  /^gemini-2\.5-flash$/, /^gemini-2\.5-pro$/, /^gemini-2\.5-computer-use/, /^gemini-robotics-er-1\.6/,
+  /^gemini-2\.5-flash$/, /^gemini-2\.5-pro$/, /^gemini-2\.5-computer-use/, /^veo-3\.1-.*preview$/, /^gemini-omni-flash-preview$/, /^gemini-robotics-er-1\.6/,
 ]
 export const isRetiredModel = (model: string) => RETIRED_MODELS.some((pattern) => pattern.test(model))
 export const isPreviewModel = (model: string) => /-preview|-exp\b|-exp-/.test(model)
@@ -82,8 +82,13 @@ export function buildCatalog(env: Partial<Env['Bindings']> & { CREATIVE_AI_MODEL
       maxResolution: null, maxConcurrent: 2, enabled: true,
     })
   }
-  // Render convencional (plantillas): previsto para la fase de creativos; no está implementado.
-  catalog.push({ provider: 'interno', model: 'render-plantillas', tasks: ['render'], requiresSecret: null, quality: 2, latency: 1, unitCostMicros: 0, maxResolution: null, maxConcurrent: 4, enabled: false })
+  // Video generativo: solo si la instalación configuró GEMINI_VIDEO_MODEL (no hay modelo por defecto).
+  const videoModel = cleanModel((env as { GEMINI_VIDEO_MODEL?: string }).GEMINI_VIDEO_MODEL)
+  if (videoModel) {
+    catalog.push({ provider: 'gemini', model: videoModel, tasks: ['video'], requiresSecret: 'GEMINI_API_KEY', quality: tier(videoModel), latency: 3, unitCostMicros: null, maxResolution: 1280, maxConcurrent: 1, enabled: true })
+  }
+  // Render convencional (plantillas): composición determinista en el navegador del comercio, sin IA ni costo.
+  catalog.push({ provider: 'navegador', model: 'render-plantillas', tasks: ['render'], requiresSecret: null, quality: 2, latency: 1, unitCostMicros: 0, maxResolution: 1920, maxConcurrent: 4, enabled: true })
   for (const extra of parseExtraModels(env.CREATIVE_AI_MODELS)) catalog.push(extra)
   return catalog
 }
