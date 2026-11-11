@@ -12,6 +12,7 @@
     "brand": "python scripts/brand_transparent.py",
     "snapshot": "node scripts/snapshot-sneakerhub.mjs",
     "test": "playwright test",
+    "test:unit": "node --test scripts/check-plans.mjs",
     "cf:deploy": "npm run build:official && node ../../worker/node_modules/wrangler/bin/wrangler.js pages deploy dist --project-name tiendaiaexpress --branch main --commit-dirty=true",
     "cf:check": "npm run build && node scripts/check-dist.mjs",
     "build:official": "tsc --noEmit && vite build --mode official && vite build --mode official --ssr src/entry-server.tsx --outDir dist-ssr && node scripts/prerender.mjs"
@@ -25,6 +26,7 @@
     "three": "0.186.1"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.10.2",
     "@playwright/test": "1.63.0",
     "@tailwindcss/vite": "4.3.3",
     "@types/node": "22.18.0",

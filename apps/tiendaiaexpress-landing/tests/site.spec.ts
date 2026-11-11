@@ -14,7 +14,7 @@ test.describe('page', () => {
     const raw = await (await request.get('/')).text()
     expect(raw).toContain('Tu tienda') // content is in the HTML before any JS
     await page.goto('/')
-    await expect(page).toHaveTitle(/Tienda IA Express/)
+    await expect(page).toHaveTitle(/TiendIA Exprés/)
     await expect(page.locator('h1:visible')).toHaveCount(1)
     await page.waitForTimeout(1500)
     expect(errors).toEqual([])
@@ -102,7 +102,8 @@ test.describe('contact form', () => {
     await page.getByLabel('Nombre del negocio').fill('Tienda de prueba')
     await page.getByLabel('Ciudad').fill('Medellín')
     await page.getByLabel('¿Qué vendés?').fill('Ropa deportiva')
-    await page.getByLabel('Plan de interés').selectOption('Catálogo IA')
+    await page.getByLabel('Plan de interés').selectOption('Negocio')
+    await page.getByLabel('Modalidad de pago').selectOption('Pago anual')
     await page.waitForTimeout(2600) // anti-spam minimum fill time
     await page.getByRole('button', { name: /preparar en whatsapp/i }).click()
     await expect(page.getByText(/Recordá tocar «Enviar» en WhatsApp/)).toBeVisible()
@@ -112,7 +113,8 @@ test.describe('contact form', () => {
     expect(url.origin + url.pathname).toBe('https://wa.me/573506912734')
     const text = url.searchParams.get('text')!
     expect(text).toContain('Nombre: Ana Prueba')
-    expect(text).toContain('Plan de interés: Catálogo IA')
+    expect(text).toContain('Plan de interés: Negocio')
+    expect(text).toContain('Modalidad de pago: Pago anual')
   })
 
   test('a filled honeypot blocks the submission', async ({ page }) => {

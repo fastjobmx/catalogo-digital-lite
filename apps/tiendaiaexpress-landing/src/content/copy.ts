@@ -1,12 +1,13 @@
 // All page copy. Rule: only real, verified features are presented as available.
 // Illustrative demos and upcoming features are labelled as such (rules inherited from the MOSTRALO PUES! site, docs/MOSTRALOPUES_FASE_A.md §6).
 import type { IconName } from '../components/ui/Icon'
+import { annualSaving, cop, plans } from './plans'
 
 export const nav = [
   { href: '#inicio', label: 'Inicio' },
   { href: '#como-funciona', label: 'Cómo funciona' },
   { href: '#caracteristicas', label: 'Características' },
-  { href: '#demo', label: 'Demo' },
+  { href: '#tiendas', label: 'Tiendas' },
   { href: '#planes', label: 'Planes' },
   { href: '#preguntas', label: 'Preguntas frecuentes' },
   { href: '#contacto', label: 'Contacto' },
@@ -44,11 +45,11 @@ export const moreCapabilities: Capability[] = [
   { title: 'Inventario por talla', body: 'Cargá stock por variante y consultá los movimientos.', icon: 'layers' },
   { title: 'Cupones de descuento', body: 'Creá cupones y tus clientes los aplican en el carrito.', icon: 'ticket' },
   { title: 'Tu equipo, con permisos', body: 'Sumá personas con roles: administración, ventas o inventario.', icon: 'users' },
+  { title: 'Fichas con IA desde una foto', body: 'Subís la foto y la IA sugiere nombre, categoría y descripción; vos revisás y completás precio y tallas.', icon: 'sparkle' },
+  { title: 'Importá tu lista de productos', body: 'Desde Excel o CSV, o desde un PDF (con lectura por IA opcional).', icon: 'layers' },
 ]
 
 export const upcoming: Capability[] = [
-  { title: 'Fichas con IA desde una foto', body: 'Mandás la foto y el asistente propone nombre, descripción y categoría. En pruebas finales.', icon: 'sparkle' },
-  { title: 'Mejoramiento fotográfico', body: 'Fondos limpios y luz pareja para tus fotos de producto.', icon: 'wand' },
   { title: 'Estadísticas avanzadas', body: 'Qué se mira, qué se vende y cuándo.', icon: 'chart' },
   { title: 'Asistente de ventas', body: 'Respuestas a las preguntas frecuentes de tus clientes.', icon: 'bot' },
   { title: 'Promociones inteligentes', body: 'Sugerencias de promociones según tu catálogo.', icon: 'megaphone' },
@@ -95,59 +96,67 @@ export const compare = {
   },
 }
 
-export const plans = [
-  {
-    key: 'lite',
-    name: 'Catálogo Lite',
-    for: 'Para empezar a mostrar.',
-    includes: ['Catálogo responsive con plantilla', 'Productos, categorías y variantes', 'Carrito y pedidos por WhatsApp', 'Panel web de administración'],
-  },
-  {
-    key: 'ia',
-    name: 'Catálogo IA',
-    for: 'Para administrar desde el celular.',
-    includes: ['Todo lo de Catálogo Lite', 'Asistente en Telegram con IA', 'Pedidos, inventario y cupones', 'Varias tiendas en una cuenta'],
-    featured: true,
-  },
-  {
-    key: 'medida',
-    name: 'Soluciones a medida',
-    for: 'Para necesidades especiales.',
-    includes: ['Dominio propio (configuración asistida)', 'Diseño o integraciones especiales', 'Acompañamiento para tu equipo', 'Lo conversamos según tu caso'],
-  },
-]
+const [emprendedor, negocio, mayorista] = plans
 
 export const faq = [
   {
-    q: '¿Necesito saber de tecnología?',
-    a: 'No. Creamos la tienda con vos y después la administrás desde un panel web o escribiéndole a tu asistente en Telegram.',
+    q: '¿Cuánto cuesta crear mi tienda?',
+    a: `Depende del plan. Con pago mensual: Emprendedor ${cop(emprendedor.monthly)} al mes, Negocio ${cop(negocio.monthly)} y Mayorista ${cop(mayorista.monthly)}, más un pago inicial único de ${cop(emprendedor.setup)}, ${cop(negocio.setup)} o ${cop(mayorista.setup)}. Con pago anual: ${cop(emprendedor.annual)}, ${cop(negocio.annual)} o ${cop(mayorista.annual)}, sin pago inicial.`,
   },
   {
-    q: '¿Cómo me llegan los pedidos?',
-    a: 'Tu cliente arma el carrito y envía el pedido por WhatsApp a tu número, con los productos, las tallas y los datos de entrega. Después podés cambiar su estado desde el panel o desde Telegram.',
+    q: '¿Qué incluye el pago inicial?',
+    a: 'La configuración de tu tienda con nuestro equipo: plantilla y colores, tu logo, la carga inicial de productos, las categorías, la conexión con tu WhatsApp, la vinculación del asistente de Telegram y una capacitación inicial. Se paga una sola vez, con la primera mensualidad.',
+  },
+  {
+    q: '¿Cuál es la diferencia entre mensual y anual?',
+    a: `Con pago mensual pagás el pago inicial una vez y luego cada mes. Con pago anual pagás 12 meses por adelantado y no hay pago inicial. Comparando el mismo primer año, el anual te ahorra ${cop(annualSaving(emprendedor))} en Emprendedor, ${cop(annualSaving(negocio))} en Negocio y ${cop(annualSaving(mayorista))} en Mayorista.`,
+  },
+  {
+    q: '¿Puedo utilizar WhatsApp?',
+    a: 'Sí. Tu cliente arma el carrito y te envía el pedido por WhatsApp, con los productos, las tallas y los datos de entrega. Después podés cambiar el estado del pedido desde el panel o desde Telegram.',
+  },
+  {
+    q: '¿Cómo funciona Telegram?',
+    a: 'Le escribís a tu asistente como a una persona: «cambiá el precio», «cargá 10 en talla 42», «¿qué pedidos tengo?». Entiende el mensaje y te pide confirmación antes de guardar cualquier cambio.',
+  },
+  {
+    q: '¿Cuántos productos puedo publicar?',
+    a: `${emprendedor.products} en Emprendedor, ${negocio.products.toLowerCase()} en Negocio y ${mayorista.products.toLowerCase()} en Mayorista. Si necesitás más, lo conversamos.`,
+  },
+  {
+    q: '¿Qué ocurre cuando se agotan los créditos IA?',
+    a: 'Tu tienda sigue funcionando igual: solo se pausan las funciones con IA hasta el mes siguiente, o hasta que pidás créditos adicionales desde tu panel y se aprueben. Si una acción con IA falla, no se descuenta.',
+  },
+  {
+    q: '¿Puedo tener dominio propio?',
+    a: 'Sí, como complemento con configuración asistida. Las condiciones (tipo de dominio, titularidad, renovación y transferencia) se acuerdan por escrito antes de configurarlo.',
+  },
+  {
+    q: '¿Hay comisión por venta?',
+    a: 'No. Pagás tu plan y nada más: no cobramos comisión por tus ventas. El pago lo acordás directamente con tu cliente.',
   },
   {
     q: '¿Puedo cobrar en línea?',
     a: 'Todavía no. Hoy el pago se acuerda con tu cliente por WhatsApp; en el pedido puede indicar su medio de pago preferido.',
   },
   {
-    q: '¿Cómo creo mi tienda?',
-    a: 'Escribinos por WhatsApp. Por ahora el alta la hacemos con vos: no hay registro automático.',
+    q: '¿Cómo puedo cambiar de plan?',
+    a: 'Escribinos por WhatsApp. Te confirmamos el valor del cambio antes de hacerlo y tu tienda conserva sus productos y pedidos.',
   },
   {
-    q: '¿Qué hace la inteligencia artificial?',
-    a: 'Entiende lo que le escribís a tu asistente en Telegram, como cambiar un precio o cargar stock, y te pide confirmación antes de guardar. La creación de fichas a partir de una foto está en pruebas finales.',
+    q: '¿Puedo importar mis productos desde Excel o PDF?',
+    a: 'Sí. Desde el panel importás una lista en Excel (.xlsx) o CSV, y también desde PDF. Antes de guardar ves una vista previa; la lectura de PDF con IA es opcional y usa créditos.',
+  },
+  {
+    q: '¿Qué funciones de IA están disponibles hoy?',
+    a: 'El asistente de Telegram que entiende tus mensajes, las fichas de producto a partir de una foto, la lectura de listas en PDF, la lectura de guías de envío por foto y el estudio fotográfico con IA (packshots y escenarios). Formatos para redes, modelos virtuales y videos están en camino.',
+  },
+  {
+    q: '¿Necesito saber de tecnología?',
+    a: 'No. Creamos la tienda con vos y después la administrás desde un panel web o escribiéndole a tu asistente en Telegram.',
   },
   {
     q: '¿Puedo tener varias tiendas?',
     a: 'Sí. Una misma cuenta de Telegram puede administrar varias tiendas y cambiar entre ellas.',
-  },
-  {
-    q: '¿Puedo usar mi propio dominio?',
-    a: 'Sí, como solución a medida: lo configuramos con vos. Escribinos y lo revisamos.',
-  },
-  {
-    q: '¿Cuánto cuesta?',
-    a: 'Los planes están en definición. Escribinos por WhatsApp y te contamos las opciones para tu negocio.',
   },
 ]

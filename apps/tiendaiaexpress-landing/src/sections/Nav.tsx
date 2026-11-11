@@ -26,7 +26,8 @@ export function Nav() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { setOpen(false); toggle.current?.focus() }
       if (e.key === 'Tab' && panel.current) {
-        const items = [...panel.current.querySelectorAll<HTMLElement>('a, button')]
+        // The close button lives in the header, above the panel: it is part of the focus cycle.
+        const items = [toggle.current, ...panel.current.querySelectorAll<HTMLElement>('a, button')].filter((el): el is HTMLElement => Boolean(el))
         const first = items[0]
         const last = items[items.length - 1]
         if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus() }
