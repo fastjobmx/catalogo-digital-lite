@@ -6,15 +6,17 @@
  * → eliminada (files and content deleted; the row stays for metrics) — or convertida into a real store. */
 import type { Env } from '../index'
 import { getTrialSettings, TRIAL_TEMPLATES, type TrialSettings, type TrialTemplate } from './trialSettings'
+import { editPhotoWithInstruction, studioModel, STUDIO_PRESETS } from '../ai/imageStudio'
+import { geminiFailureCode } from '../ai/geminiClient'
 
-const LIMITS = { photo: 60, save: 600, order: 20, ordersPerTrialDay: 200 } as const // per IP and hour (create comes from settings)
+const LIMITS = { photo: 60, save: 600, order: 20, ordersPerTrialDay: 200, enhance: 10 } as const // per IP and hour (create comes from settings)
 /** Unused photos younger than this are kept: a save queued before an upload finished must never
  * delete the new photo. Older orphans go on a later save, and everything goes when the trial is erased. */
 export const ORPHAN_GRACE_MS = 10 * 60_000
 const MAX_UPLOADS_FACTOR = 4 // uploads per trial: (products + logo) × factor, so replacing photos is possible but bounded
 
 export class TrialError extends Error {
-  constructor(readonly code: string, message: string, readonly status: 400 | 401 | 404 | 409 | 410 | 413 | 429 | 503 = 400) { super(message) }
+  constructor(readonly code: string, message: string, readonly status: 400 | 401 | 404 | 409 | 410 | 413 | 429 | 502 | 503 = 400) { super(message) }
 }
 
 const clean = (value: unknown, max: number) => (typeof value === 'string' ? value.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, max) : '')
@@ -45,7 +47,7 @@ async function rateLimit(db: D1Database, ip: string, action: string, limit: numb
 export type TrialProduct = { id: string; name: string; price: number | null; description: string; imageUrl: string | null }
 export type TrialContent = { logoUrl: string | null; whatsapp: string | null; colors: { primary: string; accent: string }; products: TrialProduct[] }
 type TrialRow = {
-  id: string; edit_token_hash: string; business_name: string; template: string; content_json: string; photo_count: number
+  id: string; edit_token_hash: string; business_name: string; template: string; content_json: string; photo_count: number; photo_enhance_count?: number
   created_at: string; expires_at: string; retain_until: string | null; status: string; product_count: number; converted_store_id: number | null
 }
 
@@ -110,6 +112,8 @@ function view(row: TrialRow, settings: TrialSettings, owner: boolean) {
     // Orders open only while the trial is active, the platform allows them and the merchant left a WhatsApp.
     ordersOpen: state === 'activa' && settings.ordersEnabled && Boolean(content.whatsapp),
     ordersEnabled: settings.ordersEnabled,
+    // AI photo improvement: how many this trial may use and how many it has left (owner only).
+    photoEnhance: owner && state === 'activa' ? { limit: settings.photoEnhancePerTrial, used: Math.min(Number(row.photo_enhance_count || 0), settings.photoEnhancePerTrial) } : null,
   }
   // After expiry only the owner still sees the content (to activate it); the public link shows the state.
   if (state === 'eliminada' || (state === 'vencida' && !owner)) return { ...base, logoUrl: null, colors: DEFAULT_COLORS, products: [] as TrialProduct[], whatsapp: null }
@@ -167,6 +171,49 @@ export async function addTrialPhoto(db: D1Database, env: Partial<Env['Bindings']
   const name = `${crypto.randomUUID()}.${type.split('/')[1]}`
   await env.ASSETS.put(`trials/${trial.id}/${name}`, bytes, { httpMetadata: { contentType: type }, customMetadata: { trial: trial.id } })
   return { url: `/api/trial/${trial.id}/assets/${name}` }
+}
+
+/** AI improvement (white background) of one of the trial's own photos. Bounded three ways: a small number
+ * per trial, a daily ceiling across the platform and a per-IP rate limit. Off unless the platform sets
+ * photoEnhancePerTrial > 0. The original photo is kept; the result is a new photo the visitor may choose. */
+export async function enhanceTrialPhoto(db: D1Database, env: Partial<Env['Bindings']>, ip: string, id: string, token: string | undefined, body: { url?: unknown }, fetcher: typeof fetch = fetch) {
+  const trial = await authorize(db, id, token)
+  const settings = await getTrialSettings(db)
+  if (!settings.photoEnhancePerTrial || !settings.photoEnhanceDailyLimit || !env.GEMINI_API_KEY || !studioModel(env) || !env.ASSETS) throw new TrialError('ENHANCE_UNAVAILABLE', 'La mejora de fotos con IA no está disponible en la prueba', 409)
+  await rateLimit(db, await ipHash(env, ip), 'enhance', LIMITS.enhance)
+  const file = typeof body.url === 'string' ? body.url.match(new RegExp(`^/api/trial/${trial.id}/assets/([0-9a-f-]{36}\\.(?:jpeg|png|webp))$`))?.[1] : null
+  const object = file ? await env.ASSETS.get(`trials/${trial.id}/${file}`) : null
+  if (!object) throw new TrialError('ASSET_NOT_FOUND', 'Foto no encontrada', 404)
+  const bytes = new Uint8Array(await object.arrayBuffer())
+  const type = imageType(bytes)
+  if (!type) throw new TrialError('INVALID_PHOTO', 'Usa fotos JPG, PNG o WebP')
+  // Take one of this trial's slots first (atomic), then one of today's platform slots.
+  const slot = await db.prepare(`UPDATE trial_sessions SET photo_enhance_count = photo_enhance_count + 1, updated_at = datetime('now') WHERE id = ? AND photo_enhance_count < ? RETURNING photo_enhance_count AS used`)
+    .bind(trial.id, settings.photoEnhancePerTrial).first<{ used: number }>()
+  if (!slot) throw new TrialError('ENHANCE_LIMIT', 'Ya usaste las mejoras con IA de esta prueba. En una tienda activa puedes mejorar todas tus fotos.', 409)
+  const refund = () => db.prepare('UPDATE trial_sessions SET photo_enhance_count = MAX(photo_enhance_count - 1, 0) WHERE id = ?').bind(trial.id).run()
+  const day = Math.floor(Date.now() / 86_400_000)
+  const today = await db.prepare(`INSERT INTO trial_rate_limits (rate_key, window_start, hits) VALUES ('enhance-day:platform', ?, 1) ON CONFLICT(rate_key, window_start) DO UPDATE SET hits = hits + 1 RETURNING hits`).bind(day).first<{ hits: number }>()
+  if (Number(today?.hits || 0) > settings.photoEnhanceDailyLimit) { await refund(); throw new TrialError('TRIALS_BUSY', 'La mejora con IA está muy solicitada hoy. Intenta de nuevo mañana.', 503) }
+  try {
+    let binary = ''
+    for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+    const output = await editPhotoWithInstruction(env, fetcher, { mimeType: type, data: btoa(binary) }, STUDIO_PRESETS.fondo_blanco.instruction)
+    const raw = atob(output.image.data)
+    const result = new Uint8Array(raw.length)
+    for (let i = 0; i < raw.length; i++) result[i] = raw.charCodeAt(i)
+    const resultType = imageType(result)
+    if (!resultType) throw new Error('Invalid image output')
+    const name = `${crypto.randomUUID()}.${resultType.split('/')[1]}`
+    await env.ASSETS.put(`trials/${trial.id}/${name}`, result, { httpMetadata: { contentType: resultType }, customMetadata: { trial: trial.id, enhanced: '1' } })
+    await db.prepare(`INSERT INTO platform_events (store_id, level, source, code, detail) VALUES (NULL, 'info', 'ai', 'TRIAL_PHOTO_ENHANCE', ?)`)
+      .bind(`modelo=${output.model} tokens_entrada=${output.usage.promptTokens} tokens_salida=${output.usage.outputTokens}`).run()
+    return { url: `/api/trial/${trial.id}/assets/${name}`, originalUrl: body.url as string, remaining: Math.max(0, settings.photoEnhancePerTrial - slot.used) }
+  } catch (error) {
+    await refund()
+    await db.prepare(`INSERT INTO platform_events (store_id, level, source, code, detail) VALUES (NULL, 'warning', 'ai', 'TRIAL_PHOTO_ENHANCE_FAILED', ?)`).bind(geminiFailureCode(error)).run()
+    throw new TrialError('ENHANCE_FAILED', 'La IA no pudo mejorar la foto. No se descontó ninguna mejora.', 502)
+  }
 }
 
 export async function saveTrial(db: D1Database, env: Partial<Env['Bindings']>, ip: string, id: string, token: string | undefined, body: Record<string, unknown>) {

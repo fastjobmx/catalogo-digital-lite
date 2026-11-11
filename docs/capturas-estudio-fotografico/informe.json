@@ -1,0 +1,279 @@
+{
+  "date": "2026-11-11T01:17:02.624Z",
+  "model": "gemini-3.1-flash-image",
+  "pricing": {
+    "imageOutputMicrosPerMTok": 60000000,
+    "inputMicrosPerMTok": 300000
+  },
+  "totals": {
+    "photos": 10,
+    "ok": 10,
+    "failed": 0,
+    "costMicros": 816230,
+    "creditsCharged": 26,
+    "balanceAfter": 74
+  },
+  "duplicateUploadDetected": true,
+  "results": [
+    {
+      "id": "01-fondo-complejo",
+      "condition": "Fondo complejo con varios objetos",
+      "operation": "fondo_blanco",
+      "level": "B",
+      "status": "completado",
+      "errorCode": null,
+      "seconds": 8.5,
+      "credits": 2,
+      "model": "gemini-3.1-flash-image",
+      "promptTokens": 475,
+      "outputTokens": 1322,
+      "costMicros": 79463,
+      "input": {
+        "width": 1400,
+        "height": 1400,
+        "bytes": 370789
+      },
+      "output": {
+        "width": 1024,
+        "height": 1024,
+        "bytes": 395321,
+        "type": "image/jpeg",
+        "file": "01-fondo-complejo-despues.jpg"
+      }
+    },
+    {
+      "id": "02-mala-iluminacion",
+      "condition": "Mala iluminación (foto oscura)",
+      "operation": "fondo_blanco",
+      "level": "B",
+      "status": "completado",
+      "errorCode": null,
+      "seconds": 10.3,
+      "credits": 2,
+      "model": "gemini-3.1-flash-image",
+      "promptTokens": 475,
+      "outputTokens": 1334,
+      "costMicros": 80183,
+      "input": {
+        "width": 1050,
+        "height": 1400,
+        "bytes": 154477
+      },
+      "output": {
+        "width": 896,
+        "height": 1195,
+        "bytes": 323033,
+        "type": "image/jpeg",
+        "file": "02-mala-iluminacion-despues.jpg"
+      }
+    },
+    {
+      "id": "04-colores-similares",
+      "condition": "Producto y fondo de colores similares",
+      "operation": "fondo_blanco",
+      "level": "B",
+      "status": "completado",
+      "errorCode": null,
+      "seconds": 8,
+      "credits": 2,
+      "model": "gemini-3.1-flash-image",
+      "promptTokens": 475,
+      "outputTokens": 1313,
+      "costMicros": 78923,
+      "input": {
+        "width": 1400,
+        "height": 940,
+        "bytes": 232486
+      },
+      "output": {
+        "width": 1263,
+        "height": 848,
+        "bytes": 446630,
+        "type": "image/jpeg",
+        "file": "04-colores-similares-despues.jpg"
+      }
+    },
+    {
+      "id": "05-estampados",
+      "condition": "Estampados (rayas de colores)",
+      "operation": "fondo_blanco",
+      "level": "B",
+      "status": "completado",
+      "errorCode": null,
+      "seconds": 7.3,
+      "credits": 2,
+      "model": "gemini-3.1-flash-image",
+      "promptTokens": 475,
+      "outputTokens": 1390,
+      "costMicros": 83543,
+      "input": {
+        "width": 1200,
+        "height": 800,
+        "bytes": 112307
+      },
+      "output": {
+        "width": 1264,
+        "height": 843,
+        "bytes": 373582,
+        "type": "image/jpeg",
+        "file": "05-estampados-despues.jpg"
+      }
+    },
+    {
+      "id": "07-variantes",
+      "condition": "Variantes (tres colores en una foto)",
+      "operation": "fondo_blanco",
+      "level": "B",
+      "status": "completado",
+      "errorCode": null,
+      "seconds": 7.5,
+      "credits": 2,
+      "model": "gemini-3.1-flash-image",
+      "promptTokens": 475,
+      "outputTokens": 1331,
+      "costMicros": 80003,
+      "input": {
+        "width": 1200,
+        "height": 800,
+        "bytes": 48104
+      },
+      "output": {
+        "width": 1264,
+        "height": 843,
+        "bytes": 258229,
+        "type": "image/jpeg",
+        "file": "07-variantes-despues.jpg"
+      }
+    },
+    {
+      "id": "03-texto-y-manos",
+      "condition": "Texto en empaque y manos (objetos ajenos)",
+      "operation": "quitar_objetos",
+      "level": "B",
+      "status": "completado",
+      "errorCode": null,
+      "seconds": 8.1,
+      "credits": 2,
+      "model": "gemini-3.1-flash-image",
+      "promptTokens": 487,
+      "outputTokens": 1420,
+      "costMicros": 85347,
+      "input": {
+        "width": 1400,
+        "height": 933,
+        "bytes": 125222
+      },
+      "output": {
+        "width": 1264,
+        "height": 842,
+        "bytes": 507947,
+        "type": "image/jpeg",
+        "file": "03-texto-y-manos-despues.jpg"
+      }
+    },
+    {
+      "id": "06-reflejos",
+      "condition": "Reflejos (metal brillante)",
+      "operation": "sombra_natural",
+      "level": "B",
+      "status": "completado",
+      "errorCode": null,
+      "seconds": 7.9,
+      "credits": 2,
+      "model": "gemini-3.1-flash-image",
+      "promptTokens": 470,
+      "outputTokens": 1375,
+      "costMicros": 82641,
+      "input": {
+        "width": 1400,
+        "height": 933,
+        "bytes": 92318
+      },
+      "output": {
+        "width": 1264,
+        "height": 842,
+        "bytes": 340463,
+        "type": "image/jpeg",
+        "file": "06-reflejos-despues.jpg"
+      }
+    },
+    {
+      "id": "08-oscurecida",
+      "condition": "Subexpuesta (oscurecida a propósito)",
+      "operation": "iluminacion_estudio",
+      "level": "B",
+      "status": "completado",
+      "errorCode": null,
+      "seconds": 7.7,
+      "credits": 2,
+      "model": "gemini-3.1-flash-image",
+      "promptTokens": 476,
+      "outputTokens": 1370,
+      "costMicros": 82343,
+      "input": {
+        "width": 1024,
+        "height": 1024,
+        "bytes": 54146
+      },
+      "output": {
+        "width": 1024,
+        "height": 1024,
+        "bytes": 327230,
+        "type": "image/jpeg",
+        "file": "08-oscurecida-despues.jpg"
+      }
+    },
+    {
+      "id": "09-premium-escenario",
+      "condition": "Packshot limpio → escenario comercial (nivel C)",
+      "operation": "escenario_comercial",
+      "level": "C",
+      "status": "completado",
+      "errorCode": null,
+      "seconds": 9.3,
+      "credits": 5,
+      "model": "gemini-3.1-flash-image",
+      "promptTokens": 476,
+      "outputTokens": 1357,
+      "costMicros": 81563,
+      "input": {
+        "width": 1024,
+        "height": 1024,
+        "bytes": 71347
+      },
+      "output": {
+        "width": 1024,
+        "height": 1024,
+        "bytes": 544121,
+        "type": "image/jpeg",
+        "file": "09-premium-escenario-despues.jpg"
+      }
+    },
+    {
+      "id": "10-premium-editorial",
+      "condition": "Fondo de calle → luz editorial (nivel C)",
+      "operation": "editorial",
+      "level": "C",
+      "status": "completado",
+      "errorCode": null,
+      "seconds": 8.4,
+      "credits": 5,
+      "model": "gemini-3.1-flash-image",
+      "promptTokens": 470,
+      "outputTokens": 1368,
+      "costMicros": 82221,
+      "input": {
+        "width": 935,
+        "height": 1400,
+        "bytes": 245409
+      },
+      "output": {
+        "width": 844,
+        "height": 1264,
+        "bytes": 431538,
+        "type": "image/jpeg",
+        "file": "10-premium-editorial-despues.jpg"
+      }
+    }
+  ]
+}

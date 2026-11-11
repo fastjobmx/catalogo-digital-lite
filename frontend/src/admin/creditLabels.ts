@@ -18,6 +18,8 @@ export const FEATURE_LABELS: Record<string, string> = {
   foto_a_producto: 'Producto desde foto',
   estudio_imagen: 'Estudio IA',
   importar_pdf_pagina: 'Lectura de PDF',
+  foto_packshot: 'Foto packshot',
+  foto_premium: 'Foto premium',
 }
 
 export const formatCredits = (n: number) => new Intl.NumberFormat('es-CO').format(n)

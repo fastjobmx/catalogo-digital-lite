@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { AlertCircle, Camera, CheckCircle2, ImagePlus, Loader2, Sparkles, Trash2 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { useCatalog } from '../../contexts/CatalogContext'
@@ -29,6 +29,8 @@ export default function PhotoProducts() {
   const input = useRef<HTMLInputElement>(null)
   const counter = useRef(1)
   const createdCategories = useRef(new Map<string, number>())
+  const [params] = useSearchParams()
+  const preloaded = useRef(false)
 
   useEffect(() => {
     if (!token || isDemoSession) return
@@ -38,6 +40,17 @@ export default function PhotoProducts() {
   const cost = credits?.costs.find((item) => item.feature === 'foto_a_producto')
   const aiAvailable = Boolean(credits?.aiEnabled) && cost?.enabled !== false
   const patch = (id: string, values: Partial<Card>) => setCards((current) => current.map((card) => card.id === id ? { ...card, ...values } : card))
+
+  // Foto ya aprobada en el Estudio Creativo (?foto=/api/assets/stores/…): se usa sin volver a subirla.
+  const presetPhoto = params.get('foto')
+  useEffect(() => {
+    if (!token || isDemoSession || !credits || preloaded.current || !presetPhoto || !/^\/api\/assets\/stores\/\d+\/products\/[\w.-]+$/.test(presetPhoto)) return
+    preloaded.current = true
+    const id = crypto.randomUUID()
+    const analyze = useAi && aiAvailable
+    setCards((current) => [...current, { id, preview: presetPhoto, imageUrl: presetPhoto, status: analyze ? 'analyzing' : 'ready', error: null, sku: '', name: '', description: '', category: '', price: '', stock: '', aiNote: null }])
+    if (analyze) void suggest(id, presetPhoto)
+  }, [token, isDemoSession, credits, presetPhoto]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const addFiles = async (files: FileList | null) => {
     if (!files?.length || !token) return

@@ -212,7 +212,10 @@ export default function ImportProducts() {
               <h2 className="font-bold text-ink">Revisión del lote · {telegramReview.items.length} productos</h2>
               <p className="text-sm text-muted">Estado: {telegramReview.batch.status}. Las correcciones se guardan en este comercio. Confirma la publicación desde Telegram con /publicar.</p>
             </div>
-            <button type="button" className="btn-ghost py-1.5" onClick={() => { setTelegramReview(null); setTelegramReviewDrafts({}) }}>Cerrar</button>
+            <div className="flex flex-wrap gap-2">
+              <Link to={`/admin/estudio-creativo/fotos?telegram=${encodeURIComponent(telegramReview.batch.id)}`} className="btn-ghost py-1.5"><Sparkles size={15} /> Mejorar fotos (opcional)</Link>
+              <button type="button" className="btn-ghost py-1.5" onClick={() => { setTelegramReview(null); setTelegramReviewDrafts({}) }}>Cerrar</button>
+            </div>
           </div>
           {telegramReviewError && <p className="rounded-btn bg-red-50 p-3 text-sm text-red-700" role="alert">{telegramReviewError}</p>}
           <div className="space-y-3">

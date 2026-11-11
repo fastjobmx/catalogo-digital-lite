@@ -5,8 +5,10 @@
  * comparten los servicios existentes de comercios (stores/store_config), productos (products/product_variants),
  * créditos (ai/credits.ts) y consumo de IA (ai/usage.ts).
  *
- * Estado en la fase 1: solo BrandKitService y CreativeJobService están implementados (brandKit.ts, jobs.ts).
- * El resto son contratos para las fases siguientes; no hay generadores conectados. */
+ * Implementados: Brand Kit (brandKit.ts), trabajos (jobs.ts), biblioteca de recursos (library.ts), motor
+ * fotográfico (photoEngine.ts) y control de créditos (ai/credits.ts, usado por el motor). El resto son
+ * contratos para las fases siguientes; las interfaces de biblioteca y foto de este archivo describen la
+ * forma general y sus implementaciones reales exponen más operaciones. */
 import type { EffectiveRole } from '../tenancy/access'
 import type { AiTask } from './aiRouter'
 
@@ -62,16 +64,18 @@ export interface CreativeJob {
   createdAt: string
   startedAt: string | null
   finishedAt: string | null
+  batchId: string | null
 }
 
 export interface CreativeJobService {
-  create(ctx: CreativeContext, input: { kind: CreativeJobKind; idempotencyKey: string; input: Record<string, unknown> }): Promise<{ job: CreativeJob; replayed: boolean }>
+  create(ctx: CreativeContext, input: { kind: CreativeJobKind; idempotencyKey: string; input: Record<string, unknown>; batchId?: string }): Promise<{ job: CreativeJob; replayed: boolean }>
   get(ctx: CreativeContext, id: string): Promise<CreativeJob | null>
   list(ctx: CreativeContext, filter?: { status?: CreativeJobStatus; limit?: number }): Promise<CreativeJob[]>
   cancel(ctx: CreativeContext, id: string): Promise<CreativeJob>
 }
 
-// ---- Contratos de fases siguientes (sin implementación) ------------------------------------
+// ---- Biblioteca y foto: implementados en library.ts y photoEngine.ts ----------------------
+// ---- Resto: contratos de fases siguientes (sin implementación) ------------------------------
 
 /** Biblioteca de recursos: originales privados en R2 (creative-private/stores/<id>/…), derivados aprobados públicos. */
 export interface AssetLibraryService {

@@ -6,6 +6,8 @@
 Rama: `feat/estudio-creativo-fase1`. Sale de `feat/dominio-seo-correo` (y no de `main`) porque esa rama tiene la migración 0019, que `main` todavía no tiene. Sigue la numeración desde 0020.
 Estado: **no se ha desplegado nada y no se ha aplicado ninguna migración remota.** Antes de publicar hace falta autorización expresa (ver «Despliegue»).
 
+> **Fase 2 (estudio fotográfico, biblioteca y lotes):** ver [ESTUDIO_FOTOGRAFICO_FASE2.md](ESTUDIO_FOTOGRAFICO_FASE2.md). Algunos datos de este documento cambiaron allí: los límites de la cola de trabajos y el estado de los módulos de biblioteca y fotografía.
+
 Los identificadores técnicos no cambian: Workers `catalogo-lite-api` y `catalogo-digital-ia`, D1 `catalogo-lite-production-db`, R2 `catalogo-lite-production-assets`. No se tocó MOSTRALO PUES! (`apps/mostralopues-landing`).
 
 ---
@@ -113,7 +115,7 @@ Límites de esta verificación: se hizo leyendo la documentación, **no con llam
 - **Logo:** solo se acepta un recurso de la propia tienda o `https`. `javascript:` y recursos de otra tienda se rechazan.
 - **Auditoría:** `brand_kit_updated`, `creative_job_created` y `creative_job_cancelled` quedan en `audit_log` con `store_id`.
 - **Idempotencia:** `Idempotency-Key` obligatoria al crear trabajos. Si la clave se reutiliza con otro tipo de trabajo, se rechaza.
-- **Concurrencia y abuso:** como máximo 3 trabajos activos por tienda y 30 por hora, verificados en la misma sentencia `INSERT … SELECT … WHERE` (dos solicitudes simultáneas no pasan el límite). Entrada de máximo 8 KB. Brand Kit con listas cerradas y longitudes máximas.
+- **Concurrencia y abuso:** (valores de la fase 1; en la fase 2 pasaron a 100 en cola, 300 por hora y 2 ejecutándose a la vez) como máximo 3 trabajos activos por tienda y 30 por hora, verificados en la misma sentencia `INSERT … SELECT … WHERE` (dos solicitudes simultáneas no pasan el límite). Entrada de máximo 8 KB. Brand Kit con listas cerradas y longitudes máximas.
 - **Créditos:** se usan la reserva y la liquidación existentes. Si un trabajo se cae (más de 30 min «en proceso») o se cancela, se libera su reserva y la tienda no paga.
 - **Secretos:** ninguno nuevo. El resumen del panel dice si hay un modelo configurado, pero no muestra claves (probado).
 - **Retención:** el cron borra los trabajos terminados cuando pasa su `expires_at` (90 días).
@@ -182,6 +184,6 @@ Si se despliega la API sin la migración, `/api/creative/*` y el mantenimiento d
 - **Visitas:** no se registran. La analítica y las oportunidades basadas en visitas necesitan primero un registro de visitas que respete la privacidad.
 - **Planes:** falta decidir en qué planes entra el estudio (`plans.features_json`). Hoy el acceso depende solo del rol.
 - **Campañas:** la tabla `campaigns` actual es de mensajes de WhatsApp. La campaña creativa debe extenderla (`campaign_content`) y no crear otra tabla paralela.
-- **Límites fijos:** 3 trabajos activos y 30 por hora por tienda, 90 días de retención. Están en el código (`creative/jobs.ts`) y se pueden convertir en ajustes de la plataforma.
+- **Límites fijos:** 3 trabajos activos y 30 por hora por tienda (ampliados en la fase 2), 90 días de retención. Están en el código (`creative/jobs.ts`) y se pueden convertir en ajustes de la plataforma.
 - **Tipografías permitidas:** la lista es fija en el código (`ALLOWED_FONTS`). El render de plantillas deberá cargar esas mismas fuentes.
 - **Riesgo bajo en producción:** las tablas nuevas empiezan vacías, ninguna ruta existente cambió de comportamiento (salvo que `creative-private/` ya no es pública, y ese prefijo no existe en R2) y el cron nuevo no hace nada mientras no haya trabajos.

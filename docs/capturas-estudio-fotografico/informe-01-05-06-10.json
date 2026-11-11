@@ -1,0 +1,123 @@
+{
+  "date": "2026-11-11T01:18:32.760Z",
+  "model": "gemini-3.1-flash-image",
+  "pricing": {
+    "imageOutputMicrosPerMTok": 60000000,
+    "inputMicrosPerMTok": 300000
+  },
+  "totals": {
+    "photos": 4,
+    "ok": 4,
+    "failed": 0,
+    "costMicros": 336378,
+    "creditsCharged": 11,
+    "balanceAfter": 89
+  },
+  "duplicateUploadDetected": true,
+  "results": [
+    {
+      "id": "01-fondo-complejo",
+      "condition": "Fondo complejo con varios objetos",
+      "operation": "fondo_blanco",
+      "level": "B",
+      "status": "completado",
+      "errorCode": null,
+      "seconds": 9.3,
+      "credits": 2,
+      "model": "gemini-3.1-flash-image",
+      "promptTokens": 566,
+      "outputTokens": 1388,
+      "costMicros": 83450,
+      "input": {
+        "width": 1400,
+        "height": 1400,
+        "bytes": 370789
+      },
+      "output": {
+        "width": 1024,
+        "height": 1024,
+        "bytes": 342445,
+        "type": "image/jpeg",
+        "file": "01-fondo-complejo-despues.jpg"
+      }
+    },
+    {
+      "id": "05-estampados",
+      "condition": "Estampados (rayas de colores)",
+      "operation": "fondo_blanco",
+      "level": "B",
+      "status": "completado",
+      "errorCode": null,
+      "seconds": 8,
+      "credits": 2,
+      "model": "gemini-3.1-flash-image",
+      "promptTokens": 566,
+      "outputTokens": 1377,
+      "costMicros": 82790,
+      "input": {
+        "width": 1200,
+        "height": 800,
+        "bytes": 112307
+      },
+      "output": {
+        "width": 1264,
+        "height": 843,
+        "bytes": 540887,
+        "type": "image/jpeg",
+        "file": "05-estampados-despues.jpg"
+      }
+    },
+    {
+      "id": "06-reflejos",
+      "condition": "Reflejos (metal brillante)",
+      "operation": "sombra_natural",
+      "level": "B",
+      "status": "completado",
+      "errorCode": null,
+      "seconds": 8.2,
+      "credits": 2,
+      "model": "gemini-3.1-flash-image",
+      "promptTokens": 561,
+      "outputTokens": 1393,
+      "costMicros": 83749,
+      "input": {
+        "width": 1400,
+        "height": 933,
+        "bytes": 92318
+      },
+      "output": {
+        "width": 1264,
+        "height": 842,
+        "bytes": 332442,
+        "type": "image/jpeg",
+        "file": "06-reflejos-despues.jpg"
+      }
+    },
+    {
+      "id": "10-premium-editorial",
+      "condition": "Fondo de calle → luz editorial (nivel C)",
+      "operation": "editorial",
+      "level": "C",
+      "status": "completado",
+      "errorCode": null,
+      "seconds": 9,
+      "credits": 5,
+      "model": "gemini-3.1-flash-image",
+      "promptTokens": 561,
+      "outputTokens": 1437,
+      "costMicros": 86389,
+      "input": {
+        "width": 935,
+        "height": 1400,
+        "bytes": 245409
+      },
+      "output": {
+        "width": 844,
+        "height": 1264,
+        "bytes": 635335,
+        "type": "image/jpeg",
+        "file": "10-premium-editorial-despues.jpg"
+      }
+    }
+  ]
+}

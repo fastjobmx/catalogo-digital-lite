@@ -16,6 +16,10 @@ export type TrialSettings = {
   createPerIpHour: number
   /** Real orders by WhatsApp to the merchant's number (the trial needs a WhatsApp and prices). */
   ordersEnabled: boolean
+  /** AI photo improvements (white background) each trial may use. 0 = not offered. */
+  photoEnhancePerTrial: number
+  /** AI photo improvements allowed per day across all trials (cost ceiling for the platform). */
+  photoEnhanceDailyLimit: number
 }
 
 export const TRIAL_DEFAULTS: TrialSettings = {
@@ -27,6 +31,8 @@ export const TRIAL_DEFAULTS: TrialSettings = {
   dailyLimit: 300,
   createPerIpHour: 5,
   ordersEnabled: true,
+  photoEnhancePerTrial: 0,
+  photoEnhanceDailyLimit: 50,
 }
 
 const RANGES: Record<Exclude<keyof TrialSettings, 'templates' | 'ordersEnabled'>, [number, number]> = {
@@ -36,6 +42,8 @@ const RANGES: Record<Exclude<keyof TrialSettings, 'templates' | 'ordersEnabled'>
   maxPhotoMb: [1, 5],
   dailyLimit: [1, 10000],
   createPerIpHour: [1, 100],
+  photoEnhancePerTrial: [0, 20],
+  photoEnhanceDailyLimit: [0, 5000],
 }
 
 export class SettingsError extends Error {

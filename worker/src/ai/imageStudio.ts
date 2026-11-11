@@ -36,21 +36,34 @@ export function studioModel(env: Partial<Env['Bindings']>): string | null {
   return model || null
 }
 
-/** Calls the image model and returns the first image it produces. */
-export async function editProductPhoto(
+/** Calls the image model with one of the fixed AI Studio presets. */
+export function editProductPhoto(
   env: Partial<Env['Bindings']>,
   fetcher: typeof fetch,
   image: InlineImage,
   preset: StudioPreset,
 ): Promise<{ image: InlineImage; usage: TokenUsage; model: string }> {
-  const model = studioModel(env)
+  return editPhotoWithInstruction(env, fetcher, image, STUDIO_PRESETS[preset].instruction)
+}
+
+/** Calls the image model with a platform-written instruction (never free text from a user) under the product
+ * fidelity rules, and returns the first image it produces. `model` defaults to GEMINI_IMAGE_MODEL. */
+export async function editPhotoWithInstruction(
+  env: Partial<Env['Bindings']>,
+  fetcher: typeof fetch,
+  image: InlineImage,
+  instruction: string,
+  modelOverride?: string,
+  systemOverride?: string[],
+): Promise<{ image: InlineImage; usage: TokenUsage; model: string }> {
+  const model = (modelOverride || '').replace(/[^a-zA-Z0-9._-]/g, '') || studioModel(env)
   if (!env.GEMINI_API_KEY || !model) throw new Error('Image model not configured')
   const response = await fetcher(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY },
     body: JSON.stringify({
-      systemInstruction: { parts: [{ text: PRODUCT_FIDELITY.join(' ') }] },
-      contents: [{ role: 'user', parts: [{ text: STUDIO_PRESETS[preset].instruction }, { inlineData: image }] }],
+      systemInstruction: { parts: [{ text: (systemOverride || PRODUCT_FIDELITY).join(' ') }] },
+      contents: [{ role: 'user', parts: [{ text: instruction }, { inlineData: image }] }],
       generationConfig: { responseModalities: ['IMAGE'], temperature: 0.2 },
     }),
   })

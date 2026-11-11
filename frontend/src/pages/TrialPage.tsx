@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { AlertCircle, Check, Clock, Eye, ImagePlus, Loader2, Pencil, Plus, Rocket, Share2, Trash2, X } from 'lucide-react'
+import { AlertCircle, Check, Clock, Eye, ImagePlus, Loader2, Pencil, Plus, Rocket, Share2, Sparkles, Trash2, X } from 'lucide-react'
 import { trialApi, type TrialColors, type TrialConfig, type TrialOrder, type TrialProduct, type TrialTemplate, type TrialView } from '../services/api'
 import { formatMoney } from '../lib/format'
 import { prepareProductPhoto } from '../lib/imageResize'
@@ -123,7 +123,7 @@ function TrialStart() {
   )
 }
 
-type Draft = TrialProduct & { priceText: string; uploading?: boolean }
+type Draft = TrialProduct & { priceText: string; uploading?: boolean; enhancing?: boolean; originalUrl?: string | null }
 const toDraft = (product: TrialProduct): Draft => ({ ...product, priceText: product.price === null ? '' : String(product.price) })
 const toProduct = (draft: Draft): TrialProduct => ({ id: draft.id, name: draft.name.trim(), description: draft.description.trim(), imageUrl: draft.imageUrl, price: draft.priceText.trim() ? Math.round(parseMoney(draft.priceText) ?? NaN) : null })
 const priceInvalid = (draft: Draft) => Boolean(draft.priceText.trim()) && !Number.isFinite(toProduct(draft).price as number)
@@ -183,7 +183,7 @@ function TrialStore({ id }: { id: string }) {
       businessName: name.trim() || trial!.businessName, template, logoUrl, colors, whatsapp: whatsappInvalid ? (trial!.whatsapp || '') : whatsappDigits,
       products: drafts.filter((draft) => draft.name.trim() && !priceInvalid(draft)).map(toProduct),
       // Photos of products not saved yet (no name or a price being typed) must not be deleted.
-      keep: drafts.filter((draft) => draft.imageUrl && (!draft.name.trim() || priceInvalid(draft))).map((draft) => draft.imageUrl!),
+      keep: [...drafts.filter((draft) => draft.imageUrl && (!draft.name.trim() || priceInvalid(draft))).map((draft) => draft.imageUrl!), ...drafts.filter((draft) => draft.originalUrl).map((draft) => draft.originalUrl!)],
     }
     const timer = window.setTimeout(() => {
       setSaveState('saving')
@@ -207,6 +207,23 @@ function TrialStore({ id }: { id: string }) {
     window.addEventListener('beforeunload', warn)
     return () => window.removeEventListener('beforeunload', warn)
   }, [saveState, uploading])
+
+  // Mejora con IA (fondo blanco): pocas por prueba, la original se conserva y se puede volver a ella.
+  const [enhanceLeft, setEnhanceLeft] = useState<number | null>(null)
+  useEffect(() => { if (trial?.photoEnhance && enhanceLeft === null) setEnhanceLeft(Math.max(0, trial.photoEnhance.limit - trial.photoEnhance.used)) }, [trial, enhanceLeft])
+  const enhance = async (draft: Draft) => {
+    if (!token || !draft.imageUrl) return
+    setMessage(null)
+    patch(draft.id, { enhancing: true })
+    try {
+      const result = await trialApi.enhancePhoto(id, token, draft.imageUrl)
+      patch(draft.id, { imageUrl: result.url, originalUrl: draft.imageUrl, enhancing: false })
+      setEnhanceLeft(result.remaining)
+    } catch (err) {
+      patch(draft.id, { enhancing: false })
+      setMessage({ tone: 'error', text: err instanceof Error ? err.message : 'No se pudo mejorar la foto.' })
+    }
+  }
 
   const upload = async (file: File) => {
     if (!token || !trial) return null
@@ -422,6 +439,15 @@ function TrialStore({ id }: { id: string }) {
                       <button type="button" aria-label={`Quitar el producto ${index + 1}`} className="grid h-10 w-10 shrink-0 place-items-center self-start rounded-full text-[#03301f]/60 hover:bg-white hover:text-red-700" onClick={() => { setDrafts((current) => current.filter((item) => item.id !== draft.id)); touch() }}><Trash2 size={17} /></button>
                     </div>
                     <textarea aria-label={`Descripción del producto ${index + 1}`} rows={2} maxLength={600} className="w-full resize-none rounded-lg border border-[#cfd5cf] bg-white px-2.5 py-2 text-sm" placeholder="Descripción (opcional)" value={draft.description} onChange={(e) => patch(draft.id, { description: e.target.value })} />
+                    {draft.imageUrl && !draft.originalUrl && Boolean(trial.photoEnhance?.limit) && (
+                      <button type="button" disabled={draft.enhancing || !enhanceLeft} onClick={() => void enhance(draft)} className="inline-flex items-center gap-1.5 text-xs font-bold underline disabled:no-underline disabled:opacity-60">
+                        {draft.enhancing ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+                        {enhanceLeft ? `Mejorar foto con IA: fondo blanco (${enhanceLeft} ${enhanceLeft === 1 ? 'disponible' : 'disponibles'})` : 'Ya usaste las mejoras con IA de la prueba'}
+                      </button>
+                    )}
+                    {draft.originalUrl && (
+                      <p className="text-xs text-[#03301f]/70">Foto mejorada con IA. Revisa que tu producto se vea igual. <button type="button" className="font-bold underline" onClick={() => patch(draft.id, { imageUrl: draft.originalUrl!, originalUrl: null })}>Volver a la original</button></p>
+                    )}
                     {!draft.name.trim() && <p className="text-xs text-[#03301f]/60">Escribe el nombre para guardarlo.</p>}
                     {priceInvalid(draft) && <p className="text-xs font-semibold text-red-700">Escribe el precio solo con números, por ejemplo 85000.</p>}
                     {draft.name.trim() && !draft.priceText.trim() && <p className="text-xs text-[#03301f]/60">Sin precio no se puede pedir ni se pasa a tu tienda al activarla.</p>}

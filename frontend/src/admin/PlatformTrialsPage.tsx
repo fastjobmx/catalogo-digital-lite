@@ -20,6 +20,8 @@ const FIELDS: Array<{ key: Exclude<keyof TrialSettings, 'templates' | 'ordersEna
   { key: 'maxPhotoMb', label: 'Tamaño máximo de foto (MB)', hint: 'Por archivo', min: 1, max: 5 },
   { key: 'dailyLimit', label: 'Pruebas por día (toda la plataforma)', hint: 'Cupo diario', min: 1, max: 10000 },
   { key: 'createPerIpHour', label: 'Pruebas por red y hora', hint: 'Límite contra abusos', min: 1, max: 100 },
+  { key: 'photoEnhancePerTrial', label: 'Mejoras de foto con IA por prueba', hint: '0 = no se ofrece. Cada mejora la paga la plataforma', min: 0, max: 20 },
+  { key: 'photoEnhanceDailyLimit', label: 'Mejoras de foto con IA por día (toda la plataforma)', hint: 'Tope diario de costo', min: 0, max: 5000 },
 ]
 
 /** Superadmin: real trial metrics, trial settings and activation requests (conversion into a store). */

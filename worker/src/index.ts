@@ -15,6 +15,7 @@ import authRoutes from './routes/auth'
 import masterRoutes from './routes/master'
 import creativeRoutes from './routes/creative'
 import { maintainCreativeJobs } from './creative/jobs'
+import { processPendingPhotoJobs } from './creative/photoEngine'
 import { cleanupAssistantMemory } from './services/assistant/context'
 import { cleanupExpiredTelegramProductAssets } from './services/telegramProductImages'
 import { releaseExpiredReservations } from './ai/credits'
@@ -175,7 +176,8 @@ const worker = {
   context.waitUntil(cleanupOrderDocuments(env.DB, env.ASSETS).catch((error) => console.error('Order documents cleanup failed:', error instanceof Error ? error.message : 'unknown')))
   context.waitUntil(cleanupExpiredTrials(env.DB, env.ASSETS).catch((error) => console.error('Trial cleanup failed:', error instanceof Error ? error.message : 'unknown')))
   context.waitUntil(releaseExpiredReservations(env.DB).catch((error) => console.error('AI credit reservation cleanup failed:', error instanceof Error ? error.message : 'unknown')))
-  context.waitUntil(maintainCreativeJobs(env.DB).catch((error) => console.error('Creative jobs maintenance failed:', error instanceof Error ? error.message : 'unknown')))
+  // Estudio Creativo: primero libera trabajos caídos; después avanza la cola de fotos pendientes.
+  context.waitUntil(maintainCreativeJobs(env.DB).then(() => processPendingPhotoJobs(env)).catch((error) => console.error('Creative jobs maintenance failed:', error instanceof Error ? error.message : 'unknown')))
   context.waitUntil(cleanupAssistantMemory(env.DB).catch((error) => console.error('Assistant memory cleanup failed:', error instanceof Error ? error.message : 'unknown')))
  },
 }

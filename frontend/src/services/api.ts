@@ -712,6 +712,8 @@ export interface TrialView {
   ordersOpen: boolean; ordersEnabled: boolean
   expiresAt: string; deleteAfter: string; temporary: true; published: false
   limits: { maxProducts: number; maxPhotoMb: number; templates: TrialTemplate[] }
+  /** AI photo improvements this trial may use (owner view of an active trial; null otherwise). */
+  photoEnhance?: { limit: number; used: number } | null
 }
 export interface TrialConfig { enabled: boolean; durationHours: number; retentionHours: number; maxProducts: number; maxPhotoMb: number; templates: TrialTemplate[]; ordersEnabled: boolean; plans: Array<{ key: string; label: string }> }
 export interface TrialOrderLine { productId: string; name: string; price: number; quantity: number; subtotal: number }
@@ -734,6 +736,7 @@ export const trialApi = {
   get: (id: string, token?: string | null) => trialFetch<TrialView>(`/api/trial/${id}`, { token: token || undefined }),
   save: (id: string, token: string, payload: { businessName: string; template: TrialTemplate; logoUrl: string | null; whatsapp: string; colors: TrialColors; products: TrialProduct[]; keep: string[] }) => trialFetch<TrialView>(`/api/trial/${id}`, { method: 'PUT', token, body: JSON.stringify(payload) }),
   photo: (id: string, token: string, file: File) => { const form = new FormData(); form.append('file', file); return trialFetch<{ url: string }>(`/api/trial/${id}/photos`, { method: 'POST', token, body: form }) },
+  enhancePhoto: (id: string, token: string, url: string) => trialFetch<{ url: string; originalUrl: string; remaining: number }>(`/api/trial/${id}/photos/enhance`, { method: 'POST', token, body: JSON.stringify({ url }) }),
   remove: (id: string, token: string) => trialFetch<{ deleted: boolean }>(`/api/trial/${id}`, { method: 'DELETE', token }),
   order: (id: string, body: { items: Array<{ productId: string; quantity: number }>; customerName: string; note: string }) => trialFetch<{ code: string; total: number; whatsappUrl: string }>(`/api/trial/${id}/orders`, { method: 'POST', body: JSON.stringify(body) }),
   orders: (id: string, token: string) => trialFetch<{ items: TrialOrder[] }>(`/api/trial/${id}/orders`, { token }),
@@ -744,7 +747,7 @@ export const trialApi = {
 
 // ---- trials (superadmin) --------------------------------------------------------------
 
-export interface TrialSettings { durationHours: number; retentionHours: number; maxProducts: number; maxPhotoMb: number; templates: TrialTemplate[]; dailyLimit: number; createPerIpHour: number; ordersEnabled: boolean }
+export interface TrialSettings { durationHours: number; retentionHours: number; maxProducts: number; maxPhotoMb: number; templates: TrialTemplate[]; dailyLimit: number; createPerIpHour: number; ordersEnabled: boolean; photoEnhancePerTrial: number; photoEnhanceDailyLimit: number }
 export interface TrialMetrics {
   created: number; last7Days: number; active: number; expired: number; deleted: number; converted: number; avgProducts: number; withoutProducts: number; conversionRate: number
   templates: Array<{ template: string; count: number }>; productCounts: Array<{ products: number; count: number }>
@@ -866,4 +869,74 @@ export const creativeApi = {
   saveBrandKit: (patch: Partial<Omit<BrandKitApi, 'updatedBy' | 'updatedAt'>>, token: string) =>
     fetchApi<{ kit: BrandKitApi }>('/api/creative/brand-kit', { method: 'PUT', headers: auth(token), body: JSON.stringify(patch) }),
   jobs: (token: string) => fetchApi<{ items: CreativeJobApi[] }>('/api/creative/jobs', { headers: auth(token) }),
+}
+
+// ---- Estudio fotográfico y biblioteca de recursos ----
+export type PhotoLevel = 'A' | 'B' | 'C'
+export interface CreativeAssetApi {
+  id: string; role: 'original' | 'resultado'; status: 'activo' | 'pendiente' | 'aprobado' | 'descartado'
+  productId: number | null; productName: string | null; publicUrl: string | null; contentType: string; bytes: number
+  width: number | null; height: number | null; level: PhotoLevel | null; operation: string | null; model: string | null
+  credits: number; costMicros: number; sourceAssetId: string | null; jobId: string | null; origin: string
+  telegramDraft: boolean; hasFile: boolean; createdBy: string; createdAt: string
+}
+export interface PhotoCatalogApi {
+  aiEnabled: boolean; balance: number; maxBatchItems: number
+  levels: Array<{ level: PhotoLevel; label: string; description: string; available: boolean; creditsPerPhoto: number | null }>
+  operations: Array<{ key: string; level: PhotoLevel; label: string; description: string; runsIn: 'navegador' | 'ia'; available: boolean; note: string | null }>
+}
+export interface PhotoQuoteApi { operation: string; level: PhotoLevel; count: number; creditsPerPhoto: number; priceConfigured: boolean; totalCredits: number; balance: number; enough: boolean; paused: boolean }
+export interface PhotoBatchJobApi { id: string; status: CreativeJobApi['status']; errorCode: string | null; attempts: number; operation: string; sourceAssetId: string; productId: number | null; resultAssetId: string | null; credits: number }
+export interface PhotoBatchApi {
+  batchId: string; total: number; done: boolean; creditsCharged: number
+  counts: Record<CreativeJobApi['status'], number>; jobs: PhotoBatchJobApi[]
+  skipped?: Array<{ index: number; code: string; message: string }>
+}
+export type PhotoBatchItem = { productId: number; imageUrl?: string } | { assetId: string } | { telegramBatchId: string; telegramItemId: number }
+
+async function creativeForm<T>(path: string, form: FormData, token: string): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, ...tenantHeaders() }, body: form })
+  const data = await response.json().catch(() => ({ error: 'Error desconocido' })) as T & ApiError
+  if (!response.ok) throw new ApiRequestError(data.error || `HTTP ${response.status}`, response.status, data.code)
+  return data
+}
+
+export const creativePhotoApi = {
+  catalog: (token: string) => fetchApi<PhotoCatalogApi>('/api/creative/photo/catalog', { headers: auth(token) }),
+  quote: (operation: string, count: number, token: string) => fetchApi<PhotoQuoteApi>('/api/creative/photo/quote', { method: 'POST', headers: auth(token), body: JSON.stringify({ operation, count }) }),
+  createBatch: (operation: string, items: PhotoBatchItem[], confirmCredits: number, key: string, token: string) =>
+    fetchApi<PhotoBatchApi & { replayed: boolean }>('/api/creative/photo/batches', { method: 'POST', headers: { ...auth(token), 'Idempotency-Key': key }, body: JSON.stringify({ operation, items, confirmCredits }) }),
+  batch: (id: string, token: string) => fetchApi<PhotoBatchApi>(`/api/creative/photo/batches/${encodeURIComponent(id)}?t=${Date.now()}`, { headers: auth(token) }),
+  cancelBatch: (id: string, token: string) => fetchApi<PhotoBatchApi & { cancelled: number }>(`/api/creative/photo/batches/${encodeURIComponent(id)}/cancel`, { method: 'POST', headers: auth(token) }),
+  runJob: (id: string, token: string) => fetchApi<CreativeJobApi>(`/api/creative/jobs/${id}/run`, { method: 'POST', headers: auth(token) }),
+  retryJob: (id: string, token: string) => fetchApi<CreativeJobApi>(`/api/creative/jobs/${id}/retry`, { method: 'POST', headers: auth(token) }),
+  assets: (token: string, filter: { role?: string; status?: string; productId?: number; sourceId?: string; before?: string } = {}) => {
+    const query = new URLSearchParams(Object.entries(filter).filter(([, value]) => value !== undefined && value !== '').map(([key, value]) => [key, String(value)]))
+    query.set('t', String(Date.now()))
+    return fetchApi<{ items: CreativeAssetApi[] }>(`/api/creative/assets?${query}`, { headers: auth(token) })
+  },
+  asset: (id: string, token: string) => fetchApi<CreativeAssetApi>(`/api/creative/assets/${id}?t=${Date.now()}`, { headers: auth(token) }),
+  upload: (file: File, token: string, productId?: number) => {
+    const form = new FormData()
+    form.append('file', file)
+    if (productId) form.append('productId', String(productId))
+    return creativeForm<{ asset: CreativeAssetApi; duplicate: boolean }>('/api/creative/assets', form, token)
+  },
+  importProduct: (productId: number, token: string, imageUrl?: string) => fetchApi<{ asset: CreativeAssetApi; duplicate: boolean }>('/api/creative/assets/import-product', { method: 'POST', headers: auth(token), body: JSON.stringify({ productId, imageUrl }) }),
+  importTelegram: (batchId: string, itemId: number, token: string) => fetchApi<{ asset: CreativeAssetApi; duplicate: boolean }>('/api/creative/assets/import-telegram', { method: 'POST', headers: auth(token), body: JSON.stringify({ batchId, itemId }) }),
+  saveEdit: (sourceId: string, file: File, operation: string, token: string) => {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('operation', operation)
+    return creativeForm<CreativeAssetApi>(`/api/creative/assets/${sourceId}/edits`, form, token)
+  },
+  approve: (id: string, token: string, options: { attach?: 'principal' | 'agregar'; productId?: number } = {}) =>
+    fetchApi<{ asset: CreativeAssetApi; attached: { productId: number; mode: string } | { telegramDraft: true } | null }>(`/api/creative/assets/${id}/approve`, { method: 'POST', headers: auth(token), body: JSON.stringify(options) }),
+  discard: (id: string, token: string) => fetchApi<CreativeAssetApi>(`/api/creative/assets/${id}/discard`, { method: 'POST', headers: auth(token) }),
+  /** Los archivos de la biblioteca son privados: se descargan con la sesión, nunca con una URL pública. */
+  file: async (id: string, token: string): Promise<Blob> => {
+    const response = await fetch(`${API_BASE}/api/creative/assets/${id}/file`, { headers: { Authorization: `Bearer ${token}`, ...tenantHeaders() } })
+    if (!response.ok) throw new ApiRequestError('No se pudo abrir la imagen', response.status)
+    return response.blob()
+  },
 }

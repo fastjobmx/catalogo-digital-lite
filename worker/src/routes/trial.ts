@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import type { Context } from 'hono'
 import type { Env } from '../index'
-import { addTrialPhoto, createTrial, deleteTrial, getTrial, listTrialOrders, placeTrialOrder, saveTrial, trialAsset, TrialError, trialsEnabled } from '../services/trials'
+import { addTrialPhoto, enhanceTrialPhoto, createTrial, deleteTrial, getTrial, listTrialOrders, placeTrialOrder, saveTrial, trialAsset, TrialError, trialsEnabled } from '../services/trials'
 import { getActivationRequest, requestActivation, TRIAL_PLAN_CHOICES } from '../services/trialConversion'
 import { getTrialSettings } from '../services/trialSettings'
 
@@ -21,6 +21,7 @@ app.get('/config', async (c) => {
   return c.json({
     enabled: trialsEnabled(c.env), durationHours: settings.durationHours, retentionHours: settings.retentionHours, maxProducts: settings.maxProducts,
     maxPhotoMb: settings.maxPhotoMb, templates: settings.templates, ordersEnabled: settings.ordersEnabled,
+    photoEnhancePerTrial: c.env.GEMINI_API_KEY && c.env.GEMINI_IMAGE_MODEL && settings.photoEnhanceDailyLimit ? settings.photoEnhancePerTrial : 0,
     plans: Object.entries(TRIAL_PLAN_CHOICES).map(([key, plan]) => ({ key, label: plan.label })),
   })
 })
@@ -40,6 +41,11 @@ app.put('/:id', async (c) => {
 app.post('/:id/photos', async (c) => {
   const form = await c.req.formData().catch(() => null)
   try { return c.json(await addTrialPhoto(c.env.DB, c.env, ip(c), c.req.param('id'), token(c), form?.get('file')), 201) } catch (error) { return fail(c, error) }
+})
+app.post('/:id/photos/enhance', async (c) => {
+  const body = await c.req.json().catch(() => null)
+  if (!body) return c.json({ error: 'Invalid JSON body' }, 400)
+  try { return c.json(await enhanceTrialPhoto(c.env.DB, c.env, ip(c), c.req.param('id'), token(c), body), 201) } catch (error) { return fail(c, error) }
 })
 app.delete('/:id', async (c) => {
   try { return c.json(await deleteTrial(c.env.DB, c.env, c.req.param('id'), token(c))) } catch (error) { return fail(c, error) }

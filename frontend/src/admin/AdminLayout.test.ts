@@ -7,7 +7,7 @@ describe('navegación administrativa visible', () => {
   it('presenta las secciones comerciales y administrativas existentes', () => {
     expect(items.map((item) => item.label)).toEqual([
       'Resumen', 'Productos', 'Inventario', 'Categorías', 'Importar', 'Desde fotos', 'Pedidos',
-      'Estudio Creativo', 'Brand Kit', 'Apariencia', 'Configuración', 'Usuarios y accesos', 'Cuestionario', 'Simulador IA', 'Estudio IA', 'Créditos IA',
+      'Estudio Creativo', 'Estudio fotográfico', 'Biblioteca', 'Brand Kit', 'Apariencia', 'Configuración', 'Usuarios y accesos', 'Cuestionario', 'Simulador IA', 'Estudio IA', 'Créditos IA',
     ])
   })
 
