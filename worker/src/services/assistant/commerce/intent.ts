@@ -17,6 +17,8 @@ export const commerceIntentSchema = z.discriminatedUnion('kind', [
     kind: z.literal('stock'), mode: z.enum(['add', 'set', 'remove', 'ask']), product,
     total: z.number().int().positive().max(100000).nullable(), lines: z.array(line).max(40),
     color: z.string().trim().max(30).nullable(), size: z.string().trim().max(12).nullable(),
+    /** "cinco pares de cada talla": the quantity applies to every size the product already has. */
+    each: z.boolean().optional(),
   }),
   /** "las blancas ya no quedan": stock 0 for the matching variants. */
   z.object({ kind: z.literal('sold_out'), product, color: z.string().trim().max(30).nullable(), size: z.string().trim().max(12).nullable() }),

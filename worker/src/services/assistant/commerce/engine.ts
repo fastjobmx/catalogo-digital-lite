@@ -10,7 +10,7 @@ import { publicStoreUrl } from '../../../tenancy/stores'
 import { can, roleAllows } from '../../../tenancy/access'
 import type { CommerceIntent, StockLine } from './intent'
 import { colorOf, fold, parseMoney, quantityOf, sameColor, sameSize, sizeOf } from './language'
-import { parseCommerce, parseStockLines } from './parse'
+import { parseCommerce, parseNewProduct, parseStockLines } from './parse'
 import { planSoldOut, planStock, sizesOf, type StockPlan } from './plan'
 import { loadCatalog, matchProducts, resolveProduct, variantLabel, type CatalogProduct } from './resolve'
 import { extractCommerceWithAi } from './ai'
@@ -39,17 +39,21 @@ export async function handleCommerceText(ctx: AssistantContext, text: string): P
   // The product in focus, or the only product of the last list shown (an unequivocal antecedent).
   const focus = session.state.focusSku || (session.state.lastSkus?.length === 1 ? session.state.lastSkus[0] : undefined)
   let intent = parseCommerce(text)
+  if (state?.ask === 'new_product' && state.intent.kind === 'create_product' && /^(?:es\s+)?(?:un\s+producto\s+)?nuevo\b|^crealo\b|^crea(?:r)?\s+(?:el\s+)?producto\b/.test(fold(text).trim())) {
+    await startProduct(ctx, state.intent)
+    return true
+  }
   if (state?.ask && !(intent && intent.kind !== 'stock' && intent.kind !== 'correction')) {
     if (await continueClarification(ctx, state, text, focus)) return true
   }
   if (!intent && ctx.env.GEMINI_API_KEY && looksCommercial(text)) intent = await extractCommerceWithAi(ctx, text)
   if (!intent) return false
-  await dispatch(ctx, intent, focus, state)
+  await dispatch(ctx, intent, focus, state, undefined, text)
   return true
 }
 
 /** Runs one intent. `forced` is the product already chosen (button or clarification). */
-async function dispatch(ctx: AssistantContext, intent: CommerceIntent, focusSku?: string, previous?: CommerceState, forced?: CatalogProduct): Promise<void> {
+async function dispatch(ctx: AssistantContext, intent: CommerceIntent, focusSku?: string, previous?: CommerceState, forced?: CatalogProduct, text?: string): Promise<void> {
   if (intent.kind === 'correction') { await applyCorrection(ctx, intent, previous, focusSku); return }
   if (intent.kind === 'create_product') { await startProduct(ctx, intent); return }
   const catalog = forced ? [forced] : await loadCatalog(ctx)
@@ -67,6 +71,8 @@ async function dispatch(ctx: AssistantContext, intent: CommerceIntent, focusSku?
   }
   if (resolution.kind === 'none') {
     if (resolution.reason === 'not_found' && 'product' in intent && intent.product) {
+      // Merchandise the store does not have yet: a new product, not a restock of something that cannot be found.
+      if (intent.kind === 'stock' && intent.mode === 'add' && text && await offerNewProduct(ctx, text)) return
       await remember(ctx, undefined)
       await say(ctx, `No encontré el producto ${escapeHtml(intent.product)} en <b>${escapeHtml(ctx.store.name)}</b>. Revisa el nombre o el código, o escribe “mis productos” para verlos.`)
       return
@@ -77,7 +83,36 @@ async function dispatch(ctx: AssistantContext, intent: CommerceIntent, focusSku?
   }
   const product = resolution.product
   await updateSessionState(ctx, { focusSku: product.sku, lastSkus: [product.sku] })
+  // "Agrega tenis blancos AD223… a 180 mil" when AD223 exists with another price: it may be a restock, a price
+  // change or a different product. The existing question for a repeated reference decides; nothing is assumed.
+  const described = intent.kind === 'stock' && intent.mode === 'add' && text && !forced ? parseNewProduct(text) : null
+  if (described?.direct && described.intent.sku?.toUpperCase() === product.sku.toUpperCase() && described.intent.price && described.intent.price !== product.price) {
+    await startProduct(ctx, described.intent)
+    return
+  }
   await act(ctx, intent, product)
+}
+
+/** The merchant described a product that is not in the store. A stated reference with "agrega/registra" opens
+ * the draft; an arrival ("llegaron…"), a missing reference or several references are asked first. */
+async function offerNewProduct(ctx: AssistantContext, text: string): Promise<boolean> {
+  const reading = parseNewProduct(text)
+  if (!reading) return false
+  // Without a reference or a price it reads as a restock of something misspelled ("agrega 2 pantalones talla 32"):
+  // the usual "no encontré" answer stays.
+  if (!reading.references.length && !(reading.direct && reading.intent.price)) return false
+  if (reading.references.length > 1) {
+    await remember(ctx, undefined)
+    await say(ctx, `Veo varias referencias en tu mensaje (${escapeHtml(reading.references.join(', '))}) y ninguna existe en <b>${escapeHtml(ctx.store.name)}</b>. Para no mezclar productos, dímelos uno por uno, por ejemplo: “agrega tenis blancos ${escapeHtml(reading.references[0]!)}, tallas 38 y 39, cinco de cada una, a 180 mil”.`)
+    return true
+  }
+  if (reading.direct && reading.intent.sku) { await startProduct(ctx, reading.intent); return true }
+  await remember(ctx, { intent: reading.intent, ask: 'new_product' })
+  const label = reading.intent.sku ? `la referencia <b>${escapeHtml(reading.intent.sku)}</b>` : `<b>${escapeHtml(reading.intent.name)}</b>`
+  await say(ctx, `No encontré ${label} en <b>${escapeHtml(ctx.store.name)}</b>. ¿Es un producto nuevo? Si es uno que ya tienes, dime su nombre o su código tal como aparece en tu tienda.`, {
+    inline_keyboard: [[{ text: '➕ Producto nuevo', callback_data: cb(ctx, 'new') }], cancelRow(ctx)],
+  })
+  return true
 }
 
 function commonSize(lines: StockLine[]): string | null {
@@ -216,7 +251,8 @@ async function startProduct(ctx: AssistantContext, intent: Extract<CommerceInten
   ].filter(Boolean)
   if (sameSku) {
     await remember(ctx, { intent, sku: sameSku.sku, ask: 'duplicate_sku' })
-    await say(ctx, `${lines.join('\n')}\n\n⚠️ La referencia <b>${escapeHtml(sameSku.sku)}</b> ya existe: <b>${escapeHtml(sameSku.name)}</b>. No creo un producto repetido.${intent.stocks.length ? ' ¿Son unidades que llegaron de ese mismo producto?' : ' Si llegaron unidades, dime cuántas por talla.'}`, {
+    const priceNote = intent.price && intent.price !== sameSku.price ? ` Hoy cuesta ${formatMoney(sameSku.price, ctx.store.currency)}; el precio no cambia con esto: si quieres cambiarlo, dímelo aparte.` : ''
+    await say(ctx, `${lines.join('\n')}\n\n⚠️ La referencia <b>${escapeHtml(sameSku.sku)}</b> ya existe: <b>${escapeHtml(sameSku.name)}</b>. No creo un producto repetido.${priceNote}${intent.stocks.length ? ' ¿Son unidades que llegaron de ese mismo producto?' : ' Si llegaron unidades, dime cuántas por talla.'}`, {
       inline_keyboard: [...(intent.stocks.length ? [[{ text: `➕ Sumar a ${sameSku.name}`.slice(0, 60), callback_data: cb(ctx, 'restock') }]] : []), cancelRow(ctx)],
     })
     return
@@ -344,7 +380,7 @@ function correctIntent(intent: CommerceIntent, correction: Extract<CommerceInten
 
 /** Buttons of the commerce conversation: cm:<store>:<verb>[:…]. */
 export async function handleCommerceCallback(ctx: AssistantContext, data: string): Promise<boolean> {
-  const match = data.match(/^cm:(\d+):(pick|mode|photo|cancel|switch|amt|restock)(?::([a-z0-9]+))?(?::(\d+))?$/)
+  const match = data.match(/^cm:(\d+):(pick|mode|photo|cancel|switch|amt|restock|new)(?::([a-z0-9]+))?(?::(\d+))?$/)
   if (!match) return false
   if (Number(match[1]) !== ctx.store.id) {
     await say(ctx, `Ese botón pertenece a otra tienda y no lo apliqué. Ahora estás administrando <b>${escapeHtml(ctx.store.name)}</b>.`)
@@ -355,6 +391,11 @@ export async function handleCommerceCallback(ctx: AssistantContext, data: string
   const verb = match[2]!
   if (verb === 'cancel') { await remember(ctx, undefined); await say(ctx, 'Listo, no hice nada.', backToMenu()); return true }
   if (verb === 'switch') return false // handled by the text router (deferred request)
+  if (verb === 'new') {
+    if (state?.ask !== 'new_product' || state.intent.kind !== 'create_product') { await say(ctx, 'Esa pregunta ya venció. Pídemelo de nuevo.'); return true }
+    await startProduct(ctx, state.intent)
+    return true
+  }
   const catalog = await loadCatalog(ctx)
   if (verb === 'pick') {
     const product = catalog.find((item) => item.id === Number(match[3]))

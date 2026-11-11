@@ -2,7 +2,7 @@ import { parseActionPayload, type ActionName } from '../../validation/actions'
 import { applyConfirmedCatalogMutation, applyConfirmedProductEdit, applyConfirmedStoreMutation } from '../business'
 import { slugify } from '../../tenancy/stores'
 import { can, roleAllows, type StoreRole } from '../../tenancy/access'
-import { say, sayPhoto, type AssistantContext } from './context'
+import { say, sayPhoto, type AssistantContext, actorOf, sourceOf } from './context'
 import { operationKeyboard, backToMenu } from './menus'
 import { escapeHtml, formatMoney } from './tools'
 import { contrastRatio, isLegiblePalette } from './logoPalette'
@@ -446,8 +446,8 @@ async function applyBulkOperation(ctx: AssistantContext, pending: PendingOperati
   ).bind(token, pending.operation_id, String(ctx.chatId), ctx.store.id, pending.before_json)
   const audit = ctx.db.prepare(
     `INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source, store_id)
-     SELECT ?, 'store', ?, ?, ?, 'telegram', ? WHERE ${gate}`,
-  ).bind(pending.action, String(ctx.store.id), JSON.stringify({ operationId: pending.operation_id, before: JSON.parse(pending.before_json), after: JSON.parse(pending.after_json) }), `telegram:${ctx.telegramUserId}`, ctx.store.id, ...gateBindings)
+     SELECT ?, 'store', ?, ?, ?, '${sourceOf(ctx)}', ? WHERE ${gate}`,
+  ).bind(pending.action, String(ctx.store.id), JSON.stringify({ operationId: pending.operation_id, before: JSON.parse(pending.before_json), after: JSON.parse(pending.after_json) }), actorOf(ctx), ctx.store.id, ...gateBindings)
   const complete = ctx.db.prepare(`UPDATE telegram_operations SET status = 'applied', execution_token = NULL, completed_at = datetime('now') WHERE operation_id = ? AND status = 'applying' AND execution_token = ?`)
     .bind(pending.operation_id, token)
   const results = await ctx.db.batch([claim, ...build(gate, gateBindings), audit, complete])
@@ -537,7 +537,7 @@ async function applyBulk(ctx: AssistantContext, pending: PendingOperation): Prom
             `INSERT INTO inventory_movements (store_id, product_id, variant_id, sku, kind, quantity, stock_before, stock_after, reason, reference, performed_by)
              SELECT ?, v.product_id, v.id, v.sku, 'entrada', v.stock, 0, v.stock, ?, ?, ? FROM product_variants v JOIN products p ON p.id = v.product_id
              WHERE p.store_id = ? AND p.sku = ? AND v.sku = ? AND v.stock > 0 AND ${gate}`,
-          ).bind(storeId, String(params.movementReason).slice(0, 120), `telegram:${pending.operation_id}`, `telegram:${ctx.telegramUserId}`, storeId, sku, variantSku, ...g))
+          ).bind(storeId, String(params.movementReason).slice(0, 120), `telegram:${pending.operation_id}`, actorOf(ctx), storeId, sku, variantSku, ...g))
         })
         return statements
       }
@@ -570,7 +570,7 @@ export async function confirmOperation(ctx: AssistantContext, pending: PendingOp
   const params = JSON.parse(pending.params_json) as Record<string, any>
   const before = JSON.parse(pending.before_json) as Record<string, unknown>
   const after = JSON.parse(pending.after_json) as Record<string, unknown>
-  const actor = `telegram:${ctx.telegramUserId}`
+  const actor = actorOf(ctx)
   let status: ApplyStatus
   let promotedKey: string | null = null
   try {

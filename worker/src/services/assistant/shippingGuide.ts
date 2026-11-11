@@ -14,7 +14,7 @@ import { can } from '../../tenancy/access'
 import { adminStoreUrl } from '../../tenancy/stores'
 import { ORDER_STATUS_LABELS, findOrder, transitionOrder, type OrderRow } from '../orders'
 import { DocumentError, sha256Hex, storeOrderDocument } from '../orderDocuments'
-import { fetchImage, readSession, say, sayPhoto, updateSessionState, type AssistantContext } from './context'
+import { fetchImage, readSession, say, sayPhoto, updateSessionState, type AssistantContext, actorOf } from './context'
 import { escapeHtml, formatMoney } from './tools'
 import { fold, parseMoney } from './commerce/language'
 
@@ -191,7 +191,7 @@ async function readWithAi(ctx: AssistantContext, guide: GuideState): Promise<voi
   if (!object) { await discard(ctx, guide); await say(ctx, 'La foto ya no está disponible. Envíala otra vez.'); return }
   const bytes = new Uint8Array(await object.arrayBuffer())
   const mimeType = object.httpMetadata?.contentType || 'image/jpeg'
-  const run = await runWithCredits(ctx.db, ctx.env, { storeId: ctx.store.id, feature: 'leer_guia_envio', key: `guia-${ctx.store.id}-${guide.sha.slice(0, 40)}`, actor: `telegram:${ctx.telegramUserId}` }, async () => {
+  const run = await runWithCredits(ctx.db, ctx.env, { storeId: ctx.store.id, feature: 'leer_guia_envio', key: `guia-${ctx.store.id}-${guide.sha.slice(0, 40)}`, actor: actorOf(ctx) }, async () => {
     const result = await callGeminiJson(ctx.env, fetch, {
       system: [
         'Lees fotografías de guías de envío de transportadoras para registrar un despacho. Devuelves solo lo que se lee con claridad.',
@@ -379,7 +379,7 @@ async function confirmCard(ctx: AssistantContext, operationId: string): Promise<
     const draft = ctx.env.ASSETS ? await ctx.env.ASSETS.get(params.draftKey) : null
     if (!draft) { await finish('stale'); await say(ctx, 'No encontré la foto de la guía (pudo vencer). No cambié nada; envíala otra vez.'); return }
     try {
-      stored = await storeOrderDocument(ctx.db, ctx.env.ASSETS, { storeId: ctx.store.id, orderId: order.id, bytes: new Uint8Array(await draft.arrayBuffer()), source: 'telegram', actor: `telegram:${ctx.telegramUserId}`, telegramFileId: params.fileId, sha256: params.sha })
+      stored = await storeOrderDocument(ctx.db, ctx.env.ASSETS, { storeId: ctx.store.id, orderId: order.id, bytes: new Uint8Array(await draft.arrayBuffer()), source: 'telegram', actor: actorOf(ctx), telegramFileId: params.fileId, sha256: params.sha })
     } catch (error) {
       await finish('stale')
       await say(ctx, error instanceof DocumentError ? escapeHtml(error.message) : 'No pude guardar la foto de la guía. El pedido no cambió.')
@@ -388,7 +388,7 @@ async function confirmCard(ctx: AssistantContext, operationId: string): Promise<
   }
   const fresh = (await findOrder(ctx.db, ctx.store.id, order.id))!
   const result = await transitionOrder(ctx.db, {
-    storeId: ctx.store.id, orderId: order.id, expectedRevision: fresh.revision, actor: `telegram:${ctx.telegramUserId}`, source: 'telegram',
+    storeId: ctx.store.id, orderId: order.id, expectedRevision: fresh.revision, actor: actorOf(ctx), source: 'telegram',
     ...(params.toStatus ? { status: params.toStatus } : {}),
     shipment: { carrier: params.carrier, trackingNumber: params.trackingNumber, ...(params.shippedAt ? { shippedAt: params.shippedAt } : {}), ...(params.shippingCost ? { shippingCost: params.shippingCost } : {}) },
     note: 'Guía registrada desde Telegram',

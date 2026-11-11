@@ -29,6 +29,9 @@ const HUNDREDS: Record<string, number> = {
   quinientos: 500, quinientas: 500, seiscientos: 600, seiscientas: 600, setecientos: 700, setecientas: 700, ochocientos: 800, ochocientas: 800,
   novecientos: 900, novecientas: 900,
 }
+/** Number words that can appear in a spoken price ("ciento ochenta mil", "dos mil quinientos"). */
+export const HUNDRED_WORD = Object.keys(HUNDREDS).join('|')
+export const SPOKEN_AMOUNT = `(?:(?:${Object.keys(UNITS).filter((word) => word !== 'docena').join('|')}|${HUNDRED_WORD}|y)\\s+){1,5}mil(?:\\s+(?:${HUNDRED_WORD})(?:\\s+(?:y|${Object.keys(UNITS).filter((word) => word !== 'docena').join('|')})){0,3})?`
 const TENS_WORDS = 'veinte|treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|noventa'
 const DIGIT_WORDS = 'uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve'
 
@@ -64,14 +67,18 @@ export function ambiguousAmount(text: string): number | null {
  * Returns an integer amount or null. A bare small number ("80") is not a price. */
 export function parseMoney(text: string): number | null {
   const value = fold(text)
-  const millions = value.match(/(\d{1,3}(?:[.,]\d{1,3})?)\s*(?:millon(?:es)?|palos?)\b/)
-  if (millions) return Math.round(Number(millions[1]!.replace(',', '.')) * 1_000_000)
+  const millions = value.match(/(\d{1,3}(?:[.,]\d{1,3})?)\s*(?:millon(?:es)?|palos?)\b(\s+y\s+medio\b)?/)
+  if (millions) return Math.round(Number(millions[1]!.replace(',', '.')) * 1_000_000) + (millions[2] ? 500_000 : 0)
+  // "un millón", "dos palos", "millón y medio", "medio millón".
+  if (/\bmedio\s+(?:millon|palo)\b/.test(value)) return 500_000
+  const spokenMillions = value.match(new RegExp(`\\b(?:(un|${DIGIT_WORDS}|diez)\\s+)?(?:millon(?:es)?|palos?)\\b(\\s+y\\s+medio\\b)?`))
+  if (spokenMillions && (spokenMillions[1] || spokenMillions[2])) return (UNITS[spokenMillions[1] || 'un'] || 1) * 1_000_000 + (spokenMillions[2] ? 500_000 : 0)
   const thousands = value.match(/(\d{1,4}(?:[.,]\d{1,3})?)\s*(?:mil|k|lucas?)\b/)
   if (thousands) {
     const raw = thousands[1]!
     // "80.000 mil" is unusual; "1.5k"/"1,5 mil" are decimals.
     const number = /^\d{1,3}[.,]\d{3}$/.test(raw) ? Number(raw.replace(/[.,]/g, '')) : Number(raw.replace(',', '.'))
-    return Number.isFinite(number) && number > 0 ? Math.round(number * 1000) : null
+    return Number.isFinite(number) && number > 0 ? Math.round(number * 1000) + hundredsAfterMil(value) : null
   }
   const tokens = value.split(/[^a-z0-9]+/).filter(Boolean)
   const milIndex = tokens.indexOf('mil')
@@ -84,12 +91,29 @@ export function parseMoney(text: string): number | null {
       else break
     }
     const amount = run.length ? spanishNumber(run) : null
-    if (amount) return amount * 1000
+    if (amount) return amount * 1000 + hundredsAfterMil(value)
   }
   const formatted = value.match(/\$\s*(\d{1,3}(?:[.,]\d{3})+|\d+)|\b(\d{1,3}(?:[.,]\d{3})+|\d{4,9})\b/)
   if (!formatted) return null
   const number = Number((formatted[1] || formatted[2])!.replace(/[.,]/g, ''))
   return Number.isSafeInteger(number) && number > 0 ? number : null
+}
+
+/** "dos mil quinientos" → the 500. Only a hundreds word counts, so "80 mil cinco pares" never becomes 80.005. */
+function hundredsAfterMil(value: string): number {
+  const tokens = value.split(/[^a-z0-9]+/).filter(Boolean)
+  const start = tokens.indexOf('mil') + 1
+  if (start <= 0 || HUNDREDS[tokens[start] || ''] === undefined) return 0
+  const run: string[] = [tokens[start]!]
+  for (let k = start + 1; k < tokens.length && run.length < 4; k++) {
+    const word = tokens[k]!
+    if (word === 'y' || (UNITS[word] !== undefined && word !== 'docena' && UNITS[word]! < 100)) run.push(word)
+    else break
+  }
+  // "quinientos cinco pares": a unit followed by what it counts is a quantity, not part of the price.
+  while (run.length > 1 && /^(?:pares?|unidades|unidad|u|de|talla|tallas)$/.test(tokens[start + run.length] || '')) run.pop()
+  if (run[run.length - 1] === 'y') run.pop()
+  return spanishNumber(run) ?? 0
 }
 
 const LETTER_SIZE = /^(?:xxs|xs|s|m|l|xl|xxl|xxxl|[2-6]xl|xxxxl)$/

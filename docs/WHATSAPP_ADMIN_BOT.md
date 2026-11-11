@@ -180,8 +180,9 @@ Reversión: `WHATSAPP_ADMIN_BOT_ENABLED=false` (inmediato, sin tocar código; el
 
 ## 11. Riesgos y pendientes
 
-- La frase «Agrega tenis blancos AD223, tallas…» (código sin la palabra "referencia") **no crea el borrador sin IA**: el motor la toma como reposición de un producto existente. Pasa igual en Telegram. Con «referencia AD223» funciona. Corregirlo cambia el intérprete compartido (requiere autorización).
-- La auditoría de acciones del motor registra `source = 'telegram'` y actor `telegram:wa:<id>` también para WhatsApp. Es rastreable, pero el rótulo engaña; cambiarlo toca ~40 sentencias del motor.
+- **Resuelto (autorizado 2026-11-11):** «Agrega tenis blancos AD223, tallas…» ya no exige la palabra "referencia". El motor consulta el catálogo de la tienda: si la referencia no existe abre el borrador; si existe propone la reposición; si además trae un precio distinto, o es una llegada con referencia desconocida, o hay varias referencias, pregunta antes. Vale para Telegram y WhatsApp (un solo intérprete). Pruebas en `commerce/natural.conversation.test.ts`.
+- **Resuelto en parte:** las operaciones confirmadas, la creación de productos, el inventario, las fotos, los cupones y el cambio de tienda registran `source = 'whatsapp'` y actor `whatsapp:<id del vínculo>` cuando vienen de WhatsApp (Telegram sigue igual). Siguen rotulados como `telegram` en la columna de origen los cambios de estado de pedidos y las guías de envío hechos por WhatsApp: su origen está restringido en el esquema (`telegram`/`panel`) y cambiarlo exige migración; el actor sí dice `whatsapp:<id>`.
+- Expresiones colombianas revisadas y corregidas en el intérprete: «ciento ochenta mil» al crear, «dos mil quinientos» (antes se leía 2.000), «un millón», «millón y medio», «dos palos», «súmale tres a la 38», «cinco pares de cada talla», «una docena». «180» a secas se sigue preguntando. No se interpreta «barras».
 - Cambio de número o de BSUID del comerciante (mensaje `system` de Meta): hoy se ignora y el comerciante debe volver a vincular.
 - La vista previa de fotos no reenvía la imagen (no está confirmado que un archivo recibido pueda reenviarse por su identificador).
 - Aviso por correo al titular cuando se vincula un WhatsApp: no implementado.

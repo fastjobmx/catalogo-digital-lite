@@ -413,6 +413,45 @@ describe('operaciones con el motor común', () => {
     expect(h.db.query('SELECT sku FROM products WHERE store_id = ?', tienda)).toHaveLength(1)
   })
 
+  it('«Agrega tenis blancos AD223…» sin la palabra referencia prepara el borrador, igual que en Telegram', async () => {
+    await say('Agrega tenis blancos AD223, tallas 38, 39 y 40, cinco de cada una, a 180 mil')
+    expect(pending().map((row) => row.action)).toEqual(['create_product'])
+    const draft = JSON.parse(h.db.query<{ params_json: string }>("SELECT params_json FROM telegram_operations WHERE status = 'pending'")[0]!.params_json)
+    expect(draft.fields).toMatchObject({ name: 'Tenis blancos', sku: 'AD223', price: 180000 })
+    expect(draft.variants.map((variant: any) => `${variant.size}:${variant.stock}`)).toEqual(['38:5', '39:5', '40:5'])
+    expect(texts().join(' ')).toContain('Referencia: *AD223*')
+    expect(h.db.query('SELECT sku FROM products WHERE store_id = ?', tienda)).toHaveLength(1)
+  })
+
+  it('una referencia que ya existe se repone con confirmación, y una llegada desconocida se pregunta', async () => {
+    await say('Agrega sandalias SAN-1, tallas 38 y 39, cinco de cada una')
+    expect(options().map((item) => item.title)).toEqual(['✅ Confirmar', '✏️ Corregir', '✖ Cancelar'])
+    await tap(/Confirmar/)
+    expect(stocks(tienda, 'SAN-1')).toEqual([6, 7])
+    await say('me llegaron 10 camisetas polo PL200 talla M')
+    expect(last()).toContain('¿Es un producto nuevo?')
+    expect(options().map((item) => item.title)).toEqual(['➕ Producto nuevo', '✖ Cancelar'])
+    await tap(/Producto nuevo/)
+    expect(pending().map((row) => row.action)).toEqual(['create_product'])
+  })
+
+  it('la auditoría dice que la operación vino de WhatsApp, y la de Telegram sigue diciendo Telegram', async () => {
+    await say('Cambia el precio de SAN-1 a 195 mil')
+    await tap(/Confirmar/)
+    await say('llegaron cinco pares de cada talla')
+    await tap(/Confirmar/)
+    const fromWhatsApp = h.db.query<{ performed_by: string; source: string }>("SELECT performed_by, source FROM audit_log WHERE store_id = ? AND action NOT LIKE 'whatsapp_%' ORDER BY id", tienda)
+    expect(fromWhatsApp.length).toBeGreaterThanOrEqual(2)
+    expect(fromWhatsApp.every((row) => row.source === 'whatsapp' && row.performed_by === 'whatsapp:1')).toBe(true)
+    expect(h.db.query<{ performed_by: string }>('SELECT DISTINCT performed_by FROM inventory_movements WHERE store_id = ?', tienda)).toEqual([{ performed_by: 'whatsapp:1' }])
+    const before = h.db.query<{ id: number }>('SELECT MAX(id) AS id FROM audit_log')[0]!.id
+    await processTelegramUpdate(textUpdate(7001, 'Cambia el precio de SAN-1 a 200 mil') as never, h.env, h.db)
+    await processTelegramUpdate(textUpdate(7001, 'si') as never, h.env, h.db)
+    expect(price(tienda, 'SAN-1')).toBe(200000)
+    expect(h.db.query<{ performed_by: string; source: string }>('SELECT performed_by, source FROM audit_log WHERE id > ? ORDER BY id', before))
+      .toEqual([{ performed_by: 'telegram:7001', source: 'telegram' }])
+  })
+
   it('el menú principal llega como lista y cada opción funciona', async () => {
     await say('menú')
     expect(sent.at(-1)!.interactive.type).toBe('list')

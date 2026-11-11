@@ -83,7 +83,7 @@ export type SessionState = {
 export type CommerceState = {
   intent: import('./commerce/intent').CommerceIntent
   sku?: string
-  ask?: 'product' | 'product_name' | 'mode' | 'distribution' | 'color' | 'amount' | 'duplicate_sku'
+  ask?: 'product' | 'product_name' | 'mode' | 'distribution' | 'color' | 'amount' | 'duplicate_sku' | 'new_product'
   options?: number[]
   missing?: number
   operationId?: string
@@ -138,6 +138,16 @@ export async function say(ctx: AssistantContext, text: string, replyMarkup?: Rec
 export async function sayPhoto(ctx: AssistantContext, photo: string, caption: string, replyMarkup?: Record<string, unknown>): Promise<void> {
   if (ctx.channel) { await ctx.channel.sendPhoto(photo, `${banner(ctx)}${caption}`, usableMarkup(replyMarkup)); return }
   await sendTelegramPhoto(ctx.botToken, ctx.chatId, photo, `${banner(ctx)}${caption}`, usableMarkup(replyMarkup))
+}
+
+/** Who did it, for the audit trail: `telegram:<id>` or `whatsapp:<linked identity>`. */
+export function actorOf(ctx: Pick<AssistantContext, 'telegramUserId' | 'channel'>): string {
+  return ctx.channel ? `${ctx.channel.name}:${ctx.telegramUserId.replace(/^wa:/, '')}` : `telegram:${ctx.telegramUserId}`
+}
+
+/** Channel written in the audit trail. Only these two literals exist, so it is safe inside SQL text. */
+export function sourceOf(ctx: Pick<AssistantContext, 'channel'>): 'telegram' | 'whatsapp' {
+  return ctx.channel ? 'whatsapp' : 'telegram'
 }
 
 /** "Typing…" while a slower step runs. Cosmetic: failures are ignored. */

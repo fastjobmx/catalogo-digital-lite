@@ -7,7 +7,7 @@ import {
 import { roleAllows } from '../../tenancy/access'
 import { publicStoreUrl, slugify } from '../../tenancy/stores'
 import { bytesToBase64, type TelegramMessage } from './telegramApi'
-import { fetchImage, say, sayPhoto, rememberTurn, type AssistantContext } from './context'
+import { fetchImage, say, sayPhoto, rememberTurn, type AssistantContext, actorOf, sourceOf } from './context'
 import { analyzeProductPhotos } from './ai'
 import { escapeHtml, formatMoney } from './tools'
 import { advanceAfterPublishedProduct } from './onboarding'
@@ -486,7 +486,7 @@ export async function handleProductDraftCallback(ctx: AssistantContext, intent: 
       if (!name) { await say(ctx, 'Escribe el nombre de la categoría que quieres crear.'); return }
       let categoryId: number
       try {
-        const created = await createCatalogCategory(ctx.db, { name, slug: slugify(name) }, { actor: `telegram:${ctx.telegramUserId}`, source: 'telegram', storeId: ctx.store.id })
+        const created = await createCatalogCategory(ctx.db, { name, slug: slugify(name) }, { actor: actorOf(ctx), source: sourceOf(ctx), storeId: ctx.store.id })
         categoryId = created.id
       } catch (error) {
         if (!(error instanceof Error && error.message === 'CATEGORY_SLUG_EXISTS')) throw error
@@ -570,7 +570,7 @@ export async function publishProductDraft(ctx: AssistantContext, active: Pending
   let status: string
   try {
     status = await applyConfirmedTelegramProductCreation(ctx.db, {
-      operationId: operation.operation_id, chatId: String(ctx.chatId), storeId: ctx.store.id, actor: `telegram:${ctx.telegramUserId}`,
+      operationId: operation.operation_id, chatId: String(ctx.chatId), storeId: ctx.store.id, actor: actorOf(ctx),
       paramsJson, beforeJson: operation.before_json, afterJson, category, product,
     })
   } catch (error) {

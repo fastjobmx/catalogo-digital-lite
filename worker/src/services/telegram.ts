@@ -15,7 +15,7 @@ import {
   type TelegramMessage, type TelegramUpdate,
 } from './assistant/telegramApi'
 import {
-  loadAssistantStore, membershipsForTelegramUser, readSession, rememberTurn, say, showTyping, updateSessionState, writeSession,
+  actorOf, loadAssistantStore, membershipsForTelegramUser, sourceOf, readSession, rememberTurn, say, showTyping, updateSessionState, writeSession,
   type AssistantContext,
 } from './assistant/context'
 import { ACCESS_HELP_TEXT, backToMenu, greeting, HELP_TEXT, inventoryKeyboard, mainMenuKeyboard, orderMenuKeyboard, storePickerKeyboard, storePickerText, switchedStoreKeyboard } from './assistant/menus'
@@ -119,8 +119,8 @@ export async function openAssistantContext(
     cancelledOnSwitch = Number(cancelled.meta.changes || 0)
     await writeSession(db, telegramUserId, storeId, {})
     if (session.activeStoreId) {
-      await db.prepare(`INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source, store_id) VALUES ('telegram_store_switched', 'store', ?, ?, ?, 'telegram', ?)`)
-        .bind(String(storeId), JSON.stringify({ from: session.activeStoreId, cancelledPending: cancelledOnSwitch }), `telegram:${telegramUserId}`, storeId).run()
+      await db.prepare(`INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source, store_id) VALUES ('telegram_store_switched', 'store', ?, ?, ?, '${sourceOf(identity)}', ?)`)
+        .bind(String(storeId), JSON.stringify({ from: session.activeStoreId, cancelledPending: cancelledOnSwitch }), actorOf(identity), storeId).run()
     }
   }
   return { ...identity, store, role: membership.role, memberships: available, cancelledOnSwitch }

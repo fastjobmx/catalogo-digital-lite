@@ -1,5 +1,5 @@
 import type { AssistantContext } from './context'
-import { say, unavailableHere } from './context'
+import { say, unavailableHere, actorOf } from './context'
 import { adminStoreUrl, publicStoreUrl } from '../../tenancy/stores'
 import { roleAllows } from '../../tenancy/access'
 import { TEMPLATE_KEYS, TEMPLATE_LABELS, TEMPLATE_DESIGNS, templatePalette, type TemplateKey } from '../templates'
@@ -202,9 +202,9 @@ export async function handleOnboardingCallback(ctx: AssistantContext, action: st
     if (action === 'review:request') {
       if (!roleAllows(ctx.role, 'admin')) { await say(ctx, 'Tu rol no permite solicitar la activación. Pídele al propietario que lo haga.'); return 'handled' }
       const request = await ctx.db.prepare(`INSERT OR IGNORE INTO store_activation_requests (store_id, requested_by) VALUES (?, ?) RETURNING id`)
-        .bind(ctx.store.id, `telegram:${ctx.telegramUserId}`).first<{ id: number }>()
+        .bind(ctx.store.id, actorOf(ctx)).first<{ id: number }>()
       if (request) await ctx.db.prepare(`INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source, store_id) VALUES ('store_activation_requested', 'store', ?, '{}', ?, 'telegram', ?)`)
-        .bind(String(ctx.store.id), `telegram:${ctx.telegramUserId}`, ctx.store.id).run()
+        .bind(String(ctx.store.id), actorOf(ctx), ctx.store.id).run()
       await finish(ctx, progress)
       await say(ctx, '✅ Envié la solicitud al equipo de administración. La tienda seguirá privada hasta que la revisen y la activen.', settingsKeyboard())
     } else if (action === 'review:finish') {
@@ -459,7 +459,7 @@ async function applyOnboardingMutation(
     statements.push(ctx.db.prepare(
       `INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source, store_id)
        SELECT 'store_updated', 'store', ?, ?, ?, 'telegram', ? WHERE ${gate}`,
-    ).bind(String(ctx.store.id), JSON.stringify({ changes: fields, template: template || undefined }), `telegram:${ctx.telegramUserId}`, ctx.store.id, ...gateBindings))
+    ).bind(String(ctx.store.id), JSON.stringify({ changes: fields, template: template || undefined }), actorOf(ctx), ctx.store.id, ...gateBindings))
   }
   const results = await ctx.db.batch(statements)
   if (!Number(results[0]?.meta.changes || 0)) return getOnboarding(ctx)
@@ -570,7 +570,7 @@ export async function handleTemplateCallback(ctx: AssistantContext, intent: 'pic
     ctx.db.prepare("UPDATE store_config SET theme_config = ?, updated_at = datetime('now') WHERE id = ?").bind(themeConfig, ctx.store.id),
     ctx.db.prepare("UPDATE stores SET template = ?, updated_at = datetime('now') WHERE id = ?").bind(template, ctx.store.id),
     ctx.db.prepare(`INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source, store_id) VALUES ('store_template_updated', 'store', ?, ?, ?, 'telegram', ?)`)
-      .bind(String(ctx.store.id), JSON.stringify({ template }), `telegram:${ctx.telegramUserId}`, ctx.store.id),
+      .bind(String(ctx.store.id), JSON.stringify({ template }), actorOf(ctx), ctx.store.id),
   ])
   await say(ctx, `✅ Listo: tu tienda ahora usa la plantilla <b>${escapeHtml(TEMPLATE_LABELS[template])}</b>.`, { inline_keyboard: [
     [{ text: '👁 Ver mi tienda', url: storePreviewUrl(ctx) }],
