@@ -22,9 +22,16 @@ Se creó como **copia independiente** de `apps/mostralopues-landing`. Mantiene l
 |---|---|
 | Desarrollo | `npm run dev` |
 | Compilar | `npm run build` |
-| Pruebas | `npm run build`, luego `node scripts/serve.mjs` y en otra terminal `npx playwright test site` |
+| Pruebas de precios | `npm run test:unit` |
+| Pruebas | `npm run build:official`, luego `node scripts/serve.mjs` y en otra terminal `VITE_APP_URL=https://app.tiendiaexpres.com npx playwright test site commercial` (incluye axe WCAG 2.2 AA) |
 | Revisar los enlaces en vivo | `npx playwright test links --project=desktop` |
 
 ## Indexación
 
 Igual que el sitio original: `noindex` por defecto. Con `VITE_INDEXABLE=true` el sitio pasa a indexable y se agregan la URL canónica `https://tiendaiaexpress.pages.dev/`, `sitemap.xml` y `robots.txt`.
+
+## Planes, precios y tiendas de ejemplo
+
+- **Planes y precios:** se editan solo en `src/content/plans.ts` (tarjetas, comparador mensual/anual, mensajes de WhatsApp, formulario, preguntas frecuentes y JSON-LD salen de ahí). Cambiar este archivo **no** cambia límites ni créditos de ninguna tienda: eso vive en la tabla `plans` del backend.
+- **Tiendas reales:** `src/content/stores.ts`. Una tienda aparece solo si está autorizada por el comercio y su captura está en `src/assets/stores/` (procedimiento en el encabezado del archivo).
+- Informe completo, diferencias con el backend y condiciones pendientes: `docs/LANDING_PLANES_Y_PRECIOS.md`.

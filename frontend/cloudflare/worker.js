@@ -95,10 +95,17 @@ export function buildMeta(kind, origin, url, store, product) {
   const storeImage = abs(store.coverImageUrl || store.themeConfig?.hero?.imageUrl || store.logoUrl)
   if (product) {
     const price = Number(product.price) > 0 ? ` · $ ${Number(product.price).toLocaleString('es-CO')}` : ''
+    const productImage = abs((product.imageUrls || [])[0])
+    const amount = Number(product.price)
     return {
       title: `${clip(product.name, 90)} | ${storeName}`,
       description: clip(`${product.description || product.name}${price}`, 200),
-      siteName: storeName, image: abs((product.imageUrls || [])[0]) || storeImage, favicon: store.faviconUrl || store.logoUrl || null, url, robots: null, type: 'product',
+      siteName: storeName, image: productImage || storeImage, favicon: store.faviconUrl || store.logoUrl || null, url, robots: null, type: 'product',
+      // The real main photo (never a generated one) with its description, so link previews (WhatsApp,
+      // Facebook…) can show it next to the product name.
+      imageAlt: productImage ? clip(`${product.name} · ${storeName}`, 120) : null,
+      priceAmount: amount > 0 && Number.isFinite(amount) ? String(amount) : null,
+      priceCurrency: amount > 0 ? clip(store.currency || 'COP', 3) : null,
     }
   }
   const robots = kind === 'search' ? 'noindex, follow' : null
@@ -150,6 +157,12 @@ export function buildJsonLd(origin, storeUrl, pageUrl, store, product) {
 /** JSON inside <script>: "<" is escaped so the content can never close the tag. */
 const jsonLdTag = (data) => `<script type="application/ld+json">${JSON.stringify(data).replace(/</g, '\\u003c')}</script>`
 
+/** MIME type from the file extension of an image URL (only the formats the platform stores). */
+export function imageType(url) {
+  const ext = (String(url).split(/[?#]/)[0].match(/\.([a-z0-9]+)$/i) || [])[1]?.toLowerCase()
+  return { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif' }[ext] || null
+}
+
 function headTags(meta, jsonLd) {
   const tags = [
     ['property', 'og:type', meta.type], ['property', 'og:site_name', meta.siteName], ['property', 'og:title', meta.title],
@@ -157,7 +170,15 @@ function headTags(meta, jsonLd) {
     ['name', 'twitter:card', meta.image ? 'summary_large_image' : 'summary'], ['name', 'twitter:title', meta.title], ['name', 'twitter:description', meta.description],
   ]
   if (meta.url) tags.push(['property', 'og:url', meta.url])
-  if (meta.image) tags.push(['property', 'og:image', meta.image], ['name', 'twitter:image', meta.image])
+  if (meta.image) {
+    tags.push(['property', 'og:image', meta.image], ['property', 'og:image:secure_url', meta.image])
+    const type = imageType(meta.image)
+    if (type) tags.push(['property', 'og:image:type', type])
+    if (meta.imageAlt) tags.push(['property', 'og:image:alt', meta.imageAlt])
+    tags.push(['name', 'twitter:image', meta.image])
+    if (meta.imageAlt) tags.push(['name', 'twitter:image:alt', meta.imageAlt])
+  }
+  if (meta.priceAmount && meta.priceCurrency) tags.push(['property', 'product:price:amount', meta.priceAmount], ['property', 'product:price:currency', meta.priceCurrency])
   if (meta.robots) tags.push(['name', 'robots', meta.robots])
   const out = tags.map(([attr, key, value]) => `<meta ${attr}="${key}" content="${escapeHtml(value)}" />`)
   // Canonical only on indexable pages, pointing at the canonical host.

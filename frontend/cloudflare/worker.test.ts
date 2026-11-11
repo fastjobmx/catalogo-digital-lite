@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error plain JavaScript Worker module
-import worker, { buildJsonLd, buildMeta, canonicalOrigin, canonicalPath, canonicalRedirect, classifyPath, robotsTxt, sitemapIndexXml, urlsetXml } from './worker.js'
+import worker, { buildJsonLd, buildMeta, imageType, canonicalOrigin, canonicalPath, canonicalRedirect, classifyPath, robotsTxt, sitemapIndexXml, urlsetXml } from './worker.js'
 
 const ORIGIN = 'https://catalogo-digital-ia.catalogo-lite-worker.workers.dev'
 const LUZ = { name: 'Luz Mágica', description: 'Tocadores Hollywood y espejos.', logoUrl: '/api/assets/stores/4/store/logo.jpg', coverImageUrl: '/api/assets/stores/4/store/banner.jpg', faviconUrl: '/api/assets/stores/4/store/favicon.png' }
@@ -31,6 +31,14 @@ describe('share metadata', () => {
     expect(product.description).toContain('1.050.000')
     expect(product.image).toBe(`${ORIGIN}/api/assets/stores/4/products/luz-005-1.webp`)
     expect(buildMeta('store', ORIGIN, `${ORIGIN}/`, { name: 'SneakerHub Premium', description: 'Sneakers' }, null).title).toBe('SneakerHub Premium')
+  })
+
+  it('product previews describe the real main photo and the published price', () => {
+    const product = buildMeta('store', ORIGIN, `${ORIGIN}/t/luz-magica/producto/LM-005`, { ...LUZ, currency: 'COP' }, { name: 'Tocador Imperia', price: 1050000, imageUrls: ['/api/assets/stores/4/products/luz-005-1.webp', '/otra.jpg'] })
+    expect(product).toMatchObject({ image: `${ORIGIN}/api/assets/stores/4/products/luz-005-1.webp`, imageAlt: 'Tocador Imperia · Luz Mágica', priceAmount: '1050000', priceCurrency: 'COP' })
+    const noPrice = buildMeta('store', ORIGIN, `${ORIGIN}/t/luz-magica/producto/LM-006`, LUZ, { name: 'Sin precio', price: 0, imageUrls: [] })
+    expect(noPrice).toMatchObject({ image: `${ORIGIN}/api/assets/stores/4/store/banner.jpg`, imageAlt: null, priceAmount: null })
+    expect([imageType('/a/b.webp'), imageType('/a/b.JPG?x=1'), imageType('/a/b.jpeg#y'), imageType('/a/b.png'), imageType('/a/b')]).toEqual(['image/webp', 'image/jpeg', 'image/jpeg', 'image/png', null])
   })
 })
 

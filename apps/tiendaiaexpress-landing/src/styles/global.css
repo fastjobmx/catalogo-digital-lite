@@ -1,4 +1,9 @@
 @import 'tailwindcss';
+/* Class detection only from the site's code: test reports (Lighthouse HTML embeds the page),
+   screenshots and scripts must not add CSS, so the same commit always builds the same CSS. */
+@source not '../../tests';
+@source not '../../scripts';
+@source not '../../dist';
 @import '@fontsource-variable/space-grotesk/wght.css';
 @import '@fontsource-variable/manrope/wght.css';
 

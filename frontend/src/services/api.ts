@@ -438,6 +438,11 @@ export async function createOrder(payload: CreateOrderPayload, idempotencyKey: s
   })
 }
 
+/** Buyer action after the order was registered (attempt only; WhatsApp never confirms delivery). */
+export async function recordOrderWhatsAppEvent(body: { displayId: string; checkoutKey: string; action: string; photos?: number }): Promise<{ recorded: boolean }> {
+  return fetchApi<{ recorded: boolean }>('/api/orders/whatsapp-event', { method: 'POST', keepalive: true, body: JSON.stringify(body) })
+}
+
 export interface OrderApi {
   id: number
   displayId: string

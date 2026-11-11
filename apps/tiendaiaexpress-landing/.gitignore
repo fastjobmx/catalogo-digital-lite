@@ -5,6 +5,8 @@ test-results/
 playwright-report/
 .wrangler/
 scripts/.snapshot/
+# Store captures waiting for authorisation (copied to src/assets/stores/ once authorised)
+scripts/.stores/
 brand-originals/previews/
 tests/screens/
 .tmp-prof/

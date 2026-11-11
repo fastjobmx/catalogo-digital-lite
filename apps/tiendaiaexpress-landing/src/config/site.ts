@@ -32,6 +32,7 @@ export const site = {
 
   /** Legal pages: add the URL when they exist. Empty entries are not rendered. */
   legal: [
+    { label: 'Condiciones comerciales', url: '#condiciones' },
     { label: 'Términos y condiciones', url: '' },
     { label: 'Política de privacidad', url: '' },
   ],

@@ -43,8 +43,19 @@ export function goToWhatsApp(url: string, tab: Window | null): 'tab' | 'same' {
   return 'same'
 }
 
+/** Item of the order message. `productUrl` is the public product page: WhatsApp builds the link
+ * preview (product name and its real main photo, from the page's Open Graph tags) from it. */
+export type OrderMessageItem = CartItem & { productUrl?: string | null }
+
+/** Public product page of the store open in this tab (absolute URL, canonical /producto/ path). */
+export function productPageUrl(productSku: string | null | undefined, slug: string | null, origin = typeof window === 'undefined' ? '' : window.location.origin): string | null {
+  if (!productSku || !origin) return null
+  const path = `/producto/${encodeURIComponent(productSku)}`
+  return `${origin}${slug ? `/t/${slug}${path}` : path}`
+}
+
 export function buildWhatsAppOrderMessage(input: {
-  items: CartItem[]
+  items: OrderMessageItem[]
   currency: string
   storeName?: string
   orderDisplayId?: string
@@ -83,7 +94,11 @@ export function buildWhatsAppOrderMessage(input: {
       `   SKU: ${item.sku}`,
       `   Cantidad: ${item.quantity} × ${item.price.toLocaleString('es-CO')} = ${lineTotal.toLocaleString('es-CO')}`,
     )
-    if (item.image) {
+    // A short product link instead of the long photo URL: WhatsApp shows the preview (photo and
+    // name) for the first link of the message. Without a product page, the photo link is kept.
+    if (item.productUrl) {
+      lines.push(`   Ver producto: ${item.productUrl}`)
+    } else if (item.image) {
       const imageUrl = /^https:\/\//i.test(item.image) ? item.image : new URL(item.image, window.location.origin).href
       lines.push(`   Foto: ${imageUrl}`)
     }
