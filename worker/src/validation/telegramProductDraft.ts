@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { parseStockLines } from '../services/assistant/commerce/parse'
 
 export const productDraftFieldSchema = z.enum(['name', 'sku', 'description', 'price', 'category', 'variants'])
 export type ProductDraftField = z.infer<typeof productDraftFieldSchema>
@@ -213,7 +214,24 @@ function sizeRange(text: string): { sizes: string[]; matched: string } | null {
   return null
 }
 
-function parseVariantStockReply(text: string, previous: TelegramProductDraft['variants'], defaultColor?: string): { variants: TelegramProductDraft['variants'] } | { unreadable: string } | { clarify: string } {
+type VariantReply = { variants: TelegramProductDraft['variants'] } | { unreadable: string } | { clarify: string }
+
+/** The strict formats first; only when none of them reads the text, everyday phrases typed or dictated:
+ * "Talla 30, 32, 34 y 36, cinco unidades cada una", "son tallas 30, 32 y talla 34 en 5 unidades cada una". */
+function parseVariantStockReply(text: string, previous: TelegramProductDraft['variants'], defaultColor?: string): VariantReply {
+  const strict = parseVariantStockStrict(text, previous, defaultColor)
+  if (!('unreadable' in strict)) return strict
+  const colors = new Set(previous.map((variant) => variant.color).filter(Boolean))
+  const color = (colors.size === 1 ? previous.find((variant) => variant.color)?.color : undefined) || defaultColor || 'Único'
+  // "…34 y talla 36…": the repeated word "talla" does not start a new list.
+  const spoken = parseStockLines(text.replace(/[.!]+$/u, '').replace(/\sy\s+tallas?\s+(?=\d)/giu, ' y '))
+  if (spoken.lines.length && !spoken.bare.length && spoken.lines.every((line) => line.size && Number.isSafeInteger(line.quantity) && line.quantity >= 0)) {
+    return { variants: spoken.lines.map((line) => ({ size: normalizeSize(line.size!), color: line.color ? capitalize(line.color) : color, stock: line.quantity })) }
+  }
+  return strict
+}
+
+function parseVariantStockStrict(text: string, previous: TelegramProductDraft['variants'], defaultColor?: string): VariantReply {
   const knownColor = () => {
     const colors = new Set(previous.map((variant) => variant.color).filter(Boolean))
     return (colors.size === 1 ? previous.find((variant) => variant.color)?.color : undefined) || defaultColor || 'Único'
