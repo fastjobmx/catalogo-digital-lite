@@ -1,7 +1,7 @@
 # Estudio Creativo IA · Fase 3: fábrica de creativos y video comercial
 
 Rama: `feat/estudio-creativo-fase3` (sale de `main` = producción, commit `e6a7d48`).
-Estado: **nada desplegado y la migración 0022 no está aplicada en producción.** Cada paso de publicación necesita autorización expresa (ver «Despliegue»).
+Estado: **EN PRODUCCIÓN desde el 2026-11-11** (autorizado), con el video con IA apagado. Ver «Despliegue».
 
 Fases anteriores: [ESTUDIO_CREATIVO_IA.md](ESTUDIO_CREATIVO_IA.md) (fase 1) y [ESTUDIO_FOTOGRAFICO_FASE2.md](ESTUDIO_FOTOGRAFICO_FASE2.md) (fase 2, en producción).
 
@@ -198,7 +198,18 @@ Modificados:
 
 ---
 
-## 8. Despliegue (pendiente de autorización)
+## 8. Despliegue
+
+**Realizado el 2026-11-11 (autorizado), desde el commit `0236523`:**
+- Verificación previa: servidor 457 pruebas OK (1 omitida), panel 102 OK (1 omitida), `tsc` OK en ambos.
+- D1 `catalogo-lite-production-db`: respaldo `.tmp/production-0022/production-pre-0022.sql` (928.022 bytes, SHA-256 `41aea15fae8b522e05838353fbf725f7b03a31b3c5d8f6cbd191d90959d8c4f6`); Time Travel previo `00000424-00000000-00005120-104ade2069190005f04c6059977a61c4`. `0022` aplicada (5 comandos): tabla `creative_pieces` y sus índices. Después: 6 tiendas, 167 productos, 12 recursos de biblioteca, sin violaciones de claves foráneas.
+- API `catalogo-lite-api`: `9f3ff508` → `b2f35814-3f47-423d-a0d7-0c1768ab3faf` (cron `*/15` activo).
+- Panel `catalogo-digital-ia`: → `2410c9f8-3a47-4ef2-b9f2-117091c16927` (`index-C4uq5sA0.js`, `Factory-guWYNQfO.js`).
+- Humo: `/api/health` 200; `/api/creative/creatives*` y `/creatives/video-ai` sin sesión 401; `/t/luz-magica` y `/t/luz-magica/admin/estudio-creativo/creativos` 200.
+- **Video con IA apagado:** `GEMINI_VIDEO_MODEL` no está en `wrangler.production.toml` y `video_ia_segundo` no tiene precio.
+- Reversión: Worker a `9f3ff508` y panel a `0729422c` (el código anterior ignora la tabla nueva); la base solo con `0022.down` tras exportar.
+
+Orden que se siguió (para futuras publicaciones):
 
 Orden, cada paso con autorización expresa:
 1. Respaldo y migración 0022 en producción.
