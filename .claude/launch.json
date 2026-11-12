@@ -14,6 +14,12 @@
       "port": 8788
     },
     {
+      "name": "panel-staging",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "cd frontend && set VITE_API_PROXY=https://sneakerhub-telegram-staging.catalogo-lite-worker.workers.dev&& npx vite --port 5174 --strictPort"],
+      "port": 5174
+    },
+    {
       "name": "panel-local",
       "runtimeExecutable": "cmd",
       "runtimeArgs": ["/c", "cd frontend && npx vite --port 5173 --strictPort"],

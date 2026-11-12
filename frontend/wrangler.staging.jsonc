@@ -1,0 +1,18 @@
+// Panel de STAGING: mismo frontend que producción, pero su /api/* va al Worker de staging
+// (sneakerhub-telegram-staging, D1 y R2 ficticios). Sin dominio propio ni redirección canónica.
+// Despliegue: npm run build:cloudflare && node ../worker/node_modules/wrangler/bin/wrangler.js deploy -c wrangler.staging.jsonc
+{
+  "$schema": "../worker/node_modules/wrangler/config-schema.json",
+  "name": "catalogo-digital-ia-staging",
+  "main": "cloudflare/worker.js",
+  "compatibility_date": "2025-09-01",
+  "workers_dev": true,
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/*", "!/assets/*", "!/brand/*", "!/seed-images/*", "!/favicon.svg"]
+  },
+  "services": [{ "binding": "API", "service": "sneakerhub-telegram-staging" }],
+  "observability": { "enabled": true }
+}
