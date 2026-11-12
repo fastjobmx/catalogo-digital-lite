@@ -137,10 +137,126 @@ export const DESIGN_STYLES = {
       return finish({ bg: '#FFFFFF', bg2: '#EEF1F5', surface: '#FFFFFF', panel: '#F3F5F8', ink: '#0F172A', muted: '#526077', price: primary, accent: primary, highlight, line: '#DCE1E8', glow: '#FFFFFF' })
     },
   },
+  tecnologia_futurista: {
+    label: 'Tecnología futurista', mood: 'Innovación, precisión, potencia', description: 'Fondo nocturno con cuadrícula, luz de neón detrás del producto y tipografía técnica.',
+    display: { family: 'Space Grotesk', weight: 700, letterSpacing: -0.01 }, body: { family: 'Inter', weight: 500 }, eyebrow: { family: 'Space Grotesk', weight: 600, letterSpacing: 0.24 },
+    price: { family: 'Space Grotesk', weight: 700, shape: 'tag' }, radius: 1.4, shadow: 'marcada', reflection: 0.16, decor: ['grid', 'sparkles'], background: 'radial', texture: 'grid',
+    layouts: ['escenario', 'diagonal', 'tarjeta', 'dividido', 'editorial'],
+    palette: (input) => {
+      const base = brandOr(input, 0, '#22D3EE')
+      const [h, s] = hsl(base)
+      // Neón: el tono de la marca muy saturado y luminoso; si la marca es gris, cian.
+      const neon = s < 0.3 ? '#22D3EE' : hslToHex(h, Math.max(0.8, s), 0.58)
+      const bg = hslToHex(s < 0.3 ? 222 : h + 200, 0.45, 0.07)
+      return finish({ bg, bg2: hslToHex(hsl(bg)[0], 0.5, 0.03), surface: hslToHex(hsl(bg)[0], 0.35, 0.13), panel: hslToHex(hsl(bg)[0], 0.4, 0.12), ink: '#F1F5F9', muted: '#9FB0C8', price: neon, accent: neon, highlight: neon, line: 'rgba(148,163,184,0.18)', glow: hslToHex(hsl(neon)[0], 0.7, 0.24) })
+    },
+  },
+  deportivo_dinamico: {
+    label: 'Deportivo dinámico', mood: 'Energía, movimiento, rendimiento', description: 'Letras gruesas en mayúsculas, franjas inclinadas y contraste fuerte.',
+    display: { family: 'Archivo Black', weight: 400, uppercase: true, letterSpacing: -0.01 }, body: { family: 'Inter', weight: 700 }, eyebrow: { family: 'Inter', weight: 800, letterSpacing: 0.18 },
+    price: { family: 'Archivo Black', weight: 400, shape: 'tag' }, radius: 0.6, shadow: 'marcada', reflection: 0, decor: ['stripes'], background: 'lineal', texture: 'lines',
+    layouts: ['diagonal', 'dividido', 'escenario', 'editorial', 'tarjeta'],
+    palette: (input) => {
+      const base = brandOr(input, 0, '#F97316')
+      const [h, s, l] = hsl(base)
+      const strong = s < 0.35 ? '#F97316' : hslToHex(h, Math.max(0.75, s), Math.min(0.55, Math.max(0.42, l)))
+      return finish({ bg: '#0E0E10', bg2: '#1C1C21', surface: '#1F1F24', panel: strong, ink: '#FFFFFF', muted: '#B5B5BE', price: strong, accent: strong, highlight: strong, line: 'rgba(255,255,255,0.10)', glow: '#2A2A31' })
+    },
+  },
+  belleza_cosmetica: {
+    label: 'Belleza y cosmética', mood: 'Suavidad, cuidado, bienestar', description: 'Tonos pastel tomados de tu marca, formas orgánicas, brillo y serifa delicada.',
+    display: { family: 'DM Serif Display', weight: 400 }, body: { family: 'Manrope', weight: 500 }, eyebrow: { family: 'Manrope', weight: 700, letterSpacing: 0.22 },
+    price: { family: 'Manrope', weight: 800, shape: 'pill' }, radius: 4, shadow: 'suave', reflection: 0.14, decor: ['blobs', 'sparkles'], background: 'radial', texture: 'none',
+    layouts: ['escenario', 'tarjeta', 'editorial', 'dividido', 'diagonal'],
+    palette: (input) => {
+      const base = brandOr(input, 0, '#E8A0B4')
+      const [h] = hsl(base)
+      const hue = hsl(base)[1] < 0.15 ? 340 : h
+      return finish({ bg: hslToHex(hue, 0.55, 0.95), bg2: hslToHex(hue + 15, 0.5, 0.88), surface: '#FFFFFF', panel: hslToHex(hue, 0.45, 0.86), ink: hslToHex(hue, 0.35, 0.18), muted: hslToHex(hue, 0.18, 0.4), price: hslToHex(hue, 0.5, 0.3), accent: hslToHex(hue, 0.45, 0.34), highlight: hslToHex(hue, 0.6, 0.78), line: hslToHex(hue, 0.4, 0.8), glow: '#FFFFFF' })
+    },
+  },
+  hogar_decoracion: {
+    label: 'Hogar y decoración', mood: 'Calidez, confort, hogar', description: 'Tonos tierra tomados de tu foto, textura de papel, arcos y serifa cálida.',
+    display: { family: 'Fraunces', weight: 600 }, body: { family: 'Manrope', weight: 500 }, eyebrow: { family: 'Manrope', weight: 700, letterSpacing: 0.2 },
+    price: { family: 'Fraunces', weight: 700, shape: 'underline' }, radius: 2.4, shadow: 'suave', reflection: 0, decor: ['arcs', 'rules'], background: 'lineal', texture: 'noise',
+    layouts: ['dividido', 'editorial', 'tarjeta', 'escenario', 'diagonal'],
+    palette: (input) => {
+      const source = input.override?.find(isHex) ?? input.photo.find((color) => hsl(color)[1] > 0.12 && hsl(color)[2] > 0.15 && hsl(color)[2] < 0.85) ?? '#B7795A'
+      // Tono cálido: se acerca el tono de la foto hacia la gama tierra (naranjas y ocres).
+      const [h0] = hsl(source)
+      const h = h0 > 60 && h0 < 300 ? 28 + (h0 > 180 ? 0 : (h0 - 60) * 0.3) : h0
+      return finish({ bg: hslToHex(h, 0.3, 0.92), bg2: hslToHex(h, 0.28, 0.86), surface: hslToHex(h, 0.35, 0.97), panel: hslToHex(h, 0.32, 0.8), ink: hslToHex(h, 0.3, 0.14), muted: hslToHex(h, 0.18, 0.36), price: hslToHex(h, 0.55, 0.3), accent: hslToHex(h, 0.45, 0.3), highlight: hslToHex(h + 120, 0.22, 0.4), line: hslToHex(h, 0.25, 0.62), glow: hslToHex(h, 0.5, 0.97) })
+    },
+  },
+  lujo_negro_dorado: {
+    label: 'Lujo negro y dorado', mood: 'Exclusividad, prestigio, valor', description: 'Negro profundo, dorado, letras clásicas espaciadas y marco fino.',
+    display: { family: 'Cinzel', weight: 600, uppercase: true, letterSpacing: 0.06 }, body: { family: 'Montserrat', weight: 500 }, eyebrow: { family: 'Montserrat', weight: 600, letterSpacing: 0.32 },
+    price: { family: 'Cinzel', weight: 700, shape: 'plain' }, radius: 0, shadow: 'marcada', reflection: 0.18, decor: ['frame', 'rules'], background: 'radial', texture: 'none',
+    layouts: ['editorial', 'escenario', 'tarjeta', 'dividido', 'diagonal'],
+    palette: () => finish({ bg: '#0B0A08', bg2: '#050504', surface: '#16130E', panel: '#1A1711', ink: '#F4E9CF', muted: '#BBA87F', price: '#D4AF5A', accent: '#C9A24B', onAccent: '#0B0A08', highlight: '#C9A24B', onHighlight: '#0B0A08', line: '#8C7038', glow: '#2A2316' }),
+  },
+  blanco_minimalista: {
+    label: 'Blanco minimalista', mood: 'Pureza, sencillez, foco', description: 'Todo blanco y negro: el producto y su precio, nada más.',
+    display: { family: 'Manrope', weight: 700, letterSpacing: -0.02 }, body: { family: 'Manrope', weight: 400 }, eyebrow: { family: 'Manrope', weight: 600, letterSpacing: 0.26 },
+    price: { family: 'Manrope', weight: 600, shape: 'plain' }, radius: 0.4, shadow: 'suave', reflection: 0, decor: [], background: 'liso', texture: 'none',
+    layouts: ['escenario', 'editorial', 'tarjeta', 'dividido', 'diagonal'],
+    palette: () => finish({ bg: '#FFFFFF', bg2: '#F6F6F6', surface: '#FFFFFF', panel: '#F4F4F4', ink: '#0A0A0A', muted: '#5F5F5F', price: '#0A0A0A', accent: '#0A0A0A', highlight: '#0A0A0A', line: '#E2E2E2', glow: '#FFFFFF' }),
+  },
+  colores_vibrantes: {
+    label: 'Colores vibrantes', mood: 'Alegría, juventud, diversión', description: 'Degradados intensos con tu color y su complementario, formas y tipografía expresiva.',
+    display: { family: 'Bricolage Grotesque', weight: 800, letterSpacing: -0.02 }, body: { family: 'Poppins', weight: 500 }, eyebrow: { family: 'Poppins', weight: 700, letterSpacing: 0.14 },
+    price: { family: 'Bricolage Grotesque', weight: 800, shape: 'pill' }, radius: 4, shadow: 'suave', reflection: 0, decor: ['blobs', 'circles', 'dots'], background: 'lineal', texture: 'none',
+    layouts: ['tarjeta', 'escenario', 'diagonal', 'dividido', 'editorial'],
+    palette: (input) => {
+      const base = brandOr(input, 0, '#7C3AED')
+      const [h0, s0] = hsl(base)
+      const h = s0 < 0.25 ? 265 : h0
+      const bg = hslToHex(h, 0.85, 0.55)
+      return finish({ bg, bg2: hslToHex(h + 45, 0.9, 0.55), surface: '#FFFFFF', panel: hslToHex(h + 180, 0.85, 0.6), ink: bestOn(bg), muted: bestOn(bg), price: bestOn(bg), accent: '#111111', onAccent: '#FFFFFF', highlight: hslToHex(h + 180, 0.95, 0.62), line: 'rgba(255,255,255,0.22)', glow: hslToHex(h + 20, 0.95, 0.75) })
+    },
+  },
+  editorial_revista: {
+    label: 'Editorial de revista', mood: 'Autoridad, estilo, curaduría', description: 'Papel, titular de portada en serifa negra, filetes y un acento rojo.',
+    display: { family: 'Playfair Display', weight: 800, letterSpacing: -0.01 }, body: { family: 'Inter', weight: 400 }, eyebrow: { family: 'Inter', weight: 700, letterSpacing: 0.28 },
+    price: { family: 'Inter', weight: 700, shape: 'plain' }, radius: 0, shadow: 'suave', reflection: 0, decor: ['rules'], background: 'liso', texture: 'noise',
+    layouts: ['editorial', 'dividido', 'escenario', 'tarjeta', 'diagonal'],
+    palette: (input) => {
+      const accent = input.override?.find(isHex) ?? '#B91C1C'
+      return finish({ bg: '#F3EFE6', bg2: '#E8E2D5', surface: '#FBF9F4', panel: '#E5DECF', ink: '#111111', muted: '#55524C', price: '#111111', accent, highlight: accent, line: '#1C1C1C', glow: '#FBF9F4' })
+    },
+  },
+  liquidacion_descuentos: {
+    label: 'Liquidación y descuentos', mood: 'Ahorro, urgencia, oportunidad', description: 'Amarillo y negro de alto contraste, sello rojo para el precio y franjas de aviso.',
+    display: { family: 'Archivo Black', weight: 400, uppercase: true }, body: { family: 'Inter', weight: 800 }, eyebrow: { family: 'Inter', weight: 800, letterSpacing: 0.16 },
+    price: { family: 'Archivo Black', weight: 400, shape: 'burst' }, radius: 0.8, shadow: 'marcada', reflection: 0, decor: ['stripes'], background: 'liso', texture: 'none',
+    layouts: ['diagonal', 'tarjeta', 'escenario', 'dividido', 'editorial'],
+    // Solo la estética de liquidación: el estilo nunca escribe «liquidación» ni descuentos que el catálogo no tenga.
+    palette: (input) => {
+      const red = input.override?.find(isHex) ?? '#DC2626'
+      return finish({ bg: '#FACC15', bg2: '#EAB308', surface: '#FFFFFF', panel: '#111111', ink: '#111111', muted: '#3F3A1E', price: '#111111', accent: '#111111', onAccent: '#FACC15', highlight: red, line: 'rgba(17,17,17,0.85)', glow: '#FDE68A' })
+    },
+  },
+  lanzamiento_producto: {
+    label: 'Lanzamiento de producto', mood: 'Expectativa, novedad, protagonismo', description: 'Escenario oscuro con foco de luz sobre el producto, reflejo y letras de cartelera.',
+    display: { family: 'Bebas Neue', weight: 400, uppercase: true, letterSpacing: 0.02 }, body: { family: 'Inter', weight: 500 }, eyebrow: { family: 'Inter', weight: 700, letterSpacing: 0.34 },
+    price: { family: 'Bebas Neue', weight: 400, shape: 'tag' }, radius: 1, shadow: 'marcada', reflection: 0.2, decor: ['arcs', 'sparkles'], background: 'radial', texture: 'none',
+    layouts: ['escenario', 'editorial', 'diagonal', 'tarjeta', 'dividido'],
+    palette: (input) => {
+      const base = brandOr(input, 0, '#6366F1')
+      const [h0, s0] = hsl(base)
+      const h = s0 < 0.25 ? 230 : h0
+      const bright = hslToHex(h, Math.max(0.75, s0), 0.6)
+      return finish({ bg: hslToHex(h, 0.4, 0.08), bg2: '#030304', surface: hslToHex(h, 0.3, 0.13), panel: hslToHex(h, 0.45, 0.16), ink: '#FFFFFF', muted: '#B9BCCB', price: bright, accent: bright, highlight: bright, line: 'rgba(255,255,255,0.16)', glow: hslToHex(h, 0.45, 0.32) })
+    },
+  },
 } as const satisfies Record<string, DesignStyleDef>
 
 export type StyleKey = keyof typeof DESIGN_STYLES
-export const STYLE_KEYS = Object.keys(DESIGN_STYLES) as StyleKey[]
+/** Orden de la galería (el de la biblioteca acordada). */
+export const STYLE_KEYS: StyleKey[] = [
+  'minimalista_premium', 'comercial_moderno', 'oferta_impacto', 'tecnologia_futurista', 'moda_elegante', 'deportivo_dinamico', 'belleza_cosmetica', 'hogar_decoracion',
+  'lujo_negro_dorado', 'blanco_minimalista', 'colores_vibrantes', 'editorial_revista', 'ecommerce_profesional', 'liquidacion_descuentos', 'lanzamiento_producto',
+]
 export const isStyle = (value: unknown): value is StyleKey => typeof value === 'string' && Object.hasOwn(DESIGN_STYLES, value)
 export const isLayout = (value: unknown): value is LayoutKey => typeof value === 'string' && Object.hasOwn(LAYOUTS, value)
 

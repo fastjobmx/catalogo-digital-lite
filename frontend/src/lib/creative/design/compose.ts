@@ -324,6 +324,13 @@ function decorate(frame: Frame, stage: Box) {
     } else if (decor === 'arcs') {
       const r = Math.max(stage.w, stage.h) * 0.62
       layers.push({ ...base('decoracion', { x: stage.x + stage.w / 2 - r, y: stage.y + stage.h / 2 - r, w: r * 2, h: r * 2 }), type: 'shape', shape: 'arc', color: rgba(colors.line, 0.7), stroke: Math.max(1.5, u * 0.18), rotation: 200 + random() * 40, seed: 0 })
+    } else if (decor === 'blobs') {
+      // Formas orgánicas en dos esquinas opuestas (la semilla decide cuáles).
+      const corners = random() > 0.5 ? [[-0.18, -0.1], [0.72, 0.68]] : [[0.7, -0.12], [-0.2, 0.7]]
+      corners.forEach(([fx, fy], index) => {
+        const size = Math.max(W, H) * (0.42 + random() * 0.12)
+        layers.push({ ...base('decoracion', { x: W * fx!, y: H * fy!, w: size, h: size * (0.8 + random() * 0.3) }), type: 'shape', shape: 'blob', color: rgba(colors.highlight.startsWith('#') ? colors.highlight : '#FFFFFF', index ? 0.22 : 0.3), stroke: 0, rotation: 0, seed: Math.floor(random() * 1000) })
+      })
     } else if (decor === 'sparkles') {
       for (let i = 0; i < 3; i++) {
         const s = u * (2 + random() * 2.5)
@@ -454,8 +461,8 @@ function dividido(frame: Frame) {
   const onPanel = bestOn(panelColor)
   if (orient === 'vertical') {
     // La unión se acomoda al alto real de la información (nombres largos bajan el panel del producto).
-    const probe = infoStack(frame, { box: { x: m, y: 0, w: W - m * 2, h: H * 0.44 }, align: 'left', valign: 'top', on: colors.bg, nameSize: u * 6.4, nameLines: 3, cta: true, description: true })
-    const seam = Math.round(Math.min(H * 0.64, Math.max(H * 0.5, H - bottom - probe.used.h - u * 8)))
+    const probe = infoStack(frame, { box: { x: m, y: 0, w: W - m * 2, h: H * 0.5 }, align: 'left', valign: 'top', on: colors.bg, nameSize: u * 6.4, nameLines: 3, cta: true, description: true })
+    const seam = Math.round(Math.min(H * 0.64, Math.max(H * 0.42, H - bottom - probe.used.h - u * 8)))
     background(frame, colors.bg, colors.bg2)
     frame.layers.push({ ...base('fondo', { x: 0, y: 0, w: W, h: seam }), type: 'rect', color: panelColor, radius: 0 })
     texture(frame, { x: 0, y: 0, w: W, h: seam }, frame.style.texture === 'none' ? 'dots' : frame.style.texture, rgba(onPanel, 0.08))

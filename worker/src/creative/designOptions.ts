@@ -6,7 +6,8 @@
 import { CreativeError } from './brandKit'
 
 export const DESIGN_STYLE_KEYS = [
-  'minimalista_premium', 'comercial_moderno', 'oferta_impacto', 'moda_elegante', 'ecommerce_profesional',
+  'minimalista_premium', 'comercial_moderno', 'oferta_impacto', 'tecnologia_futurista', 'moda_elegante', 'deportivo_dinamico', 'belleza_cosmetica', 'hogar_decoracion',
+  'lujo_negro_dorado', 'blanco_minimalista', 'colores_vibrantes', 'editorial_revista', 'ecommerce_profesional', 'liquidacion_descuentos', 'lanzamiento_producto',
 ] as const
 export const DESIGN_LAYOUT_KEYS = ['escenario', 'dividido', 'diagonal', 'editorial', 'tarjeta'] as const
 

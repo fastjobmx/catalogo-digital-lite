@@ -1,7 +1,7 @@
 # Motor de diseño publicitario (Estudio Creativo · fase 4)
 
 Rama: `feat/motor-publicitario` (sale de `main` = producción, `0bfbc03`). Worktree: `.tmp/wt-motor`.
-Estado: **implementado y probado en local, sin commit ni despliegue.** No necesita migración de base de datos.
+Estado: **implementado y probado en local; commits en la rama, sin push ni despliegue.** No necesita migración de base de datos.
 
 Fases anteriores: [FABRICA_CREATIVOS_FASE3.md](FABRICA_CREATIVOS_FASE3.md) (fábrica de creativos y video, en producción).
 
@@ -37,7 +37,7 @@ Todo: plantillas con datos verificados, textos sin IA y con IA filtrada, revisi�
 | Archivo | Qué hace |
 |---|---|
 | `photo.ts` | Analiza la foto real (copia reducida): orientación, fondo uniforme y su color, recuadro del producto, colores dominantes y una máscara del producto. La máscara solo se acepta si pasa 6 controles (fondo uniforme, tamaño del producto, que no esté cortado por los bordes, contraste del contorno, contorno no deshilachado, transparencia de PNG). |
-| `styles.ts` | 5 estilos: Minimalista premium, Comercial moderno, Oferta de alto impacto, Moda elegante, E-commerce profesional. Cada uno define tipografías (display, cuerpo, rótulos, precio), paleta (desde la marca o desde la foto), forma del precio (liso, subrayado, cápsula, etiqueta, sello), sombras, reflejo, texturas, figuras y el orden de sus 5 composiciones. |
+| `styles.ts` | **15 estilos** (ver tabla abajo). Cada uno define tipografías (display, cuerpo, rótulos, precio), paleta (desde la marca o desde la foto), forma del precio (liso, subrayado, cápsula, etiqueta, sello), sombras, reflejo, texturas, figuras y el orden de sus 5 composiciones. |
 | `compose.ts` | 5 composiciones con distribución distinta (Escenario, Dividido, Diagonal, Editorial, Tarjeta), cada una adaptada a vertical, cuadrado y horizontal, más cuadrícula para colecciones. Mide cada texto con la fuente real y lo ajusta a su zona; si no cabe, simplifica por pasos (sin descripción, letra menor, sin rótulo). Reparte el espacio entre producto e información sin superposiciones, respeta la zona segura de historias (arriba 8,5 %, abajo 11 %) y declara sobre qué color se lee cada texto. |
 | `qa.ts` | Control de calidad: dimensiones, márgenes y zona segura, superposiciones, textos sobre el producto, contraste WCAG, textos cortados o desbordados, letra mínima, datos exactos del catálogo (nombre, precio, precio anterior, etiqueta, logo) y fidelidad de la foto (recorte máximo 20 %). Los errores **bloquean** el guardado. |
 | `color.ts`, `fonts.ts` | Color (contraste WCAG, ajuste de luminosidad sin cambiar el tono, mezclas), azar reproducible con semilla, y 15 familias de Google Fonts (licencia SIL OFL, uso comercial libre) con sus pesos reales. |
@@ -45,6 +45,28 @@ Todo: plantillas con datos verificados, textos sin IA y con IA filtrada, revisi�
 Pintado (`render.ts`): degradados lineales y radiales, luz detrás del producto, sombras de contacto y de caída, reflejo, máscaras (círculo, arco), fondos desenfocados (por reducción y ampliación, funciona en todos los navegadores), texturas (puntos, líneas, cuadrícula, ruido), figuras (círculo, anillo, arco, sello, destello, mancha, franja), espaciado entre letras y recorte de fondo local.
 
 **Fidelidad del producto:** los píxeles del producto se copian tal cual. La máscara solo decide qué es fondo. Si el recorte no es confiable, se usa la foto original completa, encajada en su proporción natural (nunca deformada; recorte máximo de 18 % cuando la proporción casi coincide).
+
+### Los 15 estilos
+
+| Estilo | Tipografía (titular / texto) | Paleta | Recursos | Composición 1 |
+|---|---|---|---|---|
+| Minimalista premium | Playfair Display / Inter | Marfil, tinta oscura | Arcos, filetes, reflejo | Escenario |
+| Comercial moderno | Poppins | Color de la marca | Círculos, puntos, cápsula de precio | Dividido |
+| Oferta de alto impacto | Anton / Inter | Color de la marca saturado + amarillo | Sello de precio, franjas | Diagonal |
+| Tecnología futurista | Space Grotesk / Inter | Noche + neón del tono de la marca | Cuadrícula, destellos, reflejo | Escenario |
+| Moda elegante | Cormorant Garamond itálica / Montserrat | Tomada de la foto | Marco fino, ruido de papel | Editorial |
+| Deportivo dinámico | Archivo Black / Inter | Negro + color de la marca | Franjas inclinadas | Diagonal |
+| Belleza y cosmética | DM Serif Display / Manrope | Pastel del tono de la marca | Formas orgánicas, destellos, reflejo | Escenario |
+| Hogar y decoración | Fraunces / Manrope | Tierra, tomada de la foto | Arcos, textura de papel | Dividido |
+| Lujo negro y dorado | Cinzel / Montserrat | Negro y dorado | Marco fino, reflejo | Editorial |
+| Blanco minimalista | Manrope | Blanco y negro | Ninguno | Escenario |
+| Colores vibrantes | Bricolage Grotesque / Poppins | Degradado del color de la marca y su complementario | Formas, círculos, puntos | Tarjeta |
+| Editorial de revista | Playfair Display / Inter | Papel + acento rojo | Filetes, ruido | Editorial |
+| E-commerce profesional | Inter | Blanco de estudio | Cuadrícula, etiqueta de precio | Escenario |
+| Liquidación y descuentos | Archivo Black / Inter | Amarillo, negro y rojo | Sello de precio, franjas | Diagonal |
+| Lanzamiento de producto | Bebas Neue / Inter | Escenario oscuro con foco | Arcos, destellos, reflejo | Escenario |
+
+Los estilos solo ponen estética: ninguno escribe textos propios. «Liquidación y descuentos» no dice «liquidación» ni inventa descuentos; el porcentaje y el precio anterior solo aparecen con la plantilla «Oferta aprobada», que exige el dato real del catálogo.
 
 ### Servidor (`worker/`)
 
@@ -66,13 +88,14 @@ Pintado (`render.ts`): degradados lineales y radiales, luz detrás del producto,
 | Prueba | Resultado |
 |---|---|
 | `frontend`: `npx tsc --noEmit` | OK |
-| `frontend`: `vitest run src/lib/creative` | 24 OK. Incluye **1.050 combinaciones** (5 estilos × 5 composiciones × 7 formatos × 6 casos: recorte, oferta, fondo liso sin recorte, foto compleja, sin logo y precio oculto, etiqueta larga) sin errores de calidad; cinco variantes distintas por estilo; datos exactos; análisis de fotos sintéticas |
+| `frontend`: `vitest run src/lib/creative` | 24 OK. Incluye **3.150 combinaciones** (15 estilos × 5 composiciones × 7 formatos × 6 casos: recorte, oferta, fondo liso sin recorte, foto compleja, sin logo y precio oculto, etiqueta larga) sin errores de calidad; cinco variantes distintas por estilo; datos exactos; análisis de fotos sintéticas |
 | `worker`: `npx tsc --noEmit` | OK |
 | `worker`: `vitest run src/routes/creative-pieces.test.ts` | 15 OK (3 nuevas: plan con diseño y huella distinta, validaciones, formato 1200 × 628) |
 
 **Con productos reales (lectura de la API pública de producción, sin escribir nada):** Luz Mágica y Muy Parcero, 139 fotos analizadas en el navegador.
 - Solo **3 de 139** fotos permiten quitar el fondo con seguridad (camisetas blancas sobre fondo gris). El resto son fotos de ambiente (habitación, maniquí, exteriores): 130 con fondo no uniforme, 4 con contorno irregular, 2 con el producto cortado por el borde. En esas, el motor usa la foto completa como tarjeta con sombra.
-- Revisadas a ojo 45 piezas reales (5 estilos × 5 composiciones en vertical, historia y anuncio): todas pasan el control.
+- Revisadas a ojo 65 piezas reales (los 15 estilos en vertical, historia y anuncio): todas pasan el control.
+- Control de calidad con la tipografía real del navegador (no la medición aproximada de las pruebas): **1.575 composiciones** (15 estilos × 5 composiciones × 7 formatos × 3 productos reales, uno de ellos en oferta), **0 errores**.
 - Análisis por foto: 6 a 110 ms.
 
 **De punta a punta en el panel** (API y panel locales de la rama, base aislada `.tmp/fase3-local`): producto → plantilla → formato → estilo «Moda elegante» → «Otra variante» → crear. Pieza guardada: plan versión 2 con el diseño, JPG 1080 × 1350, 245 KB, control de calidad en verde.
@@ -97,7 +120,7 @@ Pintado (`render.ts`): degradados lineales y radiales, luz detrás del producto,
 
 ## 6. Lo que falta (siguientes fases)
 
-1. **Ampliar a 15 estilos** (pendientes: Tecnología futurista, Deportivo dinámico, Belleza y cosmética, Hogar y decoración, Lujo negro y dorado, Blanco minimalista, Colores vibrantes, Editorial de revista, Liquidación y descuentos, Lanzamiento de producto). Las 15 tipografías ya están declaradas. Cada estilo nuevo debe pasar la misma prueba de 1.050 combinaciones y agregarse a `DESIGN_STYLE_KEYS` del servidor.
+1. ~~Ampliar a 15 estilos~~ (hecho). Un estilo nuevo se agrega en `styles.ts` y en `DESIGN_STYLE_KEYS` del servidor, y debe pasar la prueba de combinaciones.
 2. **Tipos de pieza dirigidos** (estado de WhatsApp, catálogo con referencia, beneficios reales, comparativo): la base ya está (formatos, referencia, descripción por frases completas). El comparativo de características necesita datos estructurados del producto: hoy solo existe la descripción libre.
 3. **Video (fase 3 del pedido):** 10 plantillas con secuencia de escenas, transiciones y pantalla final; duraciones 8, 10, 12 y 15 s (hoy la plantilla fija 6, 10 o 15); audio AAC con WebCodecs `AudioEncoder`. La música necesita pistas con licencia comercial verificada (o generadas por el propio sistema): no se incluyó ninguna.
 4. **Lote:** selección múltiple, cola con un trabajo a la vez, progreso, reintentos, cancelación, ZIP (sin dependencia: formato «store» es suficiente para JPG/MP4) e historial. Liberar los mapas de bits (`ImageBitmap.close()`) y los recortes entre productos: la prueba mostró que, sin liberar, la pestaña se queda sin memoria.
