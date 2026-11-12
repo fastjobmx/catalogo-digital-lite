@@ -21,6 +21,15 @@ Fase anterior: [FABRICA_CREATIVOS_FASE3.md](FABRICA_CREATIVOS_FASE3.md) (en prod
 - `git merge-tree` de esta rama con `c08c55d` y con la punta `891d17a` de Telegram: **sin conflictos**. Esta rama no toca WhatsApp ni Telegram.
 - Para publicar habrá que integrar primero esta rama con `feat/telegram-ia-planes` (o con lo que esté en producción ese día) y desplegar desde esa integración, no desde `main` sola: desplegar la API desde esta rama tal cual **quitaría** los cambios de Telegram que hoy corren.
 
+## 1b. Integración con producción (rama `integracion/motor-publicitario`, 2026-11-12)
+
+- Rama `integracion/motor-publicitario` = `891d17a` (línea de Telegram: `c08c55d`, lo que corre en la API de producción, más un commit de documentación) + `feat/motor-publicitario`, merge `5a5c1c1` **sin conflictos**. Worktree `.tmp/wt-motor-prod`. Sin push.
+- Pruebas sobre el código integrado: servidor `tsc` OK y **559 pruebas OK** (17 omitidas: las de la línea de Telegram que necesitan servicios reales); panel `tsc` OK y **137 OK**.
+- Simulación de despliegue con la configuración de producción (`wrangler deploy --dry-run --config wrangler.production.toml`): API 1.531 KiB (359 KiB comprimida), enlaces correctos. Panel: compilación `--mode cloudflare` y simulación del Worker de recursos estáticos OK.
+- Prueba local de punta a punta con la API y el panel integrados sobre una copia aislada de la base con las 23 migraciones (`.tmp/integracion-local`): plan con diseño sectorial, plan de video de 12 s con plantilla, rechazo de estilos antiguos, composición clásica intacta (plan v1), consumo de IA de la línea de Telegram respondiendo con la 0023, y creación real desde el panel de una imagen (JPG 1080 × 1080) y un video (MP4 8 s) guardados por el servidor.
+- **Staging no se usó:** el Worker `sneakerhub-telegram-staging` lo está usando la sesión de WhatsApp/WAHA (despliegue de las 21:42 UTC del 2026-11-12, código y variables de esa rama). Desplegar ahí la integración habría reemplazado su código y cortado sus pruebas.
+- Orden de publicación cuando se autorice: API (`catalogo-lite-api`, desde esta rama de integración, conservando las variables y secretos actuales) → panel (`catalogo-digital-ia`). Sin migración. Retorno: API a `56b1450b` y panel a la versión anterior.
+
 ## 2. Qué hace
 
 En **Estudio Creativo → Creativos y video** el comerciante elige productos reales y obtiene imágenes, carruseles, historias, publicaciones y videos con su foto, nombre, precio y logo exactos. Todo se compone en su navegador: **sin IA de imágenes ni de video y sin costo por pieza**. Gemini solo se usa, si el comercio lo pide, para sugerir textos (filtrados).
