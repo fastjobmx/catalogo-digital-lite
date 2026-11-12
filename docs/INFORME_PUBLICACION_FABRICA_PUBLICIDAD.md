@@ -61,8 +61,8 @@ Orden: panel primero (el panel nuevo envía opciones de diseño que la API anter
 
 ## 5. Estado del repositorio
 
-- Producción corre `integracion/motor-publicitario` (`4bf559a` + este informe). **No se hizo push** y `main` no contiene ni la línea de Telegram ni la fábrica: quien publique desde `main` hoy **borraría ambas**.
-- Recomendación: integrar esta rama en `main` y hacer push (requiere autorización), para que el repositorio vuelva a ser igual a producción. Las ramas de WhatsApp parten de la línea de Telegram y deberán integrar `main` antes de su propia publicación.
+- **Actualizado (2026-11-12, autorizado):** `main` avanzó por avance directo de `0bfbc03` a `8d8f560` y se hizo push. El código de `main` es idéntico al publicado (API `3c53c1d8`, panel `6f503c33`): incluye la línea de Telegram (`c08c55d`) y la fábrica de publicidad. Desde ahora, `main` = producción.
+- Las ramas que partieron antes (por ejemplo `feat/whatsapp-admin-bot`, desde `891d17a`) deben integrar `main` antes de publicar, para no borrar la fábrica.
 
 ---
 
