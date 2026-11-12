@@ -14,6 +14,7 @@ import { ensureFonts } from '../../../lib/creative/design/fonts'
 import { checkScene } from '../../../lib/creative/design/qa'
 import { DESIGN_STYLES, STYLE_KEYS, detectSector, stylesOf, styleFonts } from '../../../lib/creative/design/styles'
 import { DEFAULT_DESIGN, DesignPanel, QaPanel } from './DesignPanel'
+import { BatchPanel } from './BatchPanel'
 import { assetBlob } from './AssetImage'
 import { formatBytes } from './ResultReview'
 
@@ -73,6 +74,7 @@ export default function Factory() {
   const [format, setFormat] = useState('cuadrado')
   const [quality, setQuality] = useState<'estandar' | 'alta'>('estandar')
   const [seconds, setSeconds] = useState(6)
+  const [music, setMusic] = useState(true)
   const [draft, setDraft] = useState<{ headline: string; description: string; benefits: string; cta: string; hashtags: string } | null>(null)
   const [plan, setPlan] = useState<CreativePlanApi<PlanSpec> | null>(null)
   const [media, setMedia] = useState<{ images: ImageMap; font: string; design: DesignContext | null; notes: string[] } | null>(null)
@@ -118,7 +120,9 @@ export default function Factory() {
   const chosenTemplate = templates.find((item) => item.key === template) ?? null
   const formats = useMemo(() => (catalog?.formats ?? []).filter((item) => (mode === 'video_ia' ? catalog!.videoAi.formats.includes(item.key) : kind !== 'video' || item.video)), [catalog, mode, kind])
   useEffect(() => { if (formats.length && !formats.some((item) => item.key === format)) setFormat(formats[0]!.key) }, [formats, format])
-  useEffect(() => { if (chosenTemplate && !chosenTemplate.seconds.includes(seconds)) setSeconds(chosenTemplate.seconds[0]!) }, [chosenTemplate, seconds])
+  // Los videos del motor de diseño aceptan cualquier duración entre 6 y 20 s; los clásicos, las de su plantilla.
+  useEffect(() => { if (chosenTemplate && !(useDesign && mode === 'video') && !chosenTemplate.seconds.includes(seconds)) setSeconds(chosenTemplate.seconds[0]!) }, [chosenTemplate, seconds, useDesign, mode])
+  useEffect(() => { if (useDesign && mode === 'video' && (seconds < 6 || seconds > 20)) setSeconds(10) }, [useDesign, mode, seconds])
   useEffect(() => { if (template && (!chosenTemplate || eligible[template]?.ok === false)) setTemplate('') }, [template, chosenTemplate, eligible])
 
   const toggle = (id: number) => { reset(); setDraft(null); setPicked((current) => current.includes(id) ? current.filter((item) => item !== id) : current.length >= MAX_PRODUCTS ? current : [...current, id]) }
@@ -189,7 +193,7 @@ export default function Factory() {
       const spec = live
       let files: Blob[]
       let durationMs: number | undefined
-      if (spec.kind === 'video') { const video = await exportVideo(spec, media.images, media.font, setProgress, media.design); files = [video.blob]; durationMs = video.durationMs } else files = await exportImages(spec, media.images, media.font, media.design, output === 'auto' ? null : output)
+      if (spec.kind === 'video') { const video = await exportVideo(spec, media.images, media.font, setProgress, media.design, { music }); files = [video.blob]; durationMs = video.durationMs } else files = await exportImages(spec, media.images, media.font, media.design, output === 'auto' ? null : output)
       const saved = await creativePiecesApi.save({ ...planInput(), ...(replaces ? { replaces } : {}), ...(durationMs ? { durationMs } : {}) }, files, saveKey.current, token)
       setNotice(saved.reused ? 'Ya existía una pieza idéntica: no se creó otra.' : 'Pieza creada. Revísala abajo y apruébala cuando esté lista.')
       setReplaces(null); setPlan(null); setMedia(null); saveKey.current = ''
@@ -366,7 +370,7 @@ export default function Factory() {
           </div>
           {useDesign && (template === 'antes_despues' || !picked.length)
             ? <p className="text-xs text-muted">Esta plantilla usa la composición clásica.</p>
-            : useDesign && <DesignPanel spec={live} images={media?.images ?? null} design={media?.design ?? null} notes={media?.notes ?? []} options={designOpts} onChange={setDesignOpts} output={output} onOutput={setOutput} kind={kind} priceLocked={priceLocked} brandColors={plan?.spec.brand.colors ?? []} detected={detected} hasOffer={Boolean(plan?.spec.products.some((product) => product.compareAtText))} />}
+            : useDesign && <DesignPanel spec={live} images={media?.images ?? null} design={media?.design ?? null} notes={media?.notes ?? []} options={designOpts} onChange={setDesignOpts} output={output} onOutput={setOutput} kind={kind} seconds={seconds} onSeconds={(value) => { setSeconds(value); setPlan(null); setMedia(null) }} music={music} onMusic={setMusic} priceLocked={priceLocked} brandColors={plan?.spec.brand.colors ?? []} detected={detected} hasOffer={Boolean(plan?.spec.products.some((product) => product.compareAtText))} />}
           {useDesign && !media?.design && picked.length > 0 && template !== 'antes_despues' && <p className="text-xs text-muted">Pulsa «Ver vista previa» para ver las miniaturas con tu producto.</p>}
         </Step>
       )}
@@ -413,7 +417,7 @@ export default function Factory() {
                 <span className="text-sm font-bold text-ink">{item.label}</span><span className="mt-1 block text-xs text-muted">{item.description}</span>
               </button>
             ))}
-            {kind === 'video' && chosenTemplate && (
+            {kind === 'video' && chosenTemplate && !(useDesign && mode === 'video') && (
               <label className="text-xs font-bold text-ink">Duración<select className="input-field mt-1 block" value={seconds} onChange={(e) => { setSeconds(Number(e.target.value)); reset() }}>{chosenTemplate.seconds.map((value) => <option key={value} value={value}>{value} segundos</option>)}</select></label>
             )}
           </div>
@@ -460,6 +464,8 @@ export default function Factory() {
           </div>
         )}
       </Step>
+
+      {catalog && token && <BatchPanel products={products} catalog={catalog} token={token} />}
 
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">

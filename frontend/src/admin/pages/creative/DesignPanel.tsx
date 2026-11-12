@@ -3,10 +3,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { AlertCircle, AlertTriangle, CheckCircle2, Shuffle } from 'lucide-react'
 import type { DesignOptions, PlanSpec } from '../../../lib/creative/scene'
-import { drawPreview, type ImageMap, type OutputType } from '../../../lib/creative/render'
+import { drawPreview, videoSupport, type ImageMap, type OutputType } from '../../../lib/creative/render'
 import type { DesignContext } from '../../../lib/creative/design/compose'
 import { styleLayouts } from '../../../lib/creative/design/compose'
 import type { QaReport } from '../../../lib/creative/design/qa'
+import { SECTOR_VIDEO, VIDEO_SECONDS, VIDEO_TEMPLATES, VIDEO_TEMPLATE_KEYS, MAX_VIDEO_SECONDS, MIN_VIDEO_SECONDS } from '../../../lib/creative/design/video'
 import { DESIGN_STYLES, LAYOUTS, OBJECTIVES, OBJECTIVE_KEYS, SECTORS, SECTOR_KEYS, STYLE_KEYS, stylesOf, type LayoutKey, type SectorKey } from '../../../lib/creative/design/styles'
 
 export const DEFAULT_DESIGN: DesignOptions = { sector: 'calzado', objective: 'venta', style: 'sneaker_impact', layout: 'heroe', seed: 1, colors: null, showPrice: true, removeBg: true, showReference: false }
@@ -38,6 +39,10 @@ interface Props {
   output: OutputType | 'auto'
   onOutput: (value: OutputType | 'auto') => void
   kind: 'imagen' | 'carrusel' | 'video'
+  seconds: number
+  onSeconds: (value: number) => void
+  music: boolean
+  onMusic: (value: boolean) => void
   priceLocked: boolean
   brandColors: string[]
   /** Sector sugerido por las categorías y nombres de los productos elegidos. */
@@ -46,10 +51,12 @@ interface Props {
   hasOffer: boolean
 }
 
-export function DesignPanel({ spec, images, design, notes, options, onChange, output, onOutput, kind, priceLocked, brandColors, detected, hasOffer }: Props) {
+export function DesignPanel({ spec, images, design, notes, options, onChange, output, onOutput, kind, seconds, onSeconds, music, onMusic, priceLocked, brandColors, detected, hasOffer }: Props) {
   const style = DESIGN_STYLES[options.style as keyof typeof DESIGN_STYLES] ?? DESIGN_STYLES.sneaker_impact
   const sector = (options.sector && options.sector in SECTORS ? options.sector : style.sector) as SectorKey
   const [allStyles, setAllStyles] = useState(false)
+  const [support, setSupport] = useState<{ mp4: boolean; aac: boolean; webm: boolean } | null>(null)
+  useEffect(() => { if (kind === 'video') void videoSupport().then(setSupport).catch(() => setSupport(null)) }, [kind])
   const familyStyles = allStyles ? STYLE_KEYS : stylesOf(sector)
   const chooseSector = (key: SectorKey) => { const first = stylesOf(key)[0]!; onChange({ ...options, sector: key, style: first, layout: DESIGN_STYLES[first].layouts[0] }) }
   const layouts = styleLayouts(options.style)
@@ -76,6 +83,31 @@ export function DesignPanel({ spec, images, design, notes, options, onChange, ou
         </div>
         <p className="mt-1.5 text-xs text-muted">{SECTORS[sector].hint}</p>
       </div>
+
+      {kind === 'video' && (
+        <div className="space-y-2 rounded-xl border border-line bg-white p-3">
+          <p className="text-xs font-bold uppercase tracking-wider text-muted">Plantilla de video</p>
+          <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-5">
+            {VIDEO_TEMPLATE_KEYS.map((key) => {
+              const active = (options.video ?? SECTOR_VIDEO[sector]) === key
+              return (
+                <button key={key} type="button" aria-pressed={active} onClick={() => onChange({ ...options, video: key })} className={`rounded-lg border p-2 text-left ${active ? 'border-brand bg-brand/5 ring-1 ring-brand' : 'border-line'}`}>
+                  <span className="block text-xs font-bold text-ink">{VIDEO_TEMPLATES[key].label}{SECTOR_VIDEO[sector] === key ? ' · sugerida' : ''}</span>
+                  <span className="mt-0.5 block text-[11px] leading-snug text-muted">{VIDEO_TEMPLATES[key].description}</span>
+                </button>
+              )
+            })}
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-ink">
+            <span className="font-bold">Duración</span>
+            {VIDEO_SECONDS.map((value) => <button key={value} type="button" aria-pressed={seconds === value} onClick={() => onSeconds(value)} className={`rounded-full px-3 py-1 font-bold ${seconds === value ? 'bg-ink text-white' : 'bg-line/60'}`}>{value} s</button>)}
+            <label className="flex items-center gap-1">Otra<input type="number" min={MIN_VIDEO_SECONDS} max={MAX_VIDEO_SECONDS} value={seconds} onChange={(event) => { const value = Math.round(Number(event.target.value)); if (value >= MIN_VIDEO_SECONDS && value <= MAX_VIDEO_SECONDS) onSeconds(value) }} className="input-field w-16 py-1" /></label>
+            <label className="ml-2 flex items-center gap-1.5 font-semibold"><input type="checkbox" checked={music} onChange={(event) => onMusic(event.target.checked)} /> Música generada por el sistema</label>
+          </div>
+          <p className="text-[11px] text-muted">La música la compone el propio sistema (sin pistas de terceros). Se agrega en AAC solo si tu navegador lo permite; si no, el video sale sin audio.</p>
+          {support && <p className={`text-[11px] font-semibold ${support.mp4 ? 'text-emerald-700' : 'text-amber-700'}`}>Este navegador: {support.mp4 ? 'exporta MP4 (H.264)' : support.webm ? 'no exporta MP4; saldrá en WebM, en tiempo real' : 'no puede exportar video'}{support.mp4 ? (support.aac ? ' con audio AAC.' : ' sin audio (no codifica AAC).') : '.'}</p>}
+        </div>
+      )}
 
       <div>
         <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Objetivo de la pieza</p>

@@ -241,6 +241,19 @@ describe('motor de diseño publicitario', () => {
     expect((await json(await A('/creatives/plan', { method: 'POST', body: { kind: 'imagen', template: 'oferta_aprobada', format: 'vertical', productIds: [ids.A3], design: { ...DESIGN, showPrice: false } } }))).code).toBe('PRICE_REQUIRED')
   })
 
+  it('videos del motor: plantilla validada y duración libre entre 6 y 20 s; MP4 guardado con su duración real', async () => {
+    const video = (seconds: number, extra: Record<string, unknown> = {}) => plan({ kind: 'video', format: 'historia', seconds, design: { ...DESIGN, video: 'oferta_relampago', ...extra } })
+    expect((await json(await video(12))).spec).toMatchObject({ kind: 'video', seconds: 12, design: { video: 'oferta_relampago' } })
+    expect((await json(await video(25))).code).toBe('INVALID_DURATION')
+    expect((await json(await video(10, { video: 'otra' }))).code).toBe('INVALID_VIDEO_TEMPLATE')
+    const spec = { kind: 'video', template: 'producto_destacado', format: 'historia', productIds: [ids.A1], seconds: 12, design: { ...DESIGN, video: 'oferta_relampago' } }
+    const form = new FormData()
+    form.append('spec', JSON.stringify({ ...spec, durationMs: 12000 }))
+    form.append('file', new File([MP4], 'video.mp4', { type: 'video/mp4' }))
+    const saved = await json(await A('/creatives', { method: 'POST', body: form, headers: { 'Idempotency-Key': 'video-diseno-001' } }))
+    expect(saved.piece).toMatchObject({ kind: 'video', files: [{ contentType: 'video/mp4', durationMs: 12000 }] })
+  })
+
   it('formato de anuncio horizontal 1200 × 628 con resolución exacta; guarda WebP y JPG', async () => {
     const spec = { kind: 'imagen', template: 'producto_destacado', format: 'anuncio', productIds: [ids.A1], design: DESIGN }
     expect((await json(await plan({ format: 'anuncio', design: DESIGN }))).spec).toMatchObject({ width: 1200, height: 628 })

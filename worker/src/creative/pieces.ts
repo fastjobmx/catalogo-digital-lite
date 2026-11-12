@@ -11,7 +11,7 @@ import { validIdempotencyKey } from '../ai/credits'
 import { CreativeError } from './brandKit'
 import type { CreativeContext } from './contracts'
 import { imageDimensions, sha256Hex, sniffImageType } from './imageInfo'
-import { parseDesign } from './designOptions'
+import { DESIGN_VIDEO_SECONDS, parseDesign } from './designOptions'
 import {
   CREATIVE_FORMATS, CREATIVE_TEMPLATES, defaultCopy, isFormat, isTemplate, loadFacts, manualCopy, templateBadge, templateEligibility,
   type CreativeCopy, type CreativeFacts, type FormatKey, type PieceKind, type TemplateDef, type TemplateKey,
@@ -103,9 +103,11 @@ export function pieceService(env: Env['Bindings']) {
     if (!def.kinds.includes(kind)) throw new CreativeError('KIND_NOT_ALLOWED', `«${def.label}» no se ofrece como ${kind}`)
     if (kind === 'video' && !CREATIVE_FORMATS[format].video) throw new CreativeError('FORMAT_NOT_ALLOWED', 'Ese formato es solo para imágenes')
     const quality: Quality = input.quality === 'alta' ? 'alta' : 'estandar'
-    const seconds = kind === 'video' ? Number(input.seconds ?? def.seconds[0]) : null
-    if (seconds !== null && !def.seconds.includes(seconds)) throw new CreativeError('INVALID_DURATION', `Elige una duración de ${def.seconds.join(', ')} segundos`)
     const design = parseDesign(input.design, template)
+    const seconds = kind === 'video' ? Number(input.seconds ?? (design ? 10 : def.seconds[0])) : null
+    // Videos del motor de diseño: duración libre entre 6 y 20 s. Los clásicos, las de su plantilla.
+    const validSeconds = seconds === null || (design ? Number.isInteger(seconds) && seconds >= DESIGN_VIDEO_SECONDS.min && seconds <= DESIGN_VIDEO_SECONDS.max : def.seconds.includes(seconds))
+    if (!validSeconds) throw new CreativeError('INVALID_DURATION', design ? `Elige una duración entre ${DESIGN_VIDEO_SECONDS.min} y ${DESIGN_VIDEO_SECONDS.max} segundos` : `Elige una duración de ${def.seconds.join(', ')} segundos`)
     const facts = await loadFacts(env, ctx, ids(input.productIds))
     const eligibility = templateEligibility(template, facts, Boolean(facts.brand.name && facts.brand.slogan))
     if (!eligibility.ok) throw new CreativeError('TEMPLATE_NOT_ELIGIBLE', eligibility.reason || 'Esta plantilla no aplica a la selección', 409)

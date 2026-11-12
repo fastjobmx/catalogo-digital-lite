@@ -789,7 +789,7 @@ function tarjeta(frame: Frame) {
 const builderFor = (key: LayoutKey): ((frame: Frame) => void) => ({ escenario, dividido, diagonal, editorial, tarjeta, heroe, lookbook, collage, catalogo, podio })[key]
 
 /** Fondo y decoraciones debajo; contenido encima. Se conserva el orden relativo dentro de cada grupo. */
-function orderLayers(layers: Layer[]): Layer[] {
+export function orderLayers(layers: Layer[]): Layer[] {
   const rank = (layer: Layer) => (layer.role === 'fondo' ? 0 : layer.role === 'decoracion' || layer.role === 'rotulo' ? 1 : 2)
   return layers.map((layer, index) => ({ layer, index })).sort((a, b) => rank(a.layer) - rank(b.layer) || a.index - b.index).map((item) => item.layer)
 }
@@ -852,8 +852,8 @@ export function normalizeDesign(design: Partial<DesignOptions> | null | undefine
   }
 }
 
-/** Composición publicitaria de una pieza (o de una diapositiva del carrusel / segmento del video). */
-export function composeDesign(spec: PlanSpec, slide: number, ctx: DesignContext): Scene {
+/** Contexto de composición de una pieza: medidas, paleta, márgenes y zona segura. */
+export function makeFrame(spec: PlanSpec, slide: number, ctx: DesignContext): Frame {
   const design = normalizeDesign(spec.design)
   const style = styleOf(design.style)
   const { width: W, height: H } = spec
@@ -866,12 +866,18 @@ export function composeDesign(spec: PlanSpec, slide: number, ctx: DesignContext)
   const m = Math.round(u * (orient === 'horizontal' ? 6.5 : 6))
   // Historias y estados: la interfaz de la red tapa arriba y abajo; el contenido importante queda dentro.
   const story = H / W > 1.6
-  const frame: Frame = {
+  return {
     spec, product: single, design, style, colors, emphasis: EMPHASIS[(design.objective ?? 'venta') as keyof typeof EMPHASIS] ?? EMPHASIS.venta, W, H, u, m,
     top: story ? Math.round(H * 0.085) : m, bottom: story ? Math.round(H * 0.11) : m,
     orient, wide: ratio > 2.2, random: seededRandom(design.seed * 7919 + slide * 104729 + design.layout.length), ctx, layers: [],
   }
-  if (single) builderFor(design.layout as LayoutKey)(frame)
+}
+
+/** Composición publicitaria de una pieza (o de una diapositiva del carrusel / segmento del video). */
+export function composeDesign(spec: PlanSpec, slide: number, ctx: DesignContext): Scene {
+  const frame = makeFrame(spec, slide, ctx)
+  const { W, H, u, style, design } = frame
+  if (frame.product) builderFor(design.layout as LayoutKey)(frame)
   else grid(frame)
   if (spec.kind === 'carrusel' && spec.slides > 1) {
     const counter = `${slide + 1}/${spec.slides}`

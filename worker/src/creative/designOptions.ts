@@ -11,6 +11,9 @@ export const DESIGN_STYLE_KEYS = [
 ] as const
 export const DESIGN_LAYOUT_KEYS = ['heroe', 'lookbook', 'collage', 'catalogo', 'podio', 'escenario', 'dividido', 'diagonal', 'editorial', 'tarjeta'] as const
 export const DESIGN_SECTOR_KEYS = ['calzado', 'moda', 'streetwear', 'hogar', 'belleza'] as const
+export const DESIGN_VIDEO_KEYS = ['producto_premium', 'oferta_relampago', 'presentacion_elegante', 'promocion_dinamica', 'producto_tecnologico', 'moda_accesorios', 'belleza_bienestar', 'producto_destacado', 'descuento_especial', 'catalogo_animado'] as const
+/** Videos del motor de diseño: cualquier duración entera en este rango (8, 10, 12 y 15 s son las sugeridas). */
+export const DESIGN_VIDEO_SECONDS = { min: 6, max: 20 } as const
 export const DESIGN_OBJECTIVE_KEYS = ['venta', 'promocion', 'coleccion', 'catalogo', 'aspiracional', 'beneficios', 'lanzamiento'] as const
 
 export type DesignStyleKey = typeof DESIGN_STYLE_KEYS[number]
@@ -44,8 +47,10 @@ export function parseDesign(input: unknown, template: string): DesignOptions | n
   if (sector !== null && !(DESIGN_SECTOR_KEYS as readonly string[]).includes(sector)) throw new CreativeError('INVALID_SECTOR', 'Elige un sector válido')
   const objective = body.objective === undefined ? 'venta' : String(body.objective)
   if (!(DESIGN_OBJECTIVE_KEYS as readonly string[]).includes(objective)) throw new CreativeError('INVALID_OBJECTIVE', 'Elige un objetivo válido')
+  const video = body.video === undefined || body.video === null ? null : String(body.video)
+  if (video !== null && !(DESIGN_VIDEO_KEYS as readonly string[]).includes(video)) throw new CreativeError('INVALID_VIDEO_TEMPLATE', 'Elige una plantilla de video válida')
   const showPrice = body.showPrice !== false
   // Una oferta sin precio no dice nada verdadero: el precio es obligatorio en esa plantilla.
   if (!showPrice && template === 'oferta_aprobada') throw new CreativeError('PRICE_REQUIRED', 'La plantilla «Oferta aprobada» siempre muestra el precio')
-  return { sector: (sector ?? STYLE_SECTOR[body.style as DesignStyleKey]) as DesignOptions['sector'], objective: objective as DesignOptions['objective'], style: body.style as DesignStyleKey, layout: body.layout as DesignLayoutKey, seed, colors, showPrice, removeBg: body.removeBg !== false, showReference: body.showReference === true }
+  return { sector: (sector ?? STYLE_SECTOR[body.style as DesignStyleKey]) as DesignOptions['sector'], objective: objective as DesignOptions['objective'], style: body.style as DesignStyleKey, layout: body.layout as DesignLayoutKey, seed, colors, showPrice, removeBg: body.removeBg !== false, showReference: body.showReference === true, ...(video ? { video } : {}) }
 }

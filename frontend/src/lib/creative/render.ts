@@ -12,6 +12,8 @@ import { cssFont, ensureFonts } from './design/fonts'
 import { analyzePhoto, subjectRect, type PhotoAnalysis } from './design/photo'
 import { mix, seededRandom } from './design/color'
 import { styleFonts } from './design/styles'
+import { templateOf, videoPasses, type Pass } from './design/video'
+import { aacSupported, encodeAac, generateMusic, AUDIO_SAMPLE_RATE } from './design/audio'
 
 export type ImageMap = Map<string, ImageBitmap>
 export type AssetLoader = (assetId: string) => Promise<Blob>
@@ -601,7 +603,8 @@ function drawPill(ctx: Ctx, layer: Extract<Layer, { type: 'pill' }>, y: number, 
 function drawLayer(ctx: Ctx, layer: Layer, images: ImageMap, font: string) {
   if (layer.opacity <= 0) return
   ctx.save()
-  ctx.globalAlpha = layer.opacity
+  // Se multiplica: respeta la opacidad de la pasada (transiciones entre escenas).
+  ctx.globalAlpha *= layer.opacity
   const y = layer.y + layer.offsetY
   const dx = layer.offsetX ?? 0
   const scale = layer.scale ?? 1
@@ -669,14 +672,45 @@ export async function exportImages(spec: PlanSpec, images: ImageMap, font: strin
 }
 
 /** Dibuja en un lienzo visible el cuadro del segundo `t` (vista previa). */
+/** Dibuja las pasadas de un cuadro de video (escenas con su transición). */
+export function drawPasses(ctx: Ctx, passes: Pass[], images: ImageMap, font: string, scale: number, width: number, height: number) {
+  for (const pass of passes) {
+    ctx.save()
+    ctx.globalAlpha = pass.alpha ?? 1
+    if (pass.clip !== undefined) { ctx.beginPath(); ctx.rect(0, 0, width * scale * pass.clip, height * scale); ctx.clip() }
+    if (pass.dx) ctx.translate(pass.dx * scale, 0)
+    if (pass.zoom && pass.zoom !== 1) { ctx.translate((width * scale) / 2, (height * scale) / 2); ctx.scale(pass.zoom, pass.zoom); ctx.translate((-width * scale) / 2, (-height * scale) / 2) }
+    drawLayers(ctx, pass.layers, images, font, scale)
+    ctx.restore()
+  }
+}
+
+/** ¿Es un video del motor de diseño (plantillas de video con intro, escenas y cierre)? */
+export const designVideo = (spec: PlanSpec, design: DesignContext | null): design is DesignContext => spec.kind === 'video' && Boolean(design) && usesDesign(spec)
+
+/** Pasadas del segundo `t` de un video: motor de diseño o composición clásica. */
+export function videoFrame(spec: PlanSpec, t: number, design: DesignContext | null): Pass[] {
+  const build = (s: PlanSpec, n: number) => sceneFor(s, n, design)
+  if (designVideo(spec, design)) return videoPasses(spec, t, design, (s, n) => build(s, n).layers)
+  return [{ layers: frameAt(spec, t, build) }]
+}
+
 export function drawPreview(canvas: HTMLCanvasElement, spec: PlanSpec, images: ImageMap, font: string, slide: number, t: number | null, design: DesignContext | null = null) {
   const ctx = canvas.getContext('2d')!
   ctx.clearRect(0, 0, canvas.width, canvas.height)
-  const build = (s: PlanSpec, n: number) => sceneFor(s, n, design)
-  drawLayers(ctx, t === null ? build(spec, slide).layers : frameAt(spec, t, build), images, font, canvas.width / spec.width)
+  const scale = canvas.width / spec.width
+  if (t === null) drawLayers(ctx, sceneFor(spec, slide, design).layers, images, font, scale)
+  else drawPasses(ctx, videoFrame(spec, t, design), images, font, scale, spec.width, spec.height)
 }
 
-export interface VideoExport { blob: Blob; durationMs: number; width: number; height: number; encoder: 'webcodecs-h264' | 'mediarecorder' }
+/** Lo que este navegador puede hacer al exportar video (para avisar antes de generar). */
+export async function videoSupport(): Promise<{ mp4: boolean; aac: boolean; webm: boolean }> {
+  const mp4 = Boolean(await h264Config(720, 1280, 4_000_000).catch(() => null))
+  const webm = typeof MediaRecorder !== 'undefined' && ['video/webm;codecs=vp9', 'video/webm'].some((type) => MediaRecorder.isTypeSupported(type))
+  return { mp4, aac: mp4 && (await aacSupported()), webm }
+}
+
+export interface VideoExport { blob: Blob; durationMs: number; width: number; height: number; encoder: 'webcodecs-h264' | 'mediarecorder'; audio: 'aac' | null; renderMs: number }
 
 async function h264Config(width: number, height: number, bitrate: number): Promise<VideoEncoderConfig | null> {
   if (typeof VideoEncoder === 'undefined') return null
@@ -688,23 +722,34 @@ async function h264Config(width: number, height: number, bitrate: number): Promi
 }
 
 /** Exporta el video. Preferido: H.264 en MP4 cuadro por cuadro (WebCodecs). Respaldo: grabación del lienzo (WebM). */
-export async function exportVideo(spec: PlanSpec, images: ImageMap, font: string, onProgress: (fraction: number) => void = () => undefined, design: DesignContext | null = null): Promise<VideoExport> {
+export interface VideoOptions {
+  /** Música generada por el sistema (solo si el navegador codifica AAC; si no, el video sale sin audio). */
+  music?: boolean
+  signal?: AbortSignal
+}
+
+export async function exportVideo(spec: PlanSpec, images: ImageMap, font: string, onProgress: (fraction: number) => void = () => undefined, design: DesignContext | null = null, options: VideoOptions = {}): Promise<VideoExport> {
+  const started = performance.now()
   const { width, height } = videoSize(spec)
   const scale = width / spec.width
   const total = frameCount(spec)
   const seconds = spec.seconds || 6
   const canvas = canvasOf(width, height)
   const ctx = canvas.getContext('2d')!
-  const build = (s: PlanSpec, n: number) => sceneFor(s, n, design)
-  const paint = (frame: number) => { ctx.clearRect(0, 0, width, height); drawLayers(ctx, frameAt(spec, frame / VIDEO_FPS, build), images, font, scale) }
+  const paint = (frame: number) => { ctx.clearRect(0, 0, width, height); drawPasses(ctx, videoFrame(spec, frame / VIDEO_FPS, design), images, font, scale, spec.width, spec.height) }
   const config = await h264Config(width, height, spec.quality === 'alta' ? 8_000_000 : 4_000_000)
 
   if (config) {
-    const muxer = new Muxer({ target: new ArrayBufferTarget(), video: { codec: 'avc', width, height, frameRate: VIDEO_FPS }, fastStart: 'in-memory' })
+    // Audio: música generada y codificada en AAC cuando el navegador lo permite.
+    const music = options.music && designVideo(spec, design) && (await aacSupported())
+      ? await generateMusic(seconds, templateOf(spec).music.mood, templateOf(spec).music.bpm, spec.design?.seed ?? 1).catch(() => null)
+      : null
+    const muxer = new Muxer({ target: new ArrayBufferTarget(), video: { codec: 'avc', width, height, frameRate: VIDEO_FPS }, ...(music ? { audio: { codec: 'aac' as const, numberOfChannels: 2, sampleRate: AUDIO_SAMPLE_RATE } } : {}), fastStart: 'in-memory', firstTimestampBehavior: 'offset' })
     let failure: unknown = null
     const encoder = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: (error) => { failure = error } })
     encoder.configure(config)
     for (let frame = 0; frame < total && !failure; frame++) {
+      if (options.signal?.aborted) { try { encoder.close() } catch { /* cerrado */ } throw new DOMException('Cancelado', 'AbortError') }
       paint(frame)
       const videoFrame = new VideoFrame(canvas, { timestamp: Math.round(frame * 1_000_000 / VIDEO_FPS), duration: Math.round(1_000_000 / VIDEO_FPS) })
       encoder.encode(videoFrame, { keyFrame: frame % (VIDEO_FPS * 2) === 0 })
@@ -716,9 +761,13 @@ export async function exportVideo(spec: PlanSpec, images: ImageMap, font: string
     if (!failure) {
       await encoder.flush()
       encoder.close()
+      let audio: 'aac' | null = null
+      if (music) {
+        try { await encodeAac(music, (chunk, meta) => muxer.addAudioChunk(chunk, meta)); audio = 'aac' } catch { audio = null }
+      }
       muxer.finalize()
       onProgress(1)
-      return { blob: new Blob([muxer.target.buffer], { type: 'video/mp4' }), durationMs: Math.round(total * 1000 / VIDEO_FPS), width, height, encoder: 'webcodecs-h264' }
+      return { blob: new Blob([muxer.target.buffer], { type: 'video/mp4' }), durationMs: Math.round(total * 1000 / VIDEO_FPS), width, height, encoder: 'webcodecs-h264', audio, renderMs: Math.round(performance.now() - started) }
     }
     try { encoder.close() } catch { /* ya cerrado */ }
   }
@@ -731,18 +780,20 @@ export async function exportVideo(spec: PlanSpec, images: ImageMap, font: string
   const chunks: Blob[] = []
   recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data) }
   const stopped = new Promise<void>((resolve) => { recorder.onstop = () => resolve() })
-  const started = performance.now()
+  const recordStart = performance.now()
   recorder.start()
   await new Promise<void>((resolve) => {
     const tick = () => {
-      const elapsed = (performance.now() - started) / 1000
+      const elapsed = (performance.now() - recordStart) / 1000
       paint(Math.min(total - 1, Math.floor(elapsed * VIDEO_FPS)))
       onProgress(Math.min(1, elapsed / seconds))
-      if (elapsed >= seconds) resolve(); else requestAnimationFrame(tick)
+      // Con la pestaña oculta el navegador detiene requestAnimationFrame: se sigue con temporizadores para que
+      // la grabación termine (más lenta y menos fluida; conviene dejar la pestaña visible).
+      if (elapsed >= seconds) resolve(); else if (document.hidden) setTimeout(tick, 1000 / VIDEO_FPS); else requestAnimationFrame(tick)
     }
     tick()
   })
   recorder.stop()
   await stopped
-  return { blob: new Blob(chunks, { type: mime.split(';')[0] }), durationMs: Math.round(performance.now() - started), width, height, encoder: 'mediarecorder' }
+  return { blob: new Blob(chunks, { type: mime.split(';')[0] }), durationMs: Math.round(performance.now() - recordStart), width, height, encoder: 'mediarecorder', audio: null, renderMs: Math.round(performance.now() - started) }
 }
