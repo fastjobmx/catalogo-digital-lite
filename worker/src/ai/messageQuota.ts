@@ -130,7 +130,7 @@ export async function getConsumption(db: D1Database, storeId: number, now = new 
   const events = await db.prepare(
     `SELECT COALESCE(SUM(CASE WHEN feature IN (${PHOTO_FEATURES.map(() => '?').join(',')}) THEN 1 ELSE 0 END), 0) AS photos,
             COALESCE(SUM(CASE WHEN feature = ? THEN 1 ELSE 0 END), 0) AS descriptions
-     FROM ai_usage_events WHERE store_id = ? AND status = 'ok' AND created_at >= ? AND created_at < ?`,
+     FROM ai_usage_events WHERE store_id = ? AND status = 'ok' AND channel IS NULL AND created_at >= ? AND created_at < ?`,
   ).bind(...PHOTO_FEATURES, DESCRIPTION_FEATURE, storeId, from, to).first<{ photos: number; descriptions: number }>()
   const included = await db.prepare(
     `SELECT p.ai_photo_monthly AS photos, p.ai_description_monthly AS descriptions FROM stores s LEFT JOIN plans p ON p.code = s.plan_code WHERE s.id = ?`,
@@ -157,7 +157,26 @@ export type MessageRef = { storeId: number; eventKey: string; feature: string; v
 
 /** Reserves one interaction. The insert and the quota check are a single statement, so two simultaneous
  * messages can never exceed the limit; the same event key never inserts twice. */
+/** Event keys of the WhatsApp assistant. Its interactions live in whatsapp_ai_ledger, apart from Telegram's quota. */
+export const isWhatsAppRef = (ref: Pick<MessageRef, 'eventKey'>) => ref.eventKey.startsWith('wa:')
+
+/** WhatsApp is observation only: every counted interaction is recorded, whatever the quota mode, and none is ever
+ * blocked or alerted. It never reads nor writes ai_message_ledger, so the plan quota of the store is untouched. */
+async function reserveWhatsApp(db: D1Database, ref: MessageRef, now: Date): Promise<Reservation> {
+  if (!COUNTED_FEATURES.has(ref.feature)) return { state: 'off' }
+  const cycle = await resolveCycle(db, ref.storeId, now)
+  const inserted = await db.prepare(
+    `INSERT INTO whatsapp_ai_ledger (store_id, cycle_key, event_key, kind, feature, fingerprint, audio_seconds)
+     VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(store_id, event_key) DO NOTHING`,
+  ).bind(ref.storeId, cycle.key, ref.eventKey, ref.voiceSeconds ? 'voice' : 'text', ref.feature, ref.fingerprint ?? null, Math.max(0, Math.round(ref.voiceSeconds || 0))).run()
+  if (Number(inserted.meta.changes || 0) === 0) {
+    await db.prepare(`UPDATE whatsapp_ai_ledger SET status = 'reserved' WHERE store_id = ? AND event_key = ? AND status = 'released'`).bind(ref.storeId, ref.eventKey).run()
+  }
+  return { state: Number(inserted.meta.changes || 0) > 0 ? 'counted' : 'duplicate', cycleKey: cycle.key, limit: null, used: 0 }
+}
+
 export async function reserveMessage(db: D1Database, env: Partial<Env['Bindings']>, ref: MessageRef, now = new Date()): Promise<Reservation> {
+  if (isWhatsAppRef(ref)) return reserveWhatsApp(db, ref, now)
   const mode = quotaMode(env)
   if (mode === 'off' || !COUNTED_FEATURES.has(ref.feature)) return { state: 'off' }
   const [cycle, limit] = await Promise.all([resolveCycle(db, ref.storeId, now), resolveLimit(db, ref.storeId)])
@@ -202,10 +221,22 @@ export async function completeMessage(
   db: D1Database, env: Partial<Env['Bindings']>, ref: MessageRef, result: { costMicros: number; promptTokens: number },
   now = new Date(),
 ): Promise<{ alert: QuotaAlert | null }> {
-  if (quotaMode(env) === 'off' || !COUNTED_FEATURES.has(ref.feature)) return { alert: null }
+  if (isWhatsAppRef(ref) ? !COUNTED_FEATURES.has(ref.feature) : quotaMode(env) === 'off' || !COUNTED_FEATURES.has(ref.feature)) return { alert: null }
   const audioMicros = ref.voiceSeconds
     ? Math.min(result.costMicros, Math.ceil((Math.max(0, ref.voiceSeconds) * AUDIO_TOKENS_PER_SECOND * (Number(env.GEMINI_PRICE_INPUT_MICROS_PER_MTOK) || 300_000)) / 1_000_000))
     : 0
+  if (isWhatsAppRef(ref)) {
+    const done = await db.prepare(
+      `UPDATE whatsapp_ai_ledger SET status = 'consumed', consumed_at = datetime('now'), calls = calls + 1,
+              ai_cost_micros = ai_cost_micros + ?, transcription_cost_micros = transcription_cost_micros + ?
+       WHERE store_id = ? AND event_key = ? AND status = 'reserved'`,
+    ).bind(Math.max(0, result.costMicros), audioMicros, ref.storeId, ref.eventKey).run()
+    if (Number(done.meta.changes || 0) === 0) {
+      await db.prepare(`UPDATE whatsapp_ai_ledger SET calls = calls + 1, ai_cost_micros = ai_cost_micros + ? WHERE store_id = ? AND event_key = ? AND status = 'consumed'`)
+        .bind(Math.max(0, result.costMicros), ref.storeId, ref.eventKey).run()
+    }
+    return { alert: null }
+  }
   const first = await db.prepare(
     `UPDATE ai_message_ledger SET status = 'consumed', consumed_at = datetime('now'), calls = calls + 1,
             ai_cost_micros = ai_cost_micros + ?, transcription_cost_micros = transcription_cost_micros + ?
@@ -236,6 +267,11 @@ export async function completeMessage(
 
 /** The AI call failed: the interaction does not count. A message that already succeeded once is left alone. */
 export async function releaseMessage(db: D1Database, env: Partial<Env['Bindings']>, ref: MessageRef): Promise<void> {
+  if (isWhatsAppRef(ref)) {
+    if (!COUNTED_FEATURES.has(ref.feature)) return
+    await db.prepare(`UPDATE whatsapp_ai_ledger SET status = 'released' WHERE store_id = ? AND event_key = ? AND status = 'reserved'`).bind(ref.storeId, ref.eventKey).run()
+    return
+  }
   if (quotaMode(env) === 'off' || !COUNTED_FEATURES.has(ref.feature)) return
   await db.prepare(`UPDATE ai_message_ledger SET status = 'released' WHERE store_id = ? AND event_key = ? AND status = 'reserved'`).bind(ref.storeId, ref.eventKey).run()
 }

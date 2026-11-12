@@ -6,6 +6,7 @@ import { useStore } from '../../contexts/StoreContext'
 import { updateStoreConfig, type StoreConfigApi } from '../../services/api'
 import { storeStorageKey } from '../../lib/installation'
 import { tenantHeaders } from '../../lib/tenant'
+import WhatsAppLinkCard from './WhatsAppLinkCard'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
 
@@ -387,6 +388,9 @@ export default function Settings() {
               </div>
             )}
           </section>
+
+          {/* Asistente por WhatsApp: solo aparece si el servidor lo habilita para esta cuenta y tienda */}
+          {!isDemoSession && <WhatsAppLinkCard token={token} backendAvailable={backendAvailable} />}
         </div>
       </div>
 

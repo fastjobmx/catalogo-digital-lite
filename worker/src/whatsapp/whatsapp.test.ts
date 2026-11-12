@@ -233,6 +233,36 @@ describe('vinculación segura', () => {
     expect(state).toMatchObject({ linked: true, phoneEnding: '0001' })
   })
 
+  it('panel: estado, disponibilidad, desvincular y código pendiente anulado', async () => {
+    const ana = { token: await userToken(anaId, 'ana@pruebas.test'), store: 'moda-wa' }
+    const state = async () => (await h.request('/api/whatsapp/link', ana)).json() as Promise<Record<string, unknown>>
+    expect(await state()).toEqual({ available: true, assistantNumber: '573000000000', linked: false })
+    const issued = await h.request('/api/whatsapp/link-code', { method: 'POST', ...ana })
+    expect(issued.headers.get('Cache-Control')).toBe('no-store')
+    const { code } = await issued.json() as { code: string }
+    await say(`VINCULAR ${code}`)
+    expect(await state()).toMatchObject({ available: true, linked: true, phoneEnding: '0001' })
+    // A second code generated and left unused dies with the unlink.
+    const pendingCode = await linkCode(anaId, 'ana@pruebas.test', 'moda-wa')
+    const removed = await h.request('/api/whatsapp/link', { method: 'DELETE', ...ana })
+    expect(await removed.json()).toEqual({ success: true, revoked: true })
+    expect(await state()).toMatchObject({ linked: false })
+    await say('inventario')
+    expect(last()).toContain('VINCULAR')
+    await say(`VINCULAR ${pendingCode}`)
+    expect(last()).toContain('no es válido o ya venció')
+    // Re-linking with a fresh code works.
+    await link()
+    expect(await state()).toMatchObject({ linked: true })
+    // Off, or a store outside the pilot: the panel hides the option.
+    h.env.WHATSAPP_PILOT_STORE_IDS = String(otra)
+    expect(await state()).toMatchObject({ available: false, assistantNumber: null })
+    h.env.WHATSAPP_PILOT_STORE_IDS = '*'
+    h.env.WHATSAPP_ADMIN_BOT_ENABLED = 'false'
+    expect(await state()).toMatchObject({ available: false })
+    expect((await (await h.request('/api/whatsapp/link', { token: await superadminToken(), store: 'moda-wa' })).json())).toEqual({ available: false, linked: false })
+  })
+
   it('exige sesión: sin autenticación no hay código, y el superadministrador no vincula tiendas ajenas', async () => {
     expect((await h.request('/api/whatsapp/link-code', { method: 'POST', store: 'moda-wa' })).status).toBe(401)
     expect((await h.request('/api/whatsapp/link-code', { method: 'POST', token: await superadminToken(), store: 'moda-wa' })).status).toBe(400)
@@ -564,12 +594,28 @@ describe('voz, fotos y documentos (simulados)', () => {
     expect(pending()).toHaveLength(1)
     await tap(/Confirmar/)
     expect(price(tienda, 'SAN-1')).toBe(195000)
-    // AI usage is recorded for the store, once, and tagged as a WhatsApp interaction.
-    expect(h.db.query("SELECT feature, status FROM ai_usage_events WHERE store_id = ?", tienda)).toEqual([{ feature: 'voz', status: 'ok' }])
-    const ledger = h.db.query<{ event_key: string; channel: string; audio_seconds: number }>('SELECT event_key, channel, audio_seconds FROM ai_message_ledger WHERE store_id = ?', tienda)
+    // AI usage is recorded once, tagged as WhatsApp, in its own ledger: the Telegram quota and the store budget stay untouched.
+    expect(h.db.query("SELECT feature, status, channel FROM ai_usage_events WHERE store_id = ?", tienda)).toEqual([{ feature: 'voz', status: 'ok', channel: 'whatsapp' }])
+    expect(h.db.query('SELECT id FROM ai_message_ledger WHERE store_id = ?', tienda)).toEqual([])
+    expect(h.db.query('SELECT store_id FROM ai_usage_monthly WHERE store_id = ?', tienda)).toEqual([])
+    const ledger = h.db.query<{ event_key: string; kind: string; status: string; audio_seconds: number }>('SELECT event_key, kind, status, audio_seconds FROM whatsapp_ai_ledger WHERE store_id = ?', tienda)
     expect(ledger).toHaveLength(1)
-    expect(ledger[0]).toMatchObject({ channel: 'telegram_voice', audio_seconds: 9 })
+    expect(ledger[0]).toMatchObject({ kind: 'voice', status: 'consumed', audio_seconds: 9 })
     expect(ledger[0]!.event_key.startsWith('wa:')).toBe(true)
+  })
+
+  it('WhatsApp solo observa: con la cuota del plan agotada en Telegram no bloquea ni la aumenta', async () => {
+    h.env.GEMINI_API_KEY = 'test-key'
+    h.env.AI_MESSAGE_QUOTA_MODE = 'enforce'
+    // Quota of 0 messages: any Telegram interpretation would be refused.
+    h.db.query('UPDATE stores SET ai_monthly_messages_override = 0, ai_monthly_budget_micros = 50000000 WHERE id = ?', tienda)
+    const before = h.db.query('SELECT COUNT(*) AS n FROM ai_message_ledger')
+    geminiBody = { action: 'update_price', params: { sku: 'SAN-1', price: 99000 }, missing: [], summary: 'Cambiar precio', needsConfirmation: true }
+    await say('ponle a las sandalias el precio que te dije ayer')
+    expect(pending()).toHaveLength(1)
+    expect(h.db.query('SELECT COUNT(*) AS n FROM ai_message_ledger')).toEqual(before)
+    expect(h.db.query<{ status: string }>('SELECT status FROM whatsapp_ai_ledger WHERE store_id = ?', tienda).map((row) => row.status)).toEqual(['consumed'])
+    expect(texts().join(' ')).not.toMatch(/límite|cupo|agotad/i)
   })
 
   it('rechaza audios demasiado largos o que no son notas de voz', async () => {

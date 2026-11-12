@@ -76,16 +76,22 @@ export async function checkAiBudget(db: D1Database, env: Partial<Env['Bindings']
 export async function recordAiUsage(
   db: D1Database,
   env: Partial<Env['Bindings']>,
-  input: { storeId: number; feature: string; model?: string; usage?: TokenUsage; status: 'ok' | 'blocked' | 'error' },
+  input: { storeId: number; feature: string; model?: string; usage?: TokenUsage; status: 'ok' | 'blocked' | 'error'; channel?: 'whatsapp' },
 ): Promise<{ crossedWarning: boolean; status: AiBudgetStatus }> {
   const period = currentPeriod()
   const usage = input.usage || { promptTokens: 0, outputTokens: 0 }
   const cost = input.status === 'blocked' ? 0 : estimateCostMicros(env, usage)
+  const event = db.prepare(
+    `INSERT INTO ai_usage_events (store_id, period, feature, model, status, prompt_tokens, output_tokens, estimated_cost_micros, channel)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(input.storeId, period, input.feature.slice(0, 60), (input.model || '').slice(0, 80), input.status, usage.promptTokens, usage.outputTokens, cost, input.channel ?? null)
+  // WhatsApp is observed on its own: its calls are traced here but never add to the store's monthly budget.
+  if (input.channel === 'whatsapp') {
+    await event.run()
+    return { crossedWarning: false, status: await checkAiBudget(db, env, input.storeId) }
+  }
   await db.batch([
-    db.prepare(
-      `INSERT INTO ai_usage_events (store_id, period, feature, model, status, prompt_tokens, output_tokens, estimated_cost_micros)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).bind(input.storeId, period, input.feature.slice(0, 60), (input.model || '').slice(0, 80), input.status, usage.promptTokens, usage.outputTokens, cost),
+    event,
     db.prepare(
       `INSERT INTO ai_usage_monthly (store_id, period, requests, blocked_requests, prompt_tokens, output_tokens, estimated_cost_micros)
        VALUES (?, ?, ?, ?, ?, ?, ?)

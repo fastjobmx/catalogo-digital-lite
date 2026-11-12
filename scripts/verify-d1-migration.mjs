@@ -6,9 +6,10 @@
 //   node scripts/verify-d1-migration.mjs <volcado.sql> [--rollback]
 //
 // Comprueba: integridad SQLite, claves foráneas, conteos por tabla, contenido
-// de cada fila previa (excluyendo columnas nuevas) y que todo quede en la
-// tienda 1. Con --rollback aplica también el script de reversión y verifica
-// que los datos vuelvan a ser idénticos. Solo imprime agregados y hashes.
+// de cada fila previa (excluyendo columnas nuevas) y las filas por tienda. Si 0007
+// está pendiente (paso a multitienda) exige además que todo quede en la tienda 1.
+// Con --rollback aplica también los scripts de reversión y verifica que los datos
+// y el conjunto de tablas vuelvan a ser idénticos. Solo imprime agregados y hashes.
 import { DatabaseSync } from 'node:sqlite'
 import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { createHash } from 'node:crypto'
@@ -88,8 +89,18 @@ db.exec(readFileSync(dumpPath, 'utf8'))
 const applied = new Set(tables(db).has('d1_migrations') ? db.prepare('SELECT name FROM d1_migrations').all().map((row) => row.name) : [])
 const pending = readdirSync(migrationsDir).filter((name) => /^\d{4}_.+\.sql$/.test(name) && !applied.has(name)).sort()
 console.log(`Volcado cargado. Migraciones registradas: ${applied.size}. Pendientes: ${pending.join(', ') || 'ninguna'}`)
+// Dos comprobaciones solo tienen sentido para 0007 (paso de una tienda a multitienda): que todo quede en la
+// tienda 1 y que su reversión retire las tablas de plataforma. Con la base ya multitienda se sustituyen por
+// comprobaciones generales: las filas por tienda no cambian y la reversión deja exactamente las tablas de antes.
+const LEGACY_SINGLE_STORE = pending.includes('0007_multi_tenant_platform.sql')
+const STORE_SCOPED = ['categories', 'products', 'orders', 'audit_log', 'telegram_operations']
+const rowsPerStore = () => Object.fromEntries(STORE_SCOPED.filter((table) => tables(db).has(table) && db.prepare(`SELECT 1 FROM pragma_table_info('${table}') WHERE name = 'store_id'`).get())
+  .map((table) => [table, JSON.stringify(db.prepare(`SELECT store_id AS s, COUNT(*) AS n FROM ${table} GROUP BY store_id ORDER BY store_id`).all())]))
+const userTables = () => [...tables(db)].filter((name) => name !== 'd1_migrations' && !name.startsWith('sqlite_') && !name.startsWith('_cf_')).sort().join(',')
 let ok = check(db, 'antes')
 const before = snapshot(db)
+const perStoreBefore = rowsPerStore()
+const tablesBefore = userTables()
 const sequenceBefore = Object.fromEntries(db.prepare('SELECT name, seq FROM sqlite_sequence').all().map((row) => [row.name, row.seq]))
 
 for (const file of pending) {
@@ -108,11 +119,20 @@ for (const file of pending) {
 
 ok = check(db, 'después') && ok
 ok = compare(before, snapshotWithColumns(db, before), 'datos') && ok
-for (const table of ['categories', 'products', 'orders', 'audit_log', 'telegram_operations']) {
-  if (!tables(db).has(table)) continue
-  const foreign = db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE store_id IS NOT 1`).get().n
-  console.log(`${foreign === 0 ? '✔' : '✖'} ${table}: filas fuera de la tienda 1 = ${foreign}`)
-  if (foreign) ok = false
+if (LEGACY_SINGLE_STORE) {
+  for (const table of STORE_SCOPED) {
+    if (!tables(db).has(table)) continue
+    const foreign = db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE store_id IS NOT 1`).get().n
+    console.log(`${foreign === 0 ? '✔' : '✖'} ${table}: filas fuera de la tienda 1 = ${foreign}`)
+    if (foreign) ok = false
+  }
+} else {
+  const perStoreAfter = rowsPerStore()
+  for (const [table, counts] of Object.entries(perStoreBefore)) {
+    const same = perStoreAfter[table] === counts
+    console.log(`${same ? '✔' : '✖'} ${table}: filas por tienda sin cambios (${JSON.parse(counts).map((row) => `${row.s}:${row.n}`).join(' ')})`)
+    if (!same) ok = false
+  }
 }
 const store = db.prepare('SELECT id, slug, status, plan_code FROM stores WHERE id = 1').get()
 console.log(`${store ? '✔' : '✖'} tienda principal: id=${store?.id} slug=${store?.slug} estado=${store?.status} plan=${store?.plan_code}`)
@@ -143,9 +163,17 @@ if (flags.includes('--rollback')) {
   }
   ok = check(db, 'tras reversión') && ok
   ok = compare(before, snapshotWithColumns(db, before), 'reversión') && ok
-  const leftovers = ['stores', 'platform_users', 'store_memberships'].filter((table) => tables(db).has(table))
-  console.log(`${leftovers.length ? '✖' : '✔'} tablas de plataforma retiradas: ${leftovers.length ? leftovers.join(', ') : 'sí'}`)
-  if (leftovers.length) ok = false
+  if (LEGACY_SINGLE_STORE) {
+    const leftovers = ['stores', 'platform_users', 'store_memberships'].filter((table) => tables(db).has(table))
+    console.log(`${leftovers.length ? '✖' : '✔'} tablas de plataforma retiradas: ${leftovers.length ? leftovers.join(', ') : 'sí'}`)
+    if (leftovers.length) ok = false
+  } else {
+    const after = userTables()
+    const extra = after.split(',').filter((name) => !tablesBefore.split(',').includes(name))
+    const missing = tablesBefore.split(',').filter((name) => !after.split(',').includes(name))
+    console.log(`${extra.length || missing.length ? '✖' : '✔'} tablas tras la reversión iguales a las de antes${extra.length ? ` · sobran: ${extra.join(', ')}` : ''}${missing.length ? ` · faltan: ${missing.join(', ')}` : ''}`)
+    if (extra.length || missing.length) ok = false
+  }
 }
 
 console.log(ok ? '\nRESULTADO: OK' : '\nRESULTADO: FALLÓ')

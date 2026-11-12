@@ -63,6 +63,8 @@ app.post('/link-code', adminAuth, async (c) => {
   // The link belongs to a person: the platform superadmin has no merchant account to link.
   if (principal.kind !== 'user') return c.json({ error: 'Inicia sesión con la cuenta del comercio para vincular WhatsApp.', code: 'USER_ACCOUNT_REQUIRED' }, 400)
   if (!pilotAllows(c.env, storeId)) return c.json({ error: 'Esta tienda todavía no está habilitada para el asistente por WhatsApp.', code: 'WHATSAPP_NOT_AVAILABLE' }, 403)
+  // The code is a credential: never cached and never logged.
+  c.header('Cache-Control', 'no-store')
   const { code, expiresAt } = await createLinkCode(c.env.DB, { userId: principal.userId, storeId, createdBy: c.get('adminEmail') || `user:${principal.userId}` })
   const number = String(c.env.WHATSAPP_DISPLAY_NUMBER || '').replace(/\D/g, '')
   return c.json({
@@ -74,15 +76,22 @@ app.post('/link-code', adminAuth, async (c) => {
 
 app.get('/link', adminAuth, async (c) => {
   const principal = c.get('principal')!
-  if (principal.kind !== 'user') return c.json({ linked: false })
+  c.header('Cache-Control', 'no-store')
+  // The panel shows the option only when this says so: channel on, a merchant account and a store in the pilot.
+  const available = whatsappEnabled(c.env) && principal.kind === 'user' && pilotAllows(c.env, c.get('storeId')!)
+  if (principal.kind !== 'user') return c.json({ available: false, linked: false })
   const row = await c.env.DB.prepare(`SELECT phone, linked_at AS linkedAt FROM whatsapp_identities WHERE user_id = ? AND status = 'active'`).bind(principal.userId).first<{ phone: string | null; linkedAt: string }>()
-  return c.json(row ? { linked: true, phoneEnding: row.phone ? row.phone.slice(-4) : null, linkedAt: row.linkedAt } : { linked: false })
+  const number = String(c.env.WHATSAPP_DISPLAY_NUMBER || '').replace(/\D/g, '')
+  const base = { available, assistantNumber: available && number ? number : null }
+  return c.json(row ? { ...base, linked: true, phoneEnding: row.phone ? row.phone.slice(-4) : null, linkedAt: row.linkedAt } : { ...base, linked: false })
 })
 
 app.delete('/link', adminAuth, async (c) => {
   const principal = c.get('principal')!
   if (principal.kind !== 'user') return c.json({ error: 'USER_ACCOUNT_REQUIRED' }, 400)
   const revoked = await revokeIdentity(c.env.DB, { userId: principal.userId }, c.get('adminEmail') || `user:${principal.userId}`)
+  // A code generated but not yet used stops working too.
+  await c.env.DB.prepare('UPDATE whatsapp_link_tokens SET used_at = unixepoch() WHERE user_id = ? AND used_at IS NULL').bind(principal.userId).run()
   return c.json({ success: true, revoked: Boolean(revoked) })
 })
 

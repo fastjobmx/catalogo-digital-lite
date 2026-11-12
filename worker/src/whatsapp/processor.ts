@@ -366,11 +366,16 @@ export async function whatsappUsageReport(db: D1Database, period: string) {
     `SELECT store_id AS storeId, COALESCE(pricing_category, 'sin_informar') AS category, COALESCE(pricing_type, '') AS type, COUNT(*) AS messages, SUM(billable = 1) AS billable
      FROM whatsapp_messages WHERE direction = 'out' AND status <> 'error' AND strftime('%Y-%m', created_at, 'unixepoch') = ? GROUP BY store_id, category, type`,
   ).bind(period).all()
-  // AI interactions that entered through WhatsApp (their event key starts with "wa:").
+  // AI interactions of the WhatsApp assistant: their own ledger, apart from the Telegram quota of the plan.
   const ai = await db.prepare(
-    `SELECT store_id AS storeId, COUNT(*) AS aiMessages, SUM(channel = 'telegram_voice') AS voiceMessages, COALESCE(SUM(audio_seconds), 0) AS audioSeconds,
+    `SELECT store_id AS storeId, COUNT(*) AS aiMessages, SUM(kind = 'voice') AS voiceMessages, COALESCE(SUM(audio_seconds), 0) AS audioSeconds,
             COALESCE(SUM(ai_cost_micros), 0) AS aiCostMicros, COALESCE(SUM(transcription_cost_micros), 0) AS transcriptionCostMicros
-     FROM ai_message_ledger WHERE event_key LIKE 'wa:%' AND status = 'consumed' AND strftime('%Y-%m', created_at) = ? GROUP BY store_id`,
+     FROM whatsapp_ai_ledger WHERE status = 'consumed' AND strftime('%Y-%m', created_at) = ? GROUP BY store_id`,
   ).bind(period).all()
-  return { period, stores: messages.results || [], categories: categories.results || [], ai: ai.results || [] }
+  // Every AI call made from WhatsApp (photos, documents, descriptions included), never added to the store budget.
+  const calls = await db.prepare(
+    `SELECT store_id AS storeId, feature, status, COUNT(*) AS calls, COALESCE(SUM(estimated_cost_micros), 0) AS costMicros
+     FROM ai_usage_events WHERE channel = 'whatsapp' AND period = ? GROUP BY store_id, feature, status`,
+  ).bind(period).all()
+  return { period, stores: messages.results || [], categories: categories.results || [], ai: ai.results || [], aiCalls: calls.results || [] }
 }
