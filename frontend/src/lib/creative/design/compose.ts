@@ -13,7 +13,8 @@ import type { DesignOptions, Layer, LayerRole, PlanProduct, PlanSpec, Scene, Tex
 import { INK, WHITE, bestOn, contrastRatio, ensureContrast, hsl, hslToHex, isHex, mix, pick, rgba, seededRandom } from './color'
 import { cssFont } from './fonts'
 import { subjectRect, type Box, type PhotoAnalysis } from './photo'
-import { LAYOUT_KEYS, isLayout, isStyle, styleOf, type DesignStyleDef, type LayoutKey, type Palette } from './styles'
+import { EMPHASIS, LAYOUT_KEYS, isLayout, isObjective, isSector, isStyle, stylesOf, styleOf, type DesignStyleDef, type Emphasis, type LayoutKey, type Palette } from './styles'
+import { catalogo, collage, heroe, lookbook, podio } from './campaign'
 
 export type Measure = (text: string, font: string) => number
 export interface DesignContext {
@@ -25,13 +26,13 @@ export interface DesignContext {
 }
 
 /** Momentos de aparición en video (segundos), los mismos de la composición clásica. */
-const AT = { logo: 0.2, etiqueta: 0.6, categoria: 0.5, nombre: 0.9, referencia: 1.1, precio: 1.4, descripcion: 1.9, cta: 2.4 } as const
+export const AT = { logo: 0.2, etiqueta: 0.6, categoria: 0.5, nombre: 0.9, referencia: 1.1, precio: 1.4, descripcion: 1.9, cta: 2.4 } as const
 
 export const cutKey = (src: string) => `cut:${src}`
 
-const round = (box: Box): Box => ({ x: Math.round(box.x), y: Math.round(box.y), w: Math.round(box.w), h: Math.round(box.h) })
-const inset = (box: Box, dx: number, dy = dx): Box => ({ x: box.x + dx, y: box.y + dy, w: Math.max(1, box.w - dx * 2), h: Math.max(1, box.h - dy * 2) })
-const base = (role: LayerRole, box: Box, at = 0) => ({ role, ...round(box), opacity: 1, offsetY: 0, at })
+export const round = (box: Box): Box => ({ x: Math.round(box.x), y: Math.round(box.y), w: Math.round(box.w), h: Math.round(box.h) })
+export const inset = (box: Box, dx: number, dy = dx): Box => ({ x: box.x + dx, y: box.y + dy, w: Math.max(1, box.w - dx * 2), h: Math.max(1, box.h - dy * 2) })
+export const base = (role: LayerRole, box: Box, at = 0) => ({ role, ...round(box), opacity: 1, offsetY: 0, at })
 
 /** Encaja una proporción dentro de una caja sin deformar. */
 export function containRect(aspect: number, box: Box, alignY: 'center' | 'bottom' | 'top' = 'center'): Box {
@@ -86,7 +87,7 @@ export function fitText(measure: Measure, text: string, options: FitOptions): Fi
 }
 
 /** Primeras frases completas de un texto que caben en las líneas dadas (nunca corta a media frase). */
-function sentences(measure: Measure, text: string, options: Omit<FitOptions, 'maxSize' | 'minSize'> & { size: number }): string[] | null {
+export function sentences(measure: Measure, text: string, options: Omit<FitOptions, 'maxSize' | 'minSize'> & { size: number }): string[] | null {
   const parts = text.replace(/\s+/g, ' ').trim().split(/(?<=[.!?;])\s+/).filter(Boolean)
   const font = cssFont(options.family, options.weight, options.size, options.italic)
   let best: string[] | null = null
@@ -102,7 +103,7 @@ function sentences(measure: Measure, text: string, options: Omit<FitOptions, 'ma
 }
 
 type TextLayer = Extract<Layer, { type: 'text' }>
-function textLayer(role: LayerRole, fitted: Fitted, box: { x: number; y: number; w: number }, color: string, on: string, style: TextStyle, weight: number, align: 'left' | 'center' | 'right', at: number, extra: Partial<TextLayer> = {}): TextLayer {
+export function textLayer(role: LayerRole, fitted: Fitted, box: { x: number; y: number; w: number }, color: string, on: string, style: TextStyle, weight: number, align: 'left' | 'center' | 'right', at: number, extra: Partial<TextLayer> = {}): TextLayer {
   const lineHeight = style.lineHeight ?? 1.15
   return {
     ...base(role, { x: box.x, y: box.y, w: box.w, h: Math.ceil(fitted.lines.length * fitted.size * lineHeight) }, at),
@@ -113,30 +114,30 @@ function textLayer(role: LayerRole, fitted: Fitted, box: { x: number; y: number;
 
 // ---- contexto de la pieza ------------------------------------------------------------------------
 
-interface Frame {
-  spec: PlanSpec; product: PlanProduct | null; design: DesignOptions; style: DesignStyleDef; colors: Palette
+export interface Frame {
+  spec: PlanSpec; product: PlanProduct | null; design: DesignOptions; style: DesignStyleDef; colors: Palette; emphasis: Emphasis
   W: number; H: number; u: number; m: number; top: number; bottom: number
   orient: 'vertical' | 'cuadrado' | 'horizontal'; wide: boolean
   random: () => number; ctx: DesignContext; layers: Layer[]
 }
 
-const upper = (frame: Frame, text: string) => (frame.style.display.uppercase ? text.toLocaleUpperCase('es') : text)
+export const upper = (frame: Frame, text: string) => (frame.style.display.uppercase ? text.toLocaleUpperCase('es') : text)
 
-function displayStyle(frame: Frame): TextStyle {
+export function displayStyle(frame: Frame): TextStyle {
   return { family: frame.style.display.family, italic: frame.style.display.italic, letterSpacing: frame.style.display.letterSpacing ?? 0, lineHeight: frame.style.display.uppercase ? 1.02 : 1.1 }
 }
 
 // ---- piezas de información ----------------------------------------------------------------------
 
-interface InfoOptions {
+export interface InfoOptions {
   box: Box; align: 'left' | 'center'; valign: 'top' | 'center' | 'bottom'; on: string
   nameSize: number; nameLines?: number; ink?: string; muted?: string; price?: string
-  eyebrow?: boolean; description?: boolean; cta?: boolean; ctaFull?: boolean; withPrice?: boolean
+  eyebrow?: boolean; description?: boolean; cta?: boolean; ctaFull?: boolean; withPrice?: boolean; withName?: boolean
 }
 
 /** Pila de información: rótulo, nombre, referencia, descripción, precio y llamada a la acción.
  * Se mide completa y, si no cabe, se simplifica por pasos (sin descripción, letra menor, sin rótulo). */
-function infoStack(frame: Frame, options: InfoOptions): { layers: Layer[]; used: Box } {
+export function infoStack(frame: Frame, options: InfoOptions): { layers: Layer[]; used: Box } {
   const { u, product, spec, style, colors, design, ctx } = frame
   // Sobre un fondo distinto del principal (tarjeta, panel), los colores se ajustan para seguir siendo legibles.
   const readable = (color: string, minimum: number) => (contrastRatio(color, options.on) >= minimum ? color : contrastRatio(INK, options.on) >= contrastRatio(WHITE, options.on) ? ensureContrast(mix(color, INK, 0.7), options.on, minimum) : ensureContrast(mix(color, WHITE, 0.7), options.on, minimum))
@@ -164,26 +165,43 @@ function infoStack(frame: Frame, options: InfoOptions): { layers: Layer[]; used:
       const fitted = fitText(ctx.measure, eyebrowText.toLocaleUpperCase('es'), { family: style.eyebrow.family, weight: style.eyebrow.weight, letterSpacing: style.eyebrow.letterSpacing, maxWidth: w, maxLines: 1, maxSize: u * 2.3, minSize: u * 1.6 })
       if (!fitted.truncated) push(textLayer('categoria', fitted, { x, y, w }, muted, options.on, { family: style.eyebrow.family, letterSpacing: style.eyebrow.letterSpacing }, style.eyebrow.weight, options.align, AT.categoria), u * 1.1)
     }
-    if (product) {
-      const fitted = fitText(ctx.measure, upper(frame, product.name), { family: style.display.family, weight: style.display.weight, italic: style.display.italic, letterSpacing: style.display.letterSpacing, maxWidth: w, maxLines: options.nameLines ?? 3, maxSize: options.nameSize * attempt.nameScale, minSize: u * 3 })
-      push(textLayer('nombre', fitted, { x, y, w }, ink, options.on, displayStyle(frame), style.display.weight, options.align, AT.nombre), u * 1.2)
+    if (product && options.withName !== false) {
+      const bars = style.labelBars ? colors.panel : null
+      const pad = bars ? u * 1.2 : 0
+      const scale = Math.min(1.45, style.nameScale * frame.emphasis.nameScale)
+      const fitted = fitText(ctx.measure, upper(frame, product.name), { family: style.display.family, weight: style.display.weight, italic: style.display.italic, letterSpacing: style.display.letterSpacing, maxWidth: w - pad * 2, maxLines: options.nameLines ?? 3, maxSize: options.nameSize * scale * attempt.nameScale, minSize: u * 3 })
+      const lineHeight = bars ? 1.32 : displayStyle(frame).lineHeight
+      push(textLayer('nombre', fitted, { x: x + pad, y: y + (bars ? u * 0.4 : 0), w: w - pad * 2 }, bars ? bestOn(bars) : ink, bars ?? options.on, { ...displayStyle(frame), lineHeight }, style.display.weight, options.align, AT.nombre, bars ? { bars } : {}), u * 1.2)
     }
     if (product?.reference && design.showReference && attempt.reference) {
       const fitted = fitText(ctx.measure, `REF. ${product.reference}`, { family: style.eyebrow.family, weight: 600, letterSpacing: 0.08, maxWidth: w, maxLines: 1, maxSize: u * 2.1, minSize: u * 1.6 })
       push(textLayer('referencia', fitted, { x, y, w }, muted, options.on, { family: style.eyebrow.family, letterSpacing: 0.08 }, 600, options.align, AT.referencia), gap)
     }
-    if (options.description && attempt.description && spec.copy.description) {
+    const benefits = frame.emphasis.benefits && options.description !== false ? spec.copy.benefits.slice(0, 3) : []
+    if (benefits.length && attempt.description) {
+      // Beneficios escritos o aprobados por el comercio: lista con viñeta (nunca los inventa el motor).
+      for (const benefit of benefits) {
+        const size = u * 2.5
+        const fitted = fitText(ctx.measure, benefit, { family: style.body.family, weight: 600, maxWidth: w - u * 3.4, maxLines: 2, maxSize: size, minSize: u * 1.9 })
+        const dot = u * 1.3
+        layers.push({ ...base('decoracion', { x: options.align === 'center' ? x + (w - fitted.width) / 2 - u * 3 : x, y: y + fitted.size * 0.35, w: dot, h: dot }, AT.descripcion), type: 'shape', shape: 'circle', color: colors.highlight, stroke: 0, rotation: 0, seed: 0 })
+        push(textLayer('beneficio', fitted, { x: x + u * 3, y, w: w - u * 3 }, ink, options.on, { family: style.body.family, lineHeight: 1.3 }, 600, options.align === 'center' ? 'left' : options.align, AT.descripcion), u * 0.9)
+      }
+      y += gap * 0.4
+    }
+    const wantDescription = !benefits.length && (options.description === true || (options.description !== false && frame.emphasis.description))
+    if (wantDescription && attempt.description && spec.copy.description) {
       const size = u * 2.5
       const lines = sentences(ctx.measure, spec.copy.description, { family: style.body.family, weight: style.body.weight, maxWidth: w, maxLines: 2, size })
       if (lines) push(textLayer('descripcion', { size, lines, truncated: false, width: w }, { x, y, w }, muted, options.on, { family: style.body.family, lineHeight: 1.35 }, style.body.weight, options.align, AT.descripcion), gap)
     }
     if (product && design.showPrice && options.withPrice !== false) {
-      const block = priceBlock(frame, product, { x, y, w }, options.align, options.on, attempt.priceScale, priceColor)
+      const block = priceBlock(frame, product, { x, y, w }, options.align, options.on, attempt.priceScale * frame.emphasis.priceScale, priceColor)
       layers.push(...block.layers)
       y += block.height + gap * 1.2
     }
     if (options.cta) {
-      const cta = ctaPill(frame, { x, y, w }, options.align, options.ctaFull ?? false)
+      const cta = ctaPill(frame, { x, y, w }, options.align, options.ctaFull ?? false, undefined, options.on)
       layers.push(cta)
       y = cta.y + cta.h + gap
     }
@@ -197,12 +215,18 @@ function infoStack(frame: Frame, options: InfoOptions): { layers: Layer[]; used:
 }
 
 /** Precio (y precio anterior tachado). Forma según el estilo: liso, subrayado, cápsula, etiqueta o sello. */
-function priceBlock(frame: Frame, product: PlanProduct, area: { x: number; y: number; w: number }, align: 'left' | 'center', on: string, scale = 1, color?: string): { layers: Layer[]; height: number } {
+export function priceBlock(frame: Frame, product: PlanProduct, area: { x: number; y: number; w: number }, align: 'left' | 'center', on: string, scale = 1, color?: string): { layers: Layer[]; height: number } {
   const { u, style, colors, ctx, orient } = frame
   const layers: Layer[] = []
   const shape = style.price.shape
-  const maxSize = u * (orient === 'horizontal' ? 7.4 : 8.2) * scale
-  const fitPrice = (maxWidth: number, size = maxSize) => fitText(ctx.measure, product.priceText, { family: style.price.family, weight: style.price.weight, maxWidth, maxLines: 1, maxSize: size, minSize: u * 2.6 })
+  const maxSize = u * (orient === 'horizontal' ? 7.4 : 8.2) * Math.min(1.5, scale)
+  // El precio nunca se recorta: si no cabe ni al tamaño mínimo habitual, se sigue reduciendo hasta que entra completo.
+  const fitPrice = (maxWidth: number, size = maxSize) => {
+    const fitted = fitText(ctx.measure, product.priceText, { family: style.price.family, weight: style.price.weight, maxWidth, maxLines: 1, maxSize: size, minSize: u * 2.6 })
+    if (!fitted.truncated) return fitted
+    const exact = fitText(ctx.measure, product.priceText, { family: style.price.family, weight: style.price.weight, maxWidth, maxLines: 1, maxSize: u * 2.6, minSize: 6 })
+    return exact.truncated ? { ...exact, lines: [product.priceText], truncated: false } : exact
+  }
   let y = area.y
   if (product.compareAtText) {
     const before = fitText(ctx.measure, product.compareAtText, { family: style.body.family, weight: 600, maxWidth: area.w * 0.6, maxLines: 1, maxSize: u * 3.2 * scale, minSize: u * 2 })
@@ -219,6 +243,29 @@ function priceBlock(frame: Frame, product: PlanProduct, area: { x: number; y: nu
     const fg = bestOn(bg)
     layers.push({ ...base('precio', { x: bx, y, w: boxW, h: boxH }, AT.precio), type: 'rect', color: bg, radius: shape === 'pill' ? boxH / 2 : u * 1.2 })
     layers.push(textLayer('precio', fitted, { x: bx + padX, y: y + padY, w: boxW - padX * 2 }, fg, bg, { family: style.price.family }, style.price.weight, 'left', AT.precio, { shrink: true }))
+    return { layers, height: y - area.y + boxH }
+  }
+  if (shape === 'sticker' || shape === 'slash') {
+    // Adhesivo girado o bloque inclinado: el precio en una pieza de color, siempre completo y legible.
+    const padX = u * (shape === 'slash' ? 4 : 2.4), padY = u * 1.2
+    const fitted = fitPrice(Math.min(area.w * 0.92, area.w - padX * 2), maxSize * 0.9)
+    const textH = Math.ceil(fitted.size * 1.05)
+    const boxW = fitted.width + padX * 2
+    const boxH = textH + padY * 2
+    const bx = align === 'center' ? area.x + (area.w - boxW) / 2 : area.x
+    const bg = colors.highlight
+    const fg = colors.onHighlight
+    if (shape === 'slash') {
+      layers.push({ ...base('precio', { x: bx, y, w: boxW, h: boxH }, AT.precio), type: 'shape', shape: 'slant', color: bg, stroke: 0, rotation: 0, seed: 0 })
+      layers.push(textLayer('precio', fitted, { x: bx + padX, y: y + padY, w: boxW - padX * 2 }, fg, bg, { family: style.price.family, lineHeight: 1.05 }, style.price.weight, 'center', AT.precio, { shrink: true }))
+    } else {
+      const turn = 3 + frame.random() * 3
+      // El adhesivo girado ocupa más alto: se deja ese margen arriba y abajo para no tocar otros textos.
+      const lift = (boxW * Math.sin((turn * Math.PI) / 180)) / 2 + u * 0.6
+      layers.push({ ...base('precio', { x: bx, y: y + lift, w: boxW, h: boxH }, AT.precio), type: 'rect', color: bg, radius: u * 0.3, turn })
+      layers.push({ ...textLayer('precio', fitted, { x: bx + padX, y: y + lift + padY, w: boxW - padX * 2 }, fg, bg, { family: style.price.family, lineHeight: 1.05 }, style.price.weight, 'center', AT.precio, { shrink: true }), turn })
+      return { layers, height: y - area.y + boxH + lift * 2 }
+    }
     return { layers, height: y - area.y + boxH }
   }
   if (shape === 'burst') {
@@ -243,19 +290,40 @@ function priceBlock(frame: Frame, product: PlanProduct, area: { x: number; y: nu
   return { layers, height }
 }
 
-function ctaPill(frame: Frame, area: { x: number; y: number; w: number }, align: 'left' | 'center' | 'right', full: boolean, bg = frame.colors.accent): Extract<Layer, { type: 'pill' }> {
-  const { u, style, ctx, spec, orient } = frame
-  const size = u * (orient === 'horizontal' ? 2.9 : 3.1)
-  const padX = size * 0.9
-  const fitted = fitText(ctx.measure, spec.copy.cta, { family: style.body.family, weight: 700, maxWidth: area.w - padX * 2, maxLines: 1, maxSize: size, minSize: u * 2 })
-  const pillW = full ? area.w : Math.min(area.w, fitted.width + padX * 2)
-  const h = fitted.size * 2.1
+/** Color de relleno con contraste 4,5:1 para su texto (blanco o tinta), sin cambiar el tono. */
+export function readableFill(color: string): string {
+  const text = bestOn(color)
+  return contrastRatio(text, color) >= 4.5 ? color : ensureContrast(color, text, 4.5)
+}
+
+/** Llamada a la acción con la forma del estilo. Con un objetivo de marca (colección, aspiracional) se suaviza:
+ * el botón sólido pasa a contorno y el contorno a enlace. */
+export function ctaPill(frame: Frame, area: { x: number; y: number; w: number }, align: 'left' | 'center' | 'right', full: boolean, bg = frame.colors.accent, on = frame.colors.bg): Extract<Layer, { type: 'pill' }> {
+  const { u, style, ctx, spec, orient, emphasis } = frame
+  let kind = style.cta
+  if (emphasis.cta === 'suave') kind = kind === 'contorno' || kind === 'enlace' ? 'enlace' : 'contorno'
+  const strong = emphasis.cta === 'fuerte' && (kind === 'bloque' || kind === 'flecha' || kind === 'capsula')
+  const size = u * (orient === 'horizontal' ? 2.9 : 3.1) * (strong ? 1.12 : 1)
+  const padX = size * (kind === 'enlace' ? 0.2 : kind === 'bloque' ? 1.2 : 0.9)
+  const label = kind === 'flecha' ? `${spec.copy.cta}  →` : kind === 'bloque' && style.display.uppercase ? spec.copy.cta.toLocaleUpperCase('es') : spec.copy.cta
+  const letterSpacing = kind === 'bloque' || kind === 'enlace' ? 0.06 : 0
+  const fitted = fitText(ctx.measure, label, { family: style.body.family, weight: 700, letterSpacing, maxWidth: area.w - padX * 2, maxLines: 1, maxSize: size, minSize: u * 2 })
+  const pillW = full && kind !== 'enlace' ? area.w : Math.min(area.w, fitted.width + padX * 2)
+  const h = fitted.size * (kind === 'enlace' ? 1.7 : kind === 'bloque' ? 2.4 : 2.1)
   const x = align === 'center' ? area.x + (area.w - pillW) / 2 : align === 'right' ? area.x + area.w - pillW : area.x
-  return { ...base('cta', { x, y: area.y, w: pillW, h }, AT.cta), type: 'pill', text: spec.copy.cta, size: Math.round(fitted.size * 10) / 10, bg, color: bestOn(bg), align: 'center', font: { family: style.body.family }, weight: 700, radius: style.radius > 0.5 ? h / 2 : u * 0.4, on: bg }
+  const solid = kind === 'capsula' || kind === 'bloque' || kind === 'flecha'
+  // Botón sólido: si el color del estilo no da contraste con su texto, se ajusta su luminosidad (mismo tono).
+  if (solid && isHex(bg)) bg = readableFill(bg)
+  const ink = solid ? bestOn(bg) : contrastRatio(frame.colors.ink, on) >= 4.5 ? frame.colors.ink : bestOn(on)
+  return {
+    ...base('cta', { x, y: area.y, w: pillW, h }, AT.cta), type: 'pill', text: label, size: Math.round(fitted.size * 10) / 10, bg: solid ? bg : on, color: ink, align: 'center',
+    font: { family: style.body.family, letterSpacing }, weight: 700, radius: kind === 'bloque' ? u * 0.3 : kind === 'contorno' && style.radius < 0.5 ? 0 : h / 2, on: solid ? bg : on,
+    variant: solid ? 'solid' : kind === 'enlace' ? 'link' : 'outline',
+  }
 }
 
 /** Logo encajado en su proporción real. Con fondo propio (no transparente) se apoya en una placa de su color. */
-function logoLayers(frame: Frame, anchor: { x: number; y: number }, align: 'left' | 'center' | 'right', maxW: number, maxH: number, on = frame.colors.bg): { layers: Layer[]; box: Box | null } {
+export function logoLayers(frame: Frame, anchor: { x: number; y: number }, align: 'left' | 'center' | 'right', maxW: number, maxH: number, on = frame.colors.bg): { layers: Layer[]; box: Box | null } {
   const logo = frame.spec.brand.logoUrl
   if (!logo) return { layers: [], box: null }
   const info = frame.ctx.photos.get(logo)
@@ -276,20 +344,35 @@ function logoLayers(frame: Frame, anchor: { x: number; y: number }, align: 'left
   return { layers, box }
 }
 
-function badgePill(frame: Frame, anchor: { x: number; y: number }, align: 'left' | 'right', maxW: number, bg = frame.colors.highlight): Extract<Layer, { type: 'pill' }> | null {
+/** Etiqueta verificada (NUEVO, -20 %, ÚLTIMAS UNIDADES) con la forma del estilo: cápsula, sello circular,
+ * etiqueta recta o cinta inclinada. El texto es siempre el del plan. */
+export function badgePill(frame: Frame, anchor: { x: number; y: number }, align: 'left' | 'right', maxW: number, bg = frame.colors.highlight): Extract<Layer, { type: 'pill' }> | null {
   const badge = frame.spec.badge
   if (!badge) return null
+  if (isHex(bg)) bg = readableFill(bg)
   const { u, style, ctx } = frame
-  const size = u * 2.7
-  const fitted = fitText(ctx.measure, badge, { family: style.eyebrow.family, weight: 800, letterSpacing: 0.04, maxWidth: maxW - size * 1.8, maxLines: 1, maxSize: size, minSize: u * 1.8 })
-  const w = fitted.width + fitted.size * 1.8
-  const h = fitted.size * 2.1
-  return { ...base('etiqueta', { x: align === 'right' ? anchor.x - w : anchor.x, y: anchor.y, w, h }, AT.etiqueta), type: 'pill', text: badge, size: Math.round(fitted.size * 10) / 10, bg, color: bestOn(bg), align: 'center', font: { family: style.eyebrow.family, letterSpacing: 0.04 }, weight: 800, radius: style.radius > 0.5 ? h / 2 : u * 0.3, on: bg }
+  const kind = style.badge === 'sello' && badge.length > 6 ? 'capsula' : style.badge
+  const promo = frame.design.objective === 'promocion'
+  if (kind === 'sello') {
+    // Sello circular: el texto cabe dentro del círculo, girado como un adhesivo.
+    const diameter = u * (promo ? 17 : 14)
+    const fitted = fitText(ctx.measure, badge, { family: style.display.family, weight: 800, maxWidth: diameter * 0.7, maxLines: 1, maxSize: diameter * 0.34, minSize: u * 2 })
+    return { ...base('etiqueta', { x: align === 'right' ? anchor.x - diameter : anchor.x, y: anchor.y, w: diameter, h: diameter }, AT.etiqueta), type: 'pill', text: badge, size: Math.round(fitted.size * 10) / 10, bg, color: bestOn(bg), align: 'center', font: { family: style.display.family }, weight: 800, radius: diameter / 2, on: bg, turn: -12 }
+  }
+  const size = u * (kind === 'etiqueta' ? 2.2 : promo ? 3.2 : 2.7)
+  const spacing = kind === 'etiqueta' ? 0.22 : 0.04
+  const fitted = fitText(ctx.measure, badge, { family: style.eyebrow.family, weight: 800, letterSpacing: spacing, maxWidth: maxW - size * 1.8, maxLines: 1, maxSize: size, minSize: u * 1.8 })
+  const w = fitted.width + fitted.size * (kind === 'cinta' ? 2.6 : 1.8)
+  const h = fitted.size * (kind === 'etiqueta' ? 2.3 : 2.1)
+  return {
+    ...base('etiqueta', { x: align === 'right' ? anchor.x - w : anchor.x, y: anchor.y, w, h }, AT.etiqueta), type: 'pill', text: badge, size: Math.round(fitted.size * 10) / 10, bg, color: bestOn(bg), align: 'center',
+    font: { family: style.eyebrow.family, letterSpacing: spacing }, weight: 800, radius: kind === 'capsula' ? h / 2 : 0, on: bg, ...(kind === 'cinta' ? { turn: -4 } : {}),
+  }
 }
 
 // ---- fondo y recursos gráficos -------------------------------------------------------------------
 
-function background(frame: Frame, color = frame.colors.bg, color2 = frame.colors.bg2, focus?: { x: number; y: number }) {
+export function background(frame: Frame, color = frame.colors.bg, color2 = frame.colors.bg2, focus?: { x: number; y: number }) {
   const { W, H, style, layers, colors } = frame
   layers.push({ ...base('fondo', { x: 0, y: 0, w: W, h: H }), type: 'rect', color, radius: 0 })
   if (style.background === 'lineal') layers.push({ ...base('fondo', { x: 0, y: 0, w: W, h: H }), type: 'gradient', stops: [[0, color], [1, color2]], angle: 160, radial: false, radius: 0 })
@@ -301,14 +384,14 @@ function background(frame: Frame, color = frame.colors.bg, color2 = frame.colors
   if (style.texture !== 'none') texture(frame, { x: 0, y: 0, w: W, h: H }, style.texture)
 }
 
-function texture(frame: Frame, box: Box, kind: DesignStyleDef['texture'], color?: string) {
+export function texture(frame: Frame, box: Box, kind: DesignStyleDef['texture'], color?: string) {
   if (kind === 'none') return
   const tone = color ?? (contrastRatio(frame.colors.bg, INK) > contrastRatio(frame.colors.bg, WHITE) ? 'rgba(17,24,39,0.07)' : 'rgba(255,255,255,0.09)')
   frame.layers.push({ ...base('decoracion', box), type: 'shape', shape: kind, color: tone, stroke: Math.max(1, frame.u * 0.25), rotation: kind === 'lines' ? -32 : 0, seed: Math.floor(frame.random() * 1e6), size: frame.u * (kind === 'dots' ? 2.4 : kind === 'grid' ? 7 : kind === 'lines' ? 3.2 : 1) })
 }
 
 /** Figuras decorativas reproducibles (misma semilla, misma posición), en zonas de fondo. */
-function decorate(frame: Frame, stage: Box) {
+export function decorate(frame: Frame, stage: Box) {
   const { u, W, H, colors, random, layers, style } = frame
   for (const decor of style.decor) {
     if (decor === 'circles') {
@@ -343,31 +426,101 @@ function decorate(frame: Frame, stage: Box) {
       const d = u * 2.8
       layers.push({ ...base('decoracion', { x: d, y: d, w: W - d * 2, h: H - d * 2 }), type: 'rect', color: colors.line, radius: 0, stroke: Math.max(1.5, u * 0.15) })
     } else if (decor === 'grid') {
-      layers.push({ ...base('decoracion', stage), type: 'shape', shape: 'grid', color: rgba(colors.line, 0.55), stroke: 1, rotation: 0, seed: 0, size: u * 6 })
+      layers.push({ ...base('decoracion', stage), type: 'shape', shape: 'grid', color: colors.line.startsWith('#') ? rgba(colors.line, 0.55) : colors.line, stroke: 1, rotation: 0, seed: 0, size: u * 6 })
+    } else if (decor === 'speed') {
+      // Líneas de velocidad detrás del producto.
+      layers.push({ ...base('decoracion', { x: 0, y: stage.y + stage.h * 0.12, w: W, h: stage.h * 0.76 }), type: 'shape', shape: 'speed', color: rgba(colors.highlight.startsWith('#') ? colors.highlight : '#FFFFFF', 0.55), stroke: u * 0.5, rotation: -8 - random() * 6, seed: Math.floor(random() * 1000) })
+    } else if (decor === 'glow') {
+      const r = Math.max(stage.w, stage.h) * 0.62
+      const cx = stage.x + stage.w / 2, cy = stage.y + stage.h * 0.52
+      layers.push({ ...base('decoracion', { x: cx - r, y: cy - r, w: r * 2, h: r * 2 }), type: 'gradient', stops: [[0, rgba(colors.glow, 0.95)], [0.55, rgba(colors.glow, 0.35)], [1, rgba(colors.glow, 0)]], angle: 0, radial: true, radius: 0, circle: true })
+    } else if (decor === 'halftone') {
+      const size = Math.min(W, H) * 0.42
+      const corner = random() > 0.5
+      layers.push({ ...base('decoracion', { x: corner ? W - size : 0, y: corner ? H - size * 1.1 : 0, w: size, h: size }), type: 'shape', shape: 'halftone', color: rgba(contrastRatio(colors.bg, INK) > contrastRatio(colors.bg, WHITE) ? '#111111' : '#FFFFFF', 0.22), stroke: 0, rotation: corner ? 0 : 180, seed: 0, size: u * 2.2 })
+    } else if (decor === 'outline') {
+      outlineWord(frame, stage)
+    } else if (decor === 'marquee') {
+      const word = (frame.spec.brand.name || '').toLocaleUpperCase('es')
+      if (word) {
+        const size = u * 5
+        const line = Array.from({ length: 12 }, () => word).join('  ·  ')
+        layers.push({ ...base('rotulo', { x: -W * 0.2, y: stage.y + stage.h * 0.08, w: W * 1.4, h: size * 1.1 }), type: 'text', text: line, lines: [line], size, weight: 400, color: rgba(colors.ink.startsWith('#') ? colors.ink : '#FFFFFF', 0.1), align: 'left', maxLines: 1, strike: false, shrink: false, font: { family: style.display.family, lineHeight: 1.05 }, on: colors.bg, turn: -6 })
+      }
     }
   }
 }
 
 // ---- producto --------------------------------------------------------------------------------------
 
-interface VisualOptions { floor: boolean; frameRadius?: number; mask?: 'rect' | 'circle' | 'arch'; backdrop?: 'circle' | 'arch' | null; frameColor?: string; allowCover?: boolean; shadow?: boolean }
+/** Palabra gigante en contorno detrás del producto (primera palabra del nombre, categoría o marca: datos reales). */
+export function outlineWord(frame: Frame, stage: Box, turn = -6) {
+  const { product, spec, ctx, style, colors, u, W } = frame
+  const first = product?.name.split(/\s+/).find((word) => /^\p{L}{3,}$/u.test(word))
+  const word = (first || product?.category || spec.brand.name || '').toLocaleUpperCase('es')
+  if (!word) return
+  const fitted = fitText(ctx.measure, word, { family: style.display.family, weight: style.display.weight, maxWidth: W * 1.05, maxLines: 1, maxSize: stage.h * 0.42, minSize: u * 8 })
+  const tone = colors.ink.startsWith('#') ? colors.ink : '#FFFFFF'
+  frame.layers.push(textLayer('rotulo', { ...fitted, truncated: false }, { x: -W * 0.025, y: stage.y + (stage.h - fitted.size) / 2, w: W * 1.05 }, rgba(tone, 0.2), colors.bg, { family: style.display.family, lineHeight: 1 }, style.display.weight, 'center', 0, { stroke: Math.max(2, u * 0.32), turn }))
+}
+
+/** Proporción del producto tal como se verá (recuadro del recorte o foto completa). */
+export function productAspect(frame: Frame): number {
+  const src = frame.product?.image
+  const info = src ? frame.ctx.photos.get(src) : undefined
+  if (!info) return 1
+  if (frame.design.removeBg && frame.ctx.cutouts.has(src!)) { const r = subjectRect(info, 0.02); return r.w / r.h }
+  if (info.background.uniform) { const r = subjectRect(info, 0.07); return r.w / r.h }
+  return info.width / info.height
+}
+
+/** Las composiciones apiladas (producto arriba, datos abajo) solo se usan en piezas altas o con productos
+ * horizontales; un producto vertical en una pieza 4:5 o cuadrada va al lado de los datos para verse grande. */
+export const stacked = (frame: Frame) => frame.orient === 'vertical' && (frame.H / frame.W > 1.4 || productAspect(frame) >= 0.85)
+
+export interface VisualOptions { floor: boolean; frameRadius?: number; mask?: 'rect' | 'circle' | 'arch'; backdrop?: 'circle' | 'arch' | null; frameColor?: string; allowCover?: boolean; shadow?: boolean
+  /** Giro del producto (grados): recortado gira completo; foto enmarcada gira menos. */ tilt?: number
+  /** Foto como polaroid (borde blanco). */ polaroid?: boolean
+  /** Producto recortado con contorno de adhesivo. */ sticker?: boolean
+  /** Alineación vertical del producto recortado. */ alignY?: 'center' | 'bottom'
+  /** Usar siempre la foto original (sin recorte de fondo). */ original?: boolean }
+
+/** Caja que ocupa un rectángulo girado (para que nada se salga ni se superponga). */
+export function turnedBox(box: Box, degrees: number): Box {
+  if (!degrees) return box
+  const a = (Math.abs(degrees) * Math.PI) / 180
+  const w = box.w * Math.cos(a) + box.h * Math.sin(a)
+  const h = box.w * Math.sin(a) + box.h * Math.cos(a)
+  return { x: box.x + (box.w - w) / 2, y: box.y + (box.h - h) / 2, w, h }
+}
+/** Reduce una caja (centrada en el mismo punto) hasta que su versión girada quepa en `area`. */
+function fitTurned(box: Box, degrees: number, area: Box, alignY: 'center' | 'bottom' = 'center'): Box {
+  const turned = turnedBox(box, degrees)
+  const k = Math.min(1, area.w / turned.w, area.h / turned.h)
+  const w = box.w * k, h = box.h * k
+  const t = turnedBox({ x: 0, y: 0, w, h }, degrees)
+  const x = area.x + (area.w - w) / 2
+  const y = alignY === 'bottom' ? area.y + area.h - (t.h + h) / 2 : area.y + (area.h - h) / 2
+  return { x, y, w, h }
+}
 
 /** Pone el producto en la zona dada. Con recorte confiable: producto aislado con sombra (y reflejo).
  * Con fondo liso sin recorte: la foto encajada sobre su propio color de fondo. Con fondo complejo: foto
  * encajada sobre una versión desenfocada de sí misma (o recortada levemente si la proporción casi coincide). */
-function productVisual(frame: Frame, stage: Box, options: VisualOptions): Box {
+export function productVisual(frame: Frame, stage: Box, options: VisualOptions): Box {
   const { product, design, ctx, u, colors, style, layers } = frame
   const src = product?.image
   if (!src) return stage
   const info = ctx.photos.get(src)
   const shadowColor = 'rgba(0,0,0,0.28)'
-  if (design.removeBg && ctx.cutouts.has(src) && info) {
+  if (!options.original && design.removeBg && ctx.cutouts.has(src) && info) {
     const rect = subjectRect(info, 0.02)
     const aspect = rect.w / rect.h
     const reflection = options.floor ? style.reflection : 0
     const area = inset(stage, stage.w * 0.04, stage.h * 0.03)
     const usable = { ...area, h: area.h * (reflection ? 0.84 : options.floor ? 0.93 : 1) }
-    const fitted = containRect(aspect, usable, options.floor ? 'bottom' : 'center')
+    const tilt = options.tilt ?? 0
+    const fitted = tilt ? fitTurned(containRect(aspect, usable), tilt, usable, options.alignY ?? 'center') : containRect(aspect, usable, options.alignY ?? (options.floor ? 'bottom' : 'center'))
     if (options.backdrop) {
       const r = Math.max(fitted.w, fitted.h) * 0.62
       const cx = fitted.x + fitted.w / 2, cy = fitted.y + fitted.h / 2
@@ -381,9 +534,11 @@ function productVisual(frame: Frame, stage: Box, options: VisualOptions): Box {
     layers.push({
       ...base('foto', fitted), type: 'image', src: cutKey(src), fit: 'contain', radius: 0, zoom: 1, reveal: 1,
       shadow: style.shadow === 'ninguna' || options.shadow === false ? undefined : { blur: u * (style.shadow === 'marcada' ? 2.2 : 3.2), offsetY: u * (style.shadow === 'marcada' ? 1.6 : 1.2), color: style.shadow === 'marcada' ? 'rgba(0,0,0,0.32)' : 'rgba(0,0,0,0.16)' },
-      reflection: reflection || undefined, subject: round(fitted),
+      reflection: tilt ? undefined : reflection || undefined, subject: round(turnedBox(fitted, tilt)),
+      ...(tilt ? { turn: tilt } : {}),
+      ...(options.sticker ? { outline: { width: Math.max(4, u * 1), color: '#FFFFFF' } } : {}),
     })
-    return fitted
+    return turnedBox(fitted, tilt)
   }
   const radius = options.frameRadius ?? u * style.radius
   const sourceW = info?.width ?? 1000, sourceH = info?.height ?? 1000
@@ -413,19 +568,29 @@ function productVisual(frame: Frame, stage: Box, options: VisualOptions): Box {
     layers.push({ ...base('foto', fitted), type: 'image', src, fit: 'contain', radius: 0, zoom: 1, reveal: 1, subject: round(fitted) })
     return box
   }
+  if (options.polaroid || options.tilt) {
+    // Foto enmarcada como polaroid y levemente girada: la foto completa, sin recortes ni deformación.
+    const border = options.polaroid ? Math.max(6, u * 1.6) : 0
+    const turn = (options.tilt ?? 0) * 0.35
+    const inner = fitTurned(containRect(photoAspect, inset(box, border)), turn, inset(box, border))
+    layers.push({ ...base('foto', inner), type: 'image', src, fit: 'contain', radius: 0, zoom: 1, reveal: 1, border: border ? { width: border, color: '#FFFFFF' } : undefined, turn, shadow: { blur: u * 3.6, offsetY: u * 1.8, color: 'rgba(0,0,0,0.3)' }, subject: round(turnedBox(inset(inner, -border), turn)) })
+    return turnedBox(inset(inner, -border), turn)
+  }
   layers.push({ ...base('foto', fitted), type: 'image', src, fit: 'contain', radius, zoom: 1, reveal: 1, mask: options.mask === 'arch' && fitted.h > fitted.w * 0.9 ? 'arch' : undefined, shadow: options.shadow === false ? undefined : { blur: u * 3.2, offsetY: u * 1.4, color: 'rgba(0,0,0,0.2)' }, subject: round(fitted) })
   return fitted
 }
 
 // ---- composiciones ---------------------------------------------------------------------------------
 
-function header(frame: Frame, y: number, logoAlign: 'left' | 'center' | 'right' = 'left', badgeAlign: 'left' | 'right' = 'right', onColor?: string): number {
+export function header(frame: Frame, y: number, logoAlign: 'left' | 'center' | 'right' = 'left', badgeAlign: 'left' | 'right' = 'right', onColor?: string): number {
   const { m, W, u } = frame
   const logoH = u * (frame.orient === 'horizontal' ? 10 : 9)
   const anchorX = logoAlign === 'left' ? m : logoAlign === 'center' ? W / 2 : W - m
-  const logo = logoLayers(frame, { x: anchorX, y }, logoAlign, u * 24, logoH, onColor ?? frame.colors.bg)
-  frame.layers.push(...logo.layers)
   const badge = badgePill(frame, { x: badgeAlign === 'right' ? W - m : m, y }, badgeAlign, W * 0.42)
+  // El logo deja sitio a la etiqueta en la misma fila.
+  const room = badge ? (logoAlign === 'center' ? (W / 2 - m - badge.w - u * 3) * 2 : W - m * 2 - badge.w - u * 4) : u * 24
+  const logo = logoLayers(frame, { x: anchorX, y }, logoAlign, Math.max(u * 8, Math.min(u * 24, room)), logoH, onColor ?? frame.colors.bg)
+  frame.layers.push(...logo.layers)
   if (badge) { if (onColor) badge.on = badge.bg; frame.layers.push(badge) }
   return Math.max(logo.box ? logo.box.y + logo.box.h : y, badge ? badge.y + badge.h : y)
 }
@@ -439,7 +604,8 @@ function escenario(frame: Frame) {
     productVisual(frame, stage, { floor: true, backdrop: null })
     const col = { x: W * 0.56, y: top, w: W * 0.44 - m, h: H - top - bottom }
     const head = header(frame, top, 'left', 'right')
-    frame.layers.forEach((layer) => { if (layer.role === 'logo') layer.x += col.x - m })
+    // El logo pasa a la columna de datos; la etiqueta queda arriba del producto, a la izquierda.
+    frame.layers.forEach((layer) => { if (layer.role === 'logo') layer.x += col.x - m; else if (layer.role === 'etiqueta') layer.x = m })
     const info = infoStack(frame, { box: { ...col, y: head + u * 3, h: col.y + col.h - head - u * 3 }, align: 'left', valign: 'center', on: colors.bg, nameSize: u * (frame.wide ? 9 : 7), nameLines: 3, cta: true, description: !frame.wide })
     frame.layers.push(...info.layers)
     return
@@ -459,21 +625,21 @@ function dividido(frame: Frame) {
   const { W, H, u, m, top, bottom, orient, colors } = frame
   const panelColor = colors.panel
   const onPanel = bestOn(panelColor)
-  if (orient === 'vertical') {
+  if (stacked(frame)) {
     // La unión se acomoda al alto real de la información (nombres largos bajan el panel del producto).
-    const probe = infoStack(frame, { box: { x: m, y: 0, w: W - m * 2, h: H * 0.5 }, align: 'left', valign: 'top', on: colors.bg, nameSize: u * 6.4, nameLines: 3, cta: true, description: true })
-    const seam = Math.round(Math.min(H * 0.64, Math.max(H * 0.42, H - bottom - probe.used.h - u * 8)))
+    const probe = infoStack(frame, { box: { x: m, y: 0, w: W - m * 2, h: H * 0.48 }, align: 'left', valign: 'top', on: colors.bg, nameSize: u * 6.4, nameLines: 3, cta: true, description: frame.emphasis.image <= 1 })
+    const seam = Math.round(Math.min(H * 0.64, Math.max(H * 0.46, H - bottom - probe.used.h - u * 8)))
     background(frame, colors.bg, colors.bg2)
     frame.layers.push({ ...base('fondo', { x: 0, y: 0, w: W, h: seam }), type: 'rect', color: panelColor, radius: 0 })
     texture(frame, { x: 0, y: 0, w: W, h: seam }, frame.style.texture === 'none' ? 'dots' : frame.style.texture, rgba(onPanel, 0.08))
     const headBottom = header(frame, top, 'left', 'right', panelColor)
     const stage = { x: m, y: headBottom + u * 2, w: W - m * 2, h: seam - headBottom - u * 4 }
     productVisual(frame, stage, { floor: true, backdrop: frame.style.decor.includes('circles') ? 'circle' : null, frameColor: rgba(onPanel, 0.1) })
-    const info = infoStack(frame, { box: { x: m, y: seam + u * 4, w: W - m * 2, h: H - seam - u * 4 - bottom }, align: 'left', valign: 'center', on: colors.bg, nameSize: u * 6.4, nameLines: 3, cta: true, description: true })
+    const info = infoStack(frame, { box: { x: m, y: seam + u * 4, w: W - m * 2, h: H - seam - u * 4 - bottom }, align: 'left', valign: 'center', on: colors.bg, nameSize: u * 6.4, nameLines: 3, cta: true, description: frame.emphasis.image <= 1 })
     frame.layers.push(...info.layers)
     return
   }
-  // Cuadrado y horizontal: panel a la izquierda con el producto, datos a la derecha.
+  // Cuadrado, horizontal o producto vertical: panel a la izquierda con el producto, datos a la derecha.
   const split = Math.round(W * (orient === 'horizontal' ? 0.5 : 0.52))
   background(frame, colors.bg, colors.bg2)
   frame.layers.push({ ...base('fondo', { x: 0, y: 0, w: split, h: H }), type: 'rect', color: panelColor, radius: 0 })
@@ -495,7 +661,7 @@ function diagonal(frame: Frame) {
   background(frame)
   const band = colors.panel === colors.bg ? colors.bg2 : colors.panel
   const tilt = (0.16 + random() * 0.08) * (random() > 0.5 ? 1 : -1)
-  if (orient === 'horizontal') {
+  if (orient === 'horizontal' || (orient === 'cuadrado' && productAspect(frame) < 0.9)) {
     const x0 = W * 0.48
     frame.layers.push({ ...base('decoracion', { x: 0, y: 0, w: W, h: H }), type: 'shape', shape: 'poly', color: band, stroke: 0, rotation: 0, seed: 0, points: [x0 + H * 0.25, 0, W, 0, W, H, x0 - H * 0.12, H] })
     const stage = { x: W * 0.5, y: top, w: W * 0.5 - m, h: H - top - bottom }
@@ -536,7 +702,7 @@ function editorial(frame: Frame) {
   const brand = frame.spec.brand.name
   const kicker = (product?.category || brand || '').toLocaleUpperCase('es')
   const isCut = Boolean(product?.image && design.removeBg && ctx.cutouts.has(product.image))
-  if (orient === 'horizontal') {
+  if (orient !== 'vertical') {
     const col = { x: m, y: top, w: W * 0.46 - m, h: H - top - bottom }
     const logo = logoLayers(frame, { x: m, y: top }, 'left', u * 20, u * 8)
     frame.layers.push(...logo.layers)
@@ -590,7 +756,7 @@ function tarjeta(frame: Frame) {
   background(frame, colors.bg2, colors.bg)
   texture(frame, { x: 0, y: 0, w: W, h: H }, style.texture === 'none' ? 'dots' : style.texture)
   const radius = u * Math.max(1.5, style.radius * 1.4)
-  if (orient === 'horizontal') {
+  if (orient !== 'vertical') {
     const card = { x: m, y: top, w: W * 0.46, h: H - top - bottom }
     frame.layers.push({ ...base('decoracion', card), type: 'rect', color: colors.surface, radius })
     productVisual(frame, inset(card, u * 3), { floor: true, shadow: true })
@@ -619,7 +785,8 @@ function tarjeta(frame: Frame) {
   frame.layers.push(...probe.layers, cta)
 }
 
-const LAYOUT_BUILDERS: Record<LayoutKey, (frame: Frame) => void> = { escenario, dividido, diagonal, editorial, tarjeta }
+// Las composiciones de campaña viven en campaign.ts; se buscan al componer (no al cargar el módulo).
+const builderFor = (key: LayoutKey): ((frame: Frame) => void) => ({ escenario, dividido, diagonal, editorial, tarjeta, heroe, lookbook, collage, catalogo, podio })[key]
 
 /** Fondo y decoraciones debajo; contenido encima. Se conserva el orden relativo dentro de cada grupo. */
 function orderLayers(layers: Layer[]): Layer[] {
@@ -668,9 +835,13 @@ function grid(frame: Frame) {
 
 /** Normaliza las opciones de diseño (valores desconocidos caen en los del estilo). */
 export function normalizeDesign(design: Partial<DesignOptions> | null | undefined): DesignOptions {
-  const styleKey = isStyle(design?.style) ? design.style : 'ecommerce_profesional'
+  const sector = isSector(design?.sector) ? design.sector : isStyle(design?.style) ? styleOf(design.style).sector : 'calzado'
+  const styleKey = isStyle(design?.style) ? design.style : stylesOf(sector)[0]!
   const style = styleOf(styleKey)
   return {
+    sector,
+    objective: isObjective(design?.objective) ? design.objective : 'venta',
+    ...(design?.video ? { video: design.video } : {}),
     style: styleKey,
     layout: isLayout(design?.layout) ? design.layout : style.layouts[0]!,
     seed: Number.isSafeInteger(design?.seed) ? Math.abs(design!.seed!) % 100000 : 1,
@@ -696,11 +867,11 @@ export function composeDesign(spec: PlanSpec, slide: number, ctx: DesignContext)
   // Historias y estados: la interfaz de la red tapa arriba y abajo; el contenido importante queda dentro.
   const story = H / W > 1.6
   const frame: Frame = {
-    spec, product: single, design, style, colors, W, H, u, m,
+    spec, product: single, design, style, colors, emphasis: EMPHASIS[(design.objective ?? 'venta') as keyof typeof EMPHASIS] ?? EMPHASIS.venta, W, H, u, m,
     top: story ? Math.round(H * 0.085) : m, bottom: story ? Math.round(H * 0.11) : m,
     orient, wide: ratio > 2.2, random: seededRandom(design.seed * 7919 + slide * 104729 + design.layout.length), ctx, layers: [],
   }
-  if (single) LAYOUT_BUILDERS[design.layout as LayoutKey](frame)
+  if (single) builderFor(design.layout as LayoutKey)(frame)
   else grid(frame)
   if (spec.kind === 'carrusel' && spec.slides > 1) {
     const counter = `${slide + 1}/${spec.slides}`

@@ -7,16 +7,19 @@
 import type { Layer, PlanSpec, Scene } from '../scene'
 import { contrastRatio, isHex } from './color'
 import { cssFont } from './fonts'
-import type { DesignContext, Measure } from './compose'
+import { turnedBox, type DesignContext, type Measure } from './compose'
+import { styleOf } from './styles'
 
 export interface QaCheck { code: string; level: 'error' | 'aviso' | 'ok'; message: string }
 export interface QaReport { ok: boolean; errors: number; warnings: number; checks: QaCheck[] }
 
-const CONTENT = new Set(['logo', 'etiqueta', 'titular', 'nombre', 'precio', 'precio_anterior', 'descripcion', 'cta', 'url', 'referencia', 'categoria', 'contador'])
+const CONTENT = new Set(['logo', 'etiqueta', 'titular', 'nombre', 'precio', 'precio_anterior', 'descripcion', 'cta', 'url', 'referencia', 'categoria', 'contador', 'dato', 'beneficio', 'marca'])
+/** Parte mínima del lienzo que debe ocupar el producto, por sector (el producto manda). */
+const PRODUCT_SHARE: Record<string, number> = { calzado: 0.16, moda: 0.2, streetwear: 0.14, hogar: 0.14, belleza: 0.1 }
 type Box = { x: number; y: number; w: number; h: number }
 const overlap = (a: Box, b: Box, tolerance = 2) => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > tolerance && Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > tolerance
 const normalize = (value: string) => value.normalize('NFD').replace(/\p{M}/gu, '').replace(/…$/, '').replace(/\s+/g, ' ').trim().toLocaleUpperCase('es')
-const LABELS: Record<string, string> = { logo: 'el logo', etiqueta: 'la etiqueta', titular: 'el titular', nombre: 'el nombre', precio: 'el precio', precio_anterior: 'el precio anterior', descripcion: 'la descripción', cta: 'el botón', url: 'la dirección', referencia: 'la referencia', categoria: 'la categoría', contador: 'el contador', foto: 'el producto' }
+const LABELS: Record<string, string> = { dato: 'un rótulo de la ficha', beneficio: 'un beneficio', marca: 'la marca', logo: 'el logo', etiqueta: 'la etiqueta', titular: 'el titular', nombre: 'el nombre', precio: 'el precio', precio_anterior: 'el precio anterior', descripcion: 'la descripción', cta: 'el botón', url: 'la dirección', referencia: 'la referencia', categoria: 'la categoría', contador: 'el contador', foto: 'el producto' }
 const label = (role: string) => LABELS[role] ?? role
 
 export function checkScene(scene: Scene, spec: PlanSpec, slide: number, ctx: Pick<DesignContext, 'photos' | 'measure'> & { measure: Measure }): QaReport {
@@ -24,7 +27,8 @@ export function checkScene(scene: Scene, spec: PlanSpec, slide: number, ctx: Pic
   const add = (code: string, level: QaCheck['level'], message: string) => checks.push({ code, level, message })
   const { width: W, height: H } = scene
   const u = Math.min(W, H) / 100
-  const layers = scene.layers
+  // Las capas giradas se comprueban con la caja que realmente ocupan.
+  const layers = scene.layers.map((layer) => (layer.turn ? { ...layer, ...turnedBox(layer, layer.turn) } : layer)) as Layer[]
 
   // 1. Dimensiones exactas del formato.
   add('dimensiones', scene.width === spec.width && scene.height === spec.height ? 'ok' : 'error', `Tamaño ${scene.width} × ${scene.height} px${scene.width === spec.width && scene.height === spec.height ? '' : ` (se esperaba ${spec.width} × ${spec.height})`}.`)
@@ -117,6 +121,21 @@ export function checkScene(scene: Scene, spec: PlanSpec, slide: number, ctx: Pic
     lost = Math.max(lost, 1 - Math.min(a, b) / Math.max(a, b))
   }
   add('foto_fiel', lost > 0.2 ? 'error' : 'ok', lost > 0.2 ? `La foto se recorta un ${Math.round(lost * 100)} %: podría esconder parte del producto.` : 'Foto original sin deformar; el producto se ve completo.')
+
+  // 8. Estética mínima: el producto manda y la pieza invita a actuar.
+  if (single && subjects.length) {
+    const area = Math.max(...subjects.map((layer) => (layer.subject!.w * layer.subject!.h) / (W * H)))
+    const sector = spec.design?.sector ?? styleOf(spec.design?.style ?? '').sector
+    const minimum = PRODUCT_SHARE[sector] ?? 0.12
+    add('producto_protagonista', area < 0.05 ? 'error' : area < minimum ? 'aviso' : 'ok', area < minimum ? `El producto ocupa solo el ${Math.round(area * 100)} % de la pieza (lo recomendable para este sector es ${Math.round(minimum * 100)} % o más).` : `El producto es protagonista (${Math.round(area * 100)} % de la pieza).`)
+  }
+  const hasCta = layers.some((layer) => layer.role === 'cta' && (layer.type === 'pill' || layer.type === 'text'))
+  add('llamado_accion', hasCta ? 'ok' : 'error', hasCta ? 'Tiene llamado a la acción.' : 'Falta el llamado a la acción.')
+  if (spec.design?.objective === 'promocion' && single && showPrice) {
+    const price = layers.find((layer) => layer.role === 'precio' && layer.type === 'text') as Extract<Layer, { type: 'text' }> | undefined
+    if (!single.compareAtText) add('promocion', 'aviso', 'Objetivo «Promoción» sin descuento en el catálogo: la pieza muestra el precio normal, sin anunciar rebajas.')
+    else if (price && price.size < u * 4.5) add('promocion', 'aviso', 'En una promoción el precio debería verse más grande.')
+  }
 
   const errors = checks.filter((check) => check.level === 'error').length
   const warnings = checks.filter((check) => check.level === 'aviso').length

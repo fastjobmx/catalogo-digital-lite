@@ -212,7 +212,7 @@ describe('piezas convencionales', () => {
 })
 
 describe('motor de diseño publicitario', () => {
-  const DESIGN = { style: 'minimalista_premium', layout: 'editorial', seed: 7, colors: ['#b76e79'], showPrice: true, removeBg: true, showReference: true }
+  const DESIGN = { sector: 'moda', objective: 'coleccion', style: 'editorial_nude', layout: 'lookbook', seed: 7, colors: ['#b76e79'], showPrice: true, removeBg: true, showReference: true }
   const plan = (body: Record<string, unknown>) => A('/creatives/plan', { method: 'POST', body: { kind: 'imagen', template: 'producto_destacado', format: 'vertical', productIds: [ids.A1], ...body } })
 
   it('el plan guarda el estilo validado, la referencia real y es otra pieza distinta de la clásica', async () => {
@@ -234,6 +234,10 @@ describe('motor de diseño publicitario', () => {
     expect((await json(await plan({ design: { ...DESIGN, layout: 'x' } }))).code).toBe('INVALID_LAYOUT')
     expect((await json(await plan({ design: { ...DESIGN, colors: ['red'] } }))).code).toBe('INVALID_COLORS')
     expect((await json(await plan({ design: { ...DESIGN, seed: -1 } }))).code).toBe('INVALID_SEED')
+    expect((await json(await plan({ design: { ...DESIGN, sector: 'autos' } }))).code).toBe('INVALID_SECTOR')
+    expect((await json(await plan({ design: { ...DESIGN, objective: 'x' } }))).code).toBe('INVALID_OBJECTIVE')
+    // Sin sector, se toma el de la familia del estilo.
+    expect((await json(await plan({ design: { ...DESIGN, sector: undefined } }))).spec.design.sector).toBe('moda')
     expect((await json(await A('/creatives/plan', { method: 'POST', body: { kind: 'imagen', template: 'oferta_aprobada', format: 'vertical', productIds: [ids.A3], design: { ...DESIGN, showPrice: false } } }))).code).toBe('PRICE_REQUIRED')
   })
 
@@ -243,7 +247,7 @@ describe('motor de diseño publicitario', () => {
     expect((await json(await save(spec, [createPng(1080, 1080)], 'pieza-diseno-001'))).code).toBe('INVALID_RESOLUTION')
     const created = await json(await save(spec, [createPng(1200, 628)], 'pieza-diseno-002'))
     expect(created.piece).toMatchObject({ format: 'anuncio', files: [{ width: 1200, height: 628 }] })
-    expect(created.piece.spec.design.style).toBe('minimalista_premium')
+    expect(created.piece.spec.design.style).toBe('editorial_nude')
     expect((await json(await A('/creatives/catalog'))).formats.some((item: { key: string }) => item.key === 'anuncio')).toBe(true)
   })
 })

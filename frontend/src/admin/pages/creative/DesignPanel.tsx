@@ -1,15 +1,15 @@
 /** Paso «Diseño» de la Fábrica de creativos: estilo, composición, variante, personalización y control de calidad.
  * Las miniaturas se dibujan con la foto y los datos reales del producto elegido (no son imágenes de ejemplo). */
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AlertCircle, AlertTriangle, CheckCircle2, Shuffle } from 'lucide-react'
 import type { DesignOptions, PlanSpec } from '../../../lib/creative/scene'
 import { drawPreview, type ImageMap, type OutputType } from '../../../lib/creative/render'
 import type { DesignContext } from '../../../lib/creative/design/compose'
 import { styleLayouts } from '../../../lib/creative/design/compose'
 import type { QaReport } from '../../../lib/creative/design/qa'
-import { DESIGN_STYLES, LAYOUTS, STYLE_KEYS, type LayoutKey } from '../../../lib/creative/design/styles'
+import { DESIGN_STYLES, LAYOUTS, OBJECTIVES, OBJECTIVE_KEYS, SECTORS, SECTOR_KEYS, STYLE_KEYS, stylesOf, type LayoutKey, type SectorKey } from '../../../lib/creative/design/styles'
 
-export const DEFAULT_DESIGN: DesignOptions = { style: 'ecommerce_profesional', layout: 'escenario', seed: 1, colors: null, showPrice: true, removeBg: true, showReference: false }
+export const DEFAULT_DESIGN: DesignOptions = { sector: 'calzado', objective: 'venta', style: 'sneaker_impact', layout: 'heroe', seed: 1, colors: null, showPrice: true, removeBg: true, showReference: false }
 
 function Thumb({ spec, images, design, width, label, active, onClick }: { spec: PlanSpec; images: ImageMap; design: DesignContext; width: number; label: string; active: boolean; onClick: () => void }) {
   const canvas = useRef<HTMLCanvasElement>(null)
@@ -40,10 +40,18 @@ interface Props {
   kind: 'imagen' | 'carrusel' | 'video'
   priceLocked: boolean
   brandColors: string[]
+  /** Sector sugerido por las categorías y nombres de los productos elegidos. */
+  detected: SectorKey | null
+  /** El plan trae un descuento real (plantilla «Oferta aprobada»). */
+  hasOffer: boolean
 }
 
-export function DesignPanel({ spec, images, design, notes, options, onChange, output, onOutput, kind, priceLocked, brandColors }: Props) {
-  const style = DESIGN_STYLES[options.style as keyof typeof DESIGN_STYLES] ?? DESIGN_STYLES.ecommerce_profesional
+export function DesignPanel({ spec, images, design, notes, options, onChange, output, onOutput, kind, priceLocked, brandColors, detected, hasOffer }: Props) {
+  const style = DESIGN_STYLES[options.style as keyof typeof DESIGN_STYLES] ?? DESIGN_STYLES.sneaker_impact
+  const sector = (options.sector && options.sector in SECTORS ? options.sector : style.sector) as SectorKey
+  const [allStyles, setAllStyles] = useState(false)
+  const familyStyles = allStyles ? STYLE_KEYS : stylesOf(sector)
+  const chooseSector = (key: SectorKey) => { const first = stylesOf(key)[0]!; onChange({ ...options, sector: key, style: first, layout: DESIGN_STYLES[first].layouts[0] }) }
   const layouts = styleLayouts(options.style)
   const ready = Boolean(spec && images && design)
   const variant = (patch: Partial<DesignOptions>) => onChange({ ...options, ...patch })
@@ -58,24 +66,46 @@ export function DesignPanel({ spec, images, design, notes, options, onChange, ou
   return (
     <div className="space-y-4">
       <div>
+        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Sector de la tienda</p>
+        <div className="flex flex-wrap gap-1.5">
+          {SECTOR_KEYS.map((key) => (
+            <button key={key} type="button" aria-pressed={sector === key} onClick={() => chooseSector(key)} className={`rounded-full px-3 py-1.5 text-xs font-bold ${sector === key ? 'bg-ink text-white' : 'bg-line/60 text-ink'}`}>
+              {SECTORS[key].label}{detected === key ? ' · sugerido' : ''}
+            </button>
+          ))}
+        </div>
+        <p className="mt-1.5 text-xs text-muted">{SECTORS[sector].hint}</p>
+      </div>
+
+      <div>
+        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Objetivo de la pieza</p>
+        <div className="flex flex-wrap gap-1.5">
+          {OBJECTIVE_KEYS.map((key) => (
+            <button key={key} type="button" aria-pressed={options.objective === key} onClick={() => onChange({ ...options, objective: key })} className={`rounded-full px-3 py-1.5 text-xs font-bold ${options.objective === key ? 'bg-brand text-white' : 'bg-line/60 text-ink'}`}>{OBJECTIVES[key].label}</button>
+          ))}
+        </div>
+        <p className="mt-1.5 text-xs text-muted">{OBJECTIVES[(options.objective ?? 'venta') as keyof typeof OBJECTIVES].hint}{options.objective === 'promocion' && !hasOffer ? ' Este producto no tiene precio anterior en tu catálogo: se mostrará su precio normal, sin anunciar rebajas.' : ''}</p>
+      </div>
+
+      <div>
         <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Estilo</p>
         {ready ? (
           <div className="flex gap-2 overflow-x-auto pb-1">
-            {STYLE_KEYS.map((key) => (
-              <Thumb key={key} spec={{ ...spec!, design: { ...options, style: key, layout: DESIGN_STYLES[key].layouts[0] } }} images={images!} design={design!} width={thumbWidth} label={DESIGN_STYLES[key].label} active={options.style === key} onClick={() => variant({ style: key, layout: DESIGN_STYLES[key].layouts[0] })} />
+            {familyStyles.map((key) => (
+              <Thumb key={key} spec={{ ...spec!, design: { ...options, style: key, layout: DESIGN_STYLES[key].layouts[0] } }} images={images!} design={design!} width={thumbWidth} label={DESIGN_STYLES[key].label} active={options.style === key} onClick={() => variant({ style: key, sector: DESIGN_STYLES[key].sector, layout: DESIGN_STYLES[key].layouts[0] })} />
             ))}
           </div>
         ) : (
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-            {STYLE_KEYS.map((key) => (
-              <button key={key} type="button" aria-pressed={options.style === key} onClick={() => variant({ style: key, layout: DESIGN_STYLES[key].layouts[0] })} className={`rounded-xl border p-3 text-left ${options.style === key ? 'border-brand bg-brand/5 ring-1 ring-brand' : 'border-line bg-white'}`}>
+            {familyStyles.map((key) => (
+              <button key={key} type="button" aria-pressed={options.style === key} onClick={() => variant({ style: key, sector: DESIGN_STYLES[key].sector, layout: DESIGN_STYLES[key].layouts[0] })} className={`rounded-xl border p-3 text-left ${options.style === key ? 'border-brand bg-brand/5 ring-1 ring-brand' : 'border-line bg-white'}`}>
                 <span className="block text-sm font-bold text-ink">{DESIGN_STYLES[key].label}</span>
                 <span className="mt-1 block text-xs text-muted">{DESIGN_STYLES[key].mood}</span>
               </button>
             ))}
           </div>
         )}
-        <p className="mt-1.5 text-xs text-muted">{style.description}</p>
+        <p className="mt-1.5 text-xs text-muted">{style.description} <button type="button" className="font-semibold text-brand underline" onClick={() => setAllStyles(!allStyles)}>{allStyles ? 'Ver solo los de este sector' : 'Ver los 15 estilos'}</button></p>
       </div>
 
       <div>

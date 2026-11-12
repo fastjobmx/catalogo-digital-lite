@@ -4,7 +4,7 @@ import { contrastRatio, ensureContrast, seededRandom } from './color'
 import { composeDesign, containRect, fitText, normalizeDesign, styleLayouts, type DesignContext } from './compose'
 import { analyzePhoto, type PhotoAnalysis } from './photo'
 import { checkScene } from './qa'
-import { DESIGN_STYLES, LAYOUT_KEYS, STYLE_KEYS } from './styles'
+import { DESIGN_STYLES, LAYOUT_KEYS, OBJECTIVE_KEYS, SECTOR_KEYS, STYLE_KEYS, detectSector, stylesOf } from './styles'
 
 const FORMATS: Record<string, [number, number]> = { cuadrado: [1080, 1080], vertical: [1080, 1350], historia: [1080, 1920], banner: [1920, 1080], whatsapp: [1200, 900], portada: [1640, 624], anuncio: [1200, 628] }
 
@@ -48,7 +48,10 @@ function context(cut = true, analysis = photo()): DesignContext {
 
 const CASES: Array<{ name: string; extra?: Partial<PlanSpec>; ctx?: DesignContext; design?: Partial<PlanSpec['design']> }> = [
   { name: 'recorte' },
-  { name: 'oferta', extra: { template: 'oferta_aprobada', badge: '-50%', products: [product({ priceText: '$ 60.000', compareAtText: '$ 120.000', discountPercent: 50 })] } },
+  { name: 'beneficios', extra: { copy: { headline: 'x', description: 'Nochero con luz LED y sensor de tacto.', benefits: ['Luz LED con sensor de tacto', 'Cajones con riel de metal'], cta: 'Pídelo por WhatsApp' } }, design: { objective: 'beneficios' } },
+  { name: 'catálogo', design: { objective: 'catalogo' } },
+  { name: 'colección sin recorte', ctx: context(false), design: { objective: 'coleccion' } },
+  { name: 'oferta', design: { objective: 'promocion' }, extra: { template: 'oferta_aprobada', badge: '-50%', products: [product({ priceText: '$ 60.000', compareAtText: '$ 120.000', discountPercent: 50 })] } },
   { name: 'fondo liso sin recorte', ctx: context(false) },
   { name: 'foto compleja', ctx: context(false, photo({ background: { uniform: false, color: '#776655', coverage: 0.3, transparent: false }, subject: { x: 0, y: 0, w: 1, h: 1 }, cutout: { ok: false, reason: 'x', mask: null, maskWidth: 0, maskHeight: 0 } })) },
   { name: 'sin logo, nombre corto, precio oculto', extra: { brand: { name: 'X', slogan: null, logoUrl: null, colors: [], font: null }, products: [product({ name: 'Jeans AMIRI', category: null, reference: null })] }, design: { showPrice: false } },
@@ -67,7 +70,7 @@ describe('motor de diseño publicitario', () => {
       total++
       for (const check of report.checks) if (check.level === 'error') failures.push(`${style}/${layout}/${format}/${item.name}: ${check.message}`)
     }
-    expect(total).toBe(STYLE_KEYS.length * 5 * 7 * CASES.length)
+    expect(total).toBe(STYLE_KEYS.length * LAYOUT_KEYS.length * 7 * CASES.length)
     if (failures.length && process.env.QA_DUMP) (await import('node:fs')).writeFileSync(process.env.QA_DUMP, failures.join(String.fromCharCode(10)))
     expect(failures.slice(0, 25), `${failures.length} fallos`).toEqual([])
   })
@@ -85,37 +88,76 @@ describe('motor de diseño publicitario', () => {
 
   it('dibuja los datos exactos del catálogo y oculta el precio cuando se pide', () => {
     const ctx = context()
-    const offer = spec('cuadrado', 'oferta_impacto', 'diagonal', { template: 'oferta_aprobada', badge: '-50%', products: [product({ priceText: '$ 60.000', compareAtText: '$ 120.000' })] })
+    const offer = spec('cuadrado', 'sneaker_impact', 'heroe', { template: 'oferta_aprobada', badge: '-50%', products: [product({ priceText: '$ 60.000', compareAtText: '$ 120.000' })] })
     const layers = composeDesign(offer, 0, ctx).layers
     const text = (role: string) => layers.filter((layer) => layer.role === role && (layer.type === 'text' || layer.type === 'pill')).map((layer) => (layer as { text: string }).text)
     expect(text('precio')).toEqual(['$ 60.000'])
     expect(text('precio_anterior')).toEqual(['$ 120.000'])
     expect(text('etiqueta')).toEqual(['-50%'])
     expect(text('referencia')).toEqual(['REF. LM-105'])
-    const hidden = composeDesign(spec('cuadrado', 'ecommerce_profesional', 'escenario', {}, { showPrice: false }), 0, ctx).layers
+    const hidden = composeDesign(spec('cuadrado', 'soft_catalog', 'catalogo', {}, { showPrice: false }), 0, ctx).layers
     expect(hidden.some((layer) => layer.role === 'precio')).toBe(false)
   })
 
   it('usa el recorte solo cuando existe; si no, la foto original sin deformar', () => {
-    const withCut = composeDesign(spec('vertical', 'minimalista_premium', 'escenario'), 0, context(true)).layers.find((layer) => layer.role === 'foto')
+    const withCut = composeDesign(spec('vertical', 'clean_beauty', 'escenario'), 0, context(true)).layers.find((layer) => layer.role === 'foto')
     expect(withCut && withCut.type === 'image' && withCut.src.startsWith('cut:')).toBe(true)
-    const noCut = composeDesign(spec('vertical', 'minimalista_premium', 'escenario', {}, { removeBg: false }), 0, context(true)).layers.find((layer) => layer.role === 'foto')
+    const noCut = composeDesign(spec('vertical', 'clean_beauty', 'escenario', {}, { removeBg: false }), 0, context(true)).layers.find((layer) => layer.role === 'foto')
     expect(noCut && noCut.type === 'image' && !noCut.src.startsWith('cut:') && noCut.matte === '#F4F4F4').toBe(true)
     // La caja del producto recortado respeta su proporción real.
     if (withCut) expect(Math.abs(withCut.w / withCut.h - (0.64 * 1000) / (0.84 * 1200))).toBeLessThan(0.02)
   })
 
   it('misma semilla, misma pieza; otra semilla, otra variante de decoración', () => {
-    const a = JSON.stringify(composeDesign(spec('cuadrado', 'comercial_moderno', 'escenario'), 0, context()).layers)
-    const b = JSON.stringify(composeDesign(spec('cuadrado', 'comercial_moderno', 'escenario'), 0, context()).layers)
-    const c = JSON.stringify(composeDesign(spec('cuadrado', 'comercial_moderno', 'escenario', {}, { seed: 99 }), 0, context()).layers)
+    const a = JSON.stringify(composeDesign(spec('cuadrado', 'hype_drop', 'heroe'), 0, context()).layers)
+    const b = JSON.stringify(composeDesign(spec('cuadrado', 'hype_drop', 'heroe'), 0, context()).layers)
+    const c = JSON.stringify(composeDesign(spec('cuadrado', 'hype_drop', 'heroe', {}, { seed: 99 }), 0, context()).layers)
     expect(a).toBe(b)
     expect(a).not.toBe(c)
   })
 
   it('normaliza opciones desconocidas sin romper la pieza', () => {
-    expect(normalizeDesign({ style: 'no-existe', layout: 'raro', seed: -5, colors: ['#zzzzzz', '#112233'] })).toEqual({ style: 'ecommerce_profesional', layout: 'escenario', seed: 5, colors: ['#112233'], showPrice: true, removeBg: true, showReference: false })
+    expect(normalizeDesign({ style: 'no-existe', layout: 'raro', seed: -5, colors: ['#zzzzzz', '#112233'] })).toEqual({ sector: 'calzado', objective: 'venta', style: 'sneaker_impact', layout: 'heroe', seed: 5, colors: ['#112233'], showPrice: true, removeBg: true, showReference: false })
     for (const key of STYLE_KEYS) expect(DESIGN_STYLES[key].layouts).toHaveLength(5)
+  })
+})
+
+describe('dirección de arte por sector', () => {
+  it('cinco familias con tres estilos cada una, de lenguaje visual distinto entre sí', () => {
+    expect(SECTOR_KEYS).toHaveLength(5)
+    expect(STYLE_KEYS).toHaveLength(15)
+    for (const sector of SECTOR_KEYS) {
+      const keys = stylesOf(sector)
+      expect(keys, sector).toHaveLength(3)
+      // Dos estilos de la misma familia difieren en al menos 4 de 7 decisiones de diseño.
+      const traits = keys.map((key) => { const s = DESIGN_STYLES[key]; return [s.display.family, s.price.shape, s.cta, s.badge, s.layouts[0], s.background, s.decor.join('+')] })
+      for (let i = 0; i < 3; i++) for (let j = i + 1; j < 3; j++) expect(traits[i]!.filter((trait, index) => trait !== traits[j]![index]).length, `${keys[i]} vs ${keys[j]}`).toBeGreaterThanOrEqual(4)
+    }
+  })
+
+  it('detecta el sector con las categorías y nombres reales', () => {
+    expect(detectSector(['Calzado', 'NIKE TRAIL HOMBRE', 'Tenis Nord 02'])).toBe('calzado')
+    expect(detectSector(['Espejos', 'Tocador Imperia', 'Puff corazón'])).toBe('hogar')
+    expect(detectSector(['Ropa', 'Camiseta oversize', 'Hoodie negro'])).toBe('streetwear')
+    expect(detectSector(['Sérum facial', 'Crema hidratante'])).toBe('belleza')
+    expect(detectSector(['Vestido largo', 'Blusa de dama'])).toBe('moda')
+    expect(detectSector(['xyz'])).toBeNull()
+  })
+
+  it('el objetivo cambia la jerarquía: en promoción el precio pesa más que en colección', () => {
+    const size = (objective: string) => {
+      const layers = composeDesign(spec('vertical', 'sneaker_impact', 'heroe', { template: 'oferta_aprobada', badge: '-50%', products: [product({ priceText: '$ 60.000', compareAtText: '$ 120.000' })] }, { objective }), 0, context()).layers
+      return (layers.find((layer) => layer.role === 'precio' && layer.type === 'text') as { size: number }).size
+    }
+    expect(size('promocion')).toBeGreaterThan(size('coleccion'))
+    for (const key of OBJECTIVE_KEYS) expect(size(key)).toBeGreaterThan(0)
+  })
+
+  it('beneficios: solo los que escribió el comercio; sin ellos no aparece ninguno', () => {
+    const withBenefits = composeDesign(spec('vertical', 'clean_beauty', 'podio', { copy: { headline: 'x', description: '', benefits: ['Luz LED con sensor de tacto'], cta: 'Comprar' } }, { objective: 'beneficios' }), 0, context()).layers
+    expect(withBenefits.filter((layer) => layer.role === 'beneficio').map((layer) => (layer as { text: string }).text)).toEqual(['Luz LED con sensor de tacto'])
+    const none = composeDesign(spec('vertical', 'clean_beauty', 'podio', {}, { objective: 'beneficios' }), 0, context()).layers
+    expect(none.some((layer) => layer.role === 'beneficio')).toBe(false)
   })
 })
 

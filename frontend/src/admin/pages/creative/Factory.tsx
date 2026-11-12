@@ -12,7 +12,7 @@ import type { DesignOptions, PlanSpec } from '../../../lib/creative/scene'
 import type { DesignContext } from '../../../lib/creative/design/compose'
 import { ensureFonts } from '../../../lib/creative/design/fonts'
 import { checkScene } from '../../../lib/creative/design/qa'
-import { STYLE_KEYS, styleFonts } from '../../../lib/creative/design/styles'
+import { DESIGN_STYLES, STYLE_KEYS, detectSector, stylesOf, styleFonts } from '../../../lib/creative/design/styles'
 import { DEFAULT_DESIGN, DesignPanel, QaPanel } from './DesignPanel'
 import { assetBlob } from './AssetImage'
 import { formatBytes } from './ResultReview'
@@ -128,6 +128,12 @@ export default function Factory() {
   const designed = useDesign && mode !== 'video_ia'
   const planInput = () => ({ kind, template, format, productIds: picked, quality, seconds: kind === 'video' ? seconds : null, copy: copyInput(), ...(designed ? { design: designOpts } : {}) })
   const priceLocked = template === 'oferta_aprobada'
+  // Sector sugerido por las categorías y nombres reales de los productos elegidos; se aplica al cambiar la selección.
+  const detected = useMemo(() => detectSector(products.filter((product) => picked.includes(product.id)).flatMap((product) => [product.categoryName ?? '', product.name])), [products, picked])
+  useEffect(() => {
+    if (!detected) return
+    setDesignOpts((current) => (current.sector === detected ? current : { ...current, sector: detected, style: stylesOf(detected)[0]!, layout: DESIGN_STYLES[stylesOf(detected)[0]!].layouts[0] }))
+  }, [detected])
   useEffect(() => { if (priceLocked && !designOpts.showPrice) setDesignOpts((current) => ({ ...current, showPrice: true })) }, [priceLocked, designOpts.showPrice])
   // La vista previa usa las opciones de diseño actuales sin volver a pedir el plan: el servidor las valida al guardar.
   const live = useMemo(() => (plan ? (plan.spec.design ? { ...plan.spec, design: designOpts } : plan.spec) : null), [plan, designOpts])
@@ -360,7 +366,7 @@ export default function Factory() {
           </div>
           {useDesign && (template === 'antes_despues' || !picked.length)
             ? <p className="text-xs text-muted">Esta plantilla usa la composición clásica.</p>
-            : useDesign && <DesignPanel spec={live} images={media?.images ?? null} design={media?.design ?? null} notes={media?.notes ?? []} options={designOpts} onChange={setDesignOpts} output={output} onOutput={setOutput} kind={kind} priceLocked={priceLocked} brandColors={plan?.spec.brand.colors ?? []} />}
+            : useDesign && <DesignPanel spec={live} images={media?.images ?? null} design={media?.design ?? null} notes={media?.notes ?? []} options={designOpts} onChange={setDesignOpts} output={output} onOutput={setOutput} kind={kind} priceLocked={priceLocked} brandColors={plan?.spec.brand.colors ?? []} detected={detected} hasOffer={Boolean(plan?.spec.products.some((product) => product.compareAtText))} />}
           {useDesign && !media?.design && picked.length > 0 && template !== 'antes_despues' && <p className="text-xs text-muted">Pulsa «Ver vista previa» para ver las miniaturas con tu producto.</p>}
         </Step>
       )}

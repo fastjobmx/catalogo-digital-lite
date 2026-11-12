@@ -10,7 +10,7 @@ import { VIDEO_FPS, buildScene, frameAt, frameCount, videoSize, type Layer, type
 import { composeDesign, cutKey, type DesignContext } from './design/compose'
 import { cssFont, ensureFonts } from './design/fonts'
 import { analyzePhoto, subjectRect, type PhotoAnalysis } from './design/photo'
-import { seededRandom } from './design/color'
+import { mix, seededRandom } from './design/color'
 import { styleFonts } from './design/styles'
 
 export type ImageMap = Map<string, ImageBitmap>
@@ -31,7 +31,11 @@ export function sceneFor(spec: PlanSpec, slide: number, design: DesignContext | 
 export function specSources(spec: PlanSpec): string[] {
   const sources = new Set<string>()
   if (usesDesign(spec)) {
-    for (const product of spec.products) if (product.image) sources.add(product.image)
+    for (const product of spec.products) {
+      if (product.image) sources.add(product.image)
+      // Hasta 2 fotos más del mismo producto para el collage (solo en piezas de un producto).
+      if (spec.products.length === 1) for (const extra of (product.gallery ?? []).slice(0, 3)) sources.add(extra)
+    }
     if (spec.brand.logoUrl) sources.add(spec.brand.logoUrl)
     return [...sources]
   }
@@ -56,13 +60,47 @@ export async function loadImages(spec: PlanSpec, loadAsset: AssetLoader): Promis
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
         blob = await response.blob()
       }
-      images.set(src, await createImageBitmap(blob))
+      images.set(src, await decodeLimited(blob))
     } catch {
       if (src === spec.brand.logoUrl) { missingLogo = true; return }
+      // Una foto adicional de la galería que falla no detiene la pieza: solo la foto principal es obligatoria.
+      if (!spec.products.some((product) => product.image === src)) return
       throw new Error('No se pudo leer una de las fotos. Si está alojada fuera de la tienda, súbela al producto y vuelve a intentarlo.')
     }
   }))
   return { images, missingLogo }
+}
+
+/** Lado mayor máximo de las fotos en memoria: suficiente para 1920 px de salida y evita agotar la memoria en lotes. */
+export const MAX_PHOTO_SIDE = 1600
+
+/** Decodifica una imagen limitando su tamaño. Usa el redimensionado nativo si existe; si no, un lienzo. */
+export async function decodeLimited(blob: Blob, maxSide = MAX_PHOTO_SIDE): Promise<ImageBitmap> {
+  const bitmap = await createImageBitmap(blob)
+  const scale = maxSide / Math.max(bitmap.width, bitmap.height)
+  if (scale >= 1) return bitmap
+  const width = Math.max(1, Math.round(bitmap.width * scale))
+  const height = Math.max(1, Math.round(bitmap.height * scale))
+  try {
+    const resized = await createImageBitmap(bitmap, { resizeWidth: width, resizeHeight: height, resizeQuality: 'high' })
+    bitmap.close()
+    return resized
+  } catch {
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d')!
+    ctx.imageSmoothingQuality = 'high'
+    ctx.drawImage(bitmap, 0, 0, width, height)
+    bitmap.close()
+    return createImageBitmap(canvas)
+  }
+}
+
+/** Libera los mapas de bits de una pieza (fotos, recortes, logo). Imprescindible entre productos de un lote. */
+export function releaseImages(images: ImageMap) {
+  for (const bitmap of images.values()) { try { bitmap.close() } catch { /* ya liberado */ } }
+  images.clear()
 }
 
 const FONT_LINK = 'creative-font-'
@@ -299,6 +337,23 @@ function drawShape(ctx: Ctx, layer: Extract<Layer, { type: 'shape' }>, y: number
     }
     ctx.closePath(); ctx.fill(); return
   }
+  if (layer.shape === 'slant') {
+    // Bloque inclinado (paralelogramo) para precios de impacto.
+    const skew = h * 0.32
+    ctx.beginPath(); ctx.moveTo(x + skew, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w - skew, y + h); ctx.lineTo(x, y + h); ctx.closePath(); ctx.fill(); return
+  }
+  if (layer.shape === 'podium') {
+    // Podio cilíndrico: cuerpo con degradado y tapa elíptica más clara.
+    const capH = h * 0.42
+    const base = layer.color.startsWith('#') ? layer.color : '#E5E7EB'
+    const body = ctx.createLinearGradient(x, 0, x + w, 0)
+    body.addColorStop(0, mix(base, '#000000', 0.12)); body.addColorStop(0.45, base); body.addColorStop(1, mix(base, '#000000', 0.2))
+    ctx.fillStyle = body
+    ctx.beginPath(); ctx.moveTo(x, y + capH / 2); ctx.lineTo(x, y + h - capH / 2); ctx.ellipse(cx, y + h - capH / 2, w / 2, capH / 2, 0, Math.PI, 0, true); ctx.lineTo(x + w, y + capH / 2); ctx.closePath(); ctx.fill()
+    ctx.fillStyle = mix(base, '#FFFFFF', 0.38)
+    ctx.beginPath(); ctx.ellipse(cx, y + capH / 2, w / 2, capH / 2, 0, 0, Math.PI * 2); ctx.fill()
+    return
+  }
   // Texturas: se recortan a su caja.
   ctx.save()
   ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip()
@@ -317,13 +372,80 @@ function drawShape(ctx: Ctx, layer: Extract<Layer, { type: 'shape' }>, y: number
     const pattern = ctx.createPattern(noiseTile(layer.seed, layer.color), 'repeat')
     if (pattern) { ctx.fillStyle = pattern; ctx.fillRect(x, y, w, h) }
   } else if (layer.shape === 'rule') ctx.fillRect(x, y, w, Math.max(1, layer.stroke))
+  else if (layer.shape === 'speed') {
+    // Líneas de velocidad: trazos afinados de largo y grosor reproducibles.
+    const random = seededRandom(layer.seed + 3)
+    ctx.translate(cx, cy)
+    ctx.rotate((layer.rotation * Math.PI) / 180)
+    for (let i = 0; i < 16; i++) {
+      const length = w * (0.25 + random() * 0.55)
+      const lx = -w / 2 + random() * (w - length)
+      const ly = -h / 2 + random() * h
+      const thick = Math.max(1, layer.stroke * (0.4 + random() * 1.4))
+      const fade = ctx.createLinearGradient(lx, 0, lx + length, 0)
+      fade.addColorStop(0, 'rgba(0,0,0,0)'); fade.addColorStop(0.7, layer.color); fade.addColorStop(1, 'rgba(0,0,0,0)')
+      ctx.fillStyle = fade
+      ctx.fillRect(lx, ly, length, thick)
+    }
+  } else if (layer.shape === 'halftone') {
+    // Trama de puntos que se desvanece desde una esquina.
+    const max = Math.hypot(w, h)
+    const flip = layer.rotation === 180
+    for (let py = y + step / 2; py < y + h; py += step) for (let px = x + step / 2; px < x + w; px += step) {
+      const d = Math.hypot(flip ? px - x : x + w - px, flip ? py - y : y + h - py) / max
+      const r = step * 0.46 * Math.max(0, 1 - d * 1.15)
+      if (r > 0.4) { ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2); ctx.fill() }
+    }
+  }
   ctx.restore()
+}
+
+const silhouetteCache = new WeakMap<ImageBitmap, Map<string, HTMLCanvasElement>>()
+/** Silueta de color del producto recortado (para el contorno de adhesivo). */
+function silhouette(bitmap: ImageBitmap, color: string): HTMLCanvasElement {
+  const map = silhouetteCache.get(bitmap) ?? new Map<string, HTMLCanvasElement>()
+  silhouetteCache.set(bitmap, map)
+  const cached = map.get(color)
+  if (cached) return cached
+  const canvas = canvasOf(bitmap.width, bitmap.height)
+  const sctx = canvas.getContext('2d')!
+  sctx.drawImage(bitmap, 0, 0)
+  sctx.globalCompositeOperation = 'source-in'
+  sctx.fillStyle = color
+  sctx.fillRect(0, 0, canvas.width, canvas.height)
+  map.set(color, canvas)
+  return canvas
 }
 
 function drawImageLayer(ctx: Ctx, layer: Extract<Layer, { type: 'image' }>, y: number, images: ImageMap) {
   const bitmap = images.get(layer.src)
   if (!bitmap || layer.reveal <= 0) return
   const { x, w, h } = layer
+  if (layer.border) {
+    // Marco polaroid: papel blanco con sombra; la foto se dibuja encima sin su propia sombra.
+    const b = layer.border.width
+    ctx.save()
+    if (layer.shadow) { ctx.shadowColor = layer.shadow.color; ctx.shadowBlur = layer.shadow.blur; ctx.shadowOffsetY = layer.shadow.offsetY }
+    ctx.fillStyle = layer.border.color
+    ctx.fillRect(x - b, y - b, w + b * 2, h + b * 2.6)
+    ctx.restore()
+    layer = { ...layer, shadow: undefined }
+  }
+  if (layer.outline && !layer.crop) {
+    const scaleFit = Math.min(w / bitmap.width, h / bitmap.height) * layer.zoom
+    const dw = bitmap.width * scaleFit, dh = bitmap.height * scaleFit
+    const dx = x + (w - dw) / 2, dy = y + (h - dh) / 2
+    const shape = silhouette(bitmap, layer.outline.color)
+    ctx.save()
+    if (layer.shadow) { ctx.shadowColor = layer.shadow.color; ctx.shadowBlur = layer.shadow.blur; ctx.shadowOffsetY = layer.shadow.offsetY }
+    for (let i = 0; i < 16; i++) {
+      const angle = (i / 16) * Math.PI * 2
+      ctx.drawImage(shape, dx + Math.cos(angle) * layer.outline.width, dy + Math.sin(angle) * layer.outline.width, dw, dh)
+      if (i === 0) ctx.shadowColor = 'transparent'
+    }
+    ctx.restore()
+    layer = { ...layer, shadow: undefined }
+  }
   const frameW = w * layer.reveal
   const hasFrame = Boolean(layer.matte || layer.mask || layer.radius || layer.blur || layer.fit === 'cover')
   // Sombra del marco (o del producto recortado) antes de recortar el área de dibujo.
@@ -378,12 +500,13 @@ function drawImageLayer(ctx: Ctx, layer: Extract<Layer, { type: 'image' }>, y: n
 }
 
 /** Dibuja una línea con espaciado entre letras (el mismo cálculo que usa la medición del motor). */
-function fillSpaced(ctx: Ctx, text: string, x: number, y: number, spacing: number, align: 'left' | 'center' | 'right') {
-  if (!spacing) { ctx.textAlign = align; ctx.fillText(text, x, y); return }
+function fillSpaced(ctx: Ctx, text: string, x: number, y: number, spacing: number, align: 'left' | 'center' | 'right', stroke = false) {
+  const paint = (value: string, px: number) => (stroke ? ctx.strokeText(value, px, y) : ctx.fillText(value, px, y))
+  if (!spacing) { ctx.textAlign = align; paint(text, x); return }
   const total = ctx.measureText(text).width + spacing * Math.max(0, text.length - 1)
   let cursor = align === 'center' ? x - total / 2 : align === 'right' ? x - total : x
   ctx.textAlign = 'left'
-  for (const char of text) { ctx.fillText(char, cursor, y); cursor += ctx.measureText(char).width + spacing }
+  for (const char of text) { paint(char, cursor); cursor += ctx.measureText(char).width + spacing }
 }
 
 function drawText(ctx: Ctx, layer: Extract<Layer, { type: 'text' }>, y: number, font: string) {
@@ -408,9 +531,19 @@ function drawText(ctx: Ctx, layer: Extract<Layer, { type: 'text' }>, y: number, 
   ctx.fillStyle = layer.color
   ctx.textBaseline = 'top'
   const x = layer.align === 'center' ? layer.x + layer.w / 2 : layer.align === 'right' ? layer.x + layer.w : layer.x
+  if (layer.stroke) { ctx.strokeStyle = layer.color; ctx.lineWidth = layer.stroke; ctx.lineJoin = 'round' }
   lines.forEach((line, index) => {
     const lineY = y + index * layer.size * lineHeight + (layer.size - size) / 2 + (layer.font ? layer.size * (lineHeight - 1) * 0.5 : 0)
-    fillSpaced(ctx, line, x, lineY, spacing * (size / layer.size), layer.align)
+    if (layer.bars) {
+      // Barra de etiqueta detrás de la línea (estética urbana); el texto se lee sobre ella.
+      const width = widthOf(line)
+      const pad = size * 0.28
+      const start = layer.align === 'center' ? x - width / 2 : layer.align === 'right' ? x - width : x
+      ctx.fillStyle = layer.bars
+      ctx.fillRect(start - pad, lineY - size * (lineHeight - 1) * 0.5 - pad * 0.15, width + pad * 2, size * lineHeight * 0.96)
+      ctx.fillStyle = layer.color
+    }
+    fillSpaced(ctx, line, x, lineY, spacing * (size / layer.size), layer.align, Boolean(layer.stroke))
     if (layer.strike) {
       const width = widthOf(line)
       const start = layer.align === 'center' ? x - width / 2 : layer.align === 'right' ? x - width : x
@@ -427,13 +560,26 @@ function drawPill(ctx: Ctx, layer: Extract<Layer, { type: 'pill' }>, y: number, 
     setFont()
     const spacing = (layer.font.letterSpacing ?? 0) * size
     const padX = layer.size * 0.9
-    while (size > 8 && ctx.measureText(layer.text).width + spacing * (layer.text.length - 1) > layer.w - padX * 1.6) { size -= 1; setFont() }
-    ctx.fillStyle = layer.bg
-    roundedPath(ctx, layer.x, y, layer.w, layer.h, layer.radius ?? layer.h / 2)
-    ctx.fill()
+    const variant = layer.variant ?? 'solid'
+    const room = variant === 'link' ? layer.w : layer.w - padX * 1.6
+    while (size > 8 && ctx.measureText(layer.text).width + spacing * (layer.text.length - 1) > room) { size -= 1; setFont() }
+    if (variant === 'solid') {
+      ctx.fillStyle = layer.bg
+      roundedPath(ctx, layer.x, y, layer.w, layer.h, layer.radius ?? layer.h / 2)
+      ctx.fill()
+    } else if (variant === 'outline') {
+      ctx.strokeStyle = layer.color
+      ctx.lineWidth = Math.max(2, size * 0.1)
+      roundedPath(ctx, layer.x + ctx.lineWidth / 2, y + ctx.lineWidth / 2, layer.w - ctx.lineWidth, layer.h - ctx.lineWidth, layer.radius ?? layer.h / 2)
+      ctx.stroke()
+    }
     ctx.fillStyle = layer.color
     ctx.textBaseline = 'middle'
     fillSpaced(ctx, layer.text, layer.x + layer.w / 2, y + layer.h / 2 + size * 0.04, spacing, 'center')
+    if (variant === 'link') {
+      const width = ctx.measureText(layer.text).width + spacing * (layer.text.length - 1)
+      ctx.fillRect(layer.x + (layer.w - width) / 2, y + layer.h / 2 + size * 0.62, width, Math.max(2, size * 0.08))
+    }
     return
   }
   let size = layer.size
@@ -457,6 +603,19 @@ function drawLayer(ctx: Ctx, layer: Layer, images: ImageMap, font: string) {
   ctx.save()
   ctx.globalAlpha = layer.opacity
   const y = layer.y + layer.offsetY
+  const dx = layer.offsetX ?? 0
+  const scale = layer.scale ?? 1
+  if (layer.turn || scale !== 1 || dx) {
+    const cx = layer.x + layer.w / 2, cy = y + layer.h / 2
+    ctx.translate(cx + dx, cy)
+    if (layer.turn) ctx.rotate((layer.turn * Math.PI) / 180)
+    if (scale !== 1) ctx.scale(scale, scale)
+    ctx.translate(-cx, -cy)
+  }
+  if (layer.wipe !== undefined && layer.wipe < 1) {
+    if (layer.wipe <= 0) { ctx.restore(); return }
+    ctx.beginPath(); ctx.rect(layer.x - layer.w * 0.1, y - layer.h, layer.w * 1.2 * layer.wipe, layer.h * 3); ctx.clip()
+  }
   if (layer.type === 'rect') {
     if (layer.stroke) { ctx.strokeStyle = layer.color; ctx.lineWidth = layer.stroke; roundedPath(ctx, layer.x, y, layer.w, layer.h, layer.radius); ctx.stroke() }
     else { ctx.fillStyle = layer.color; roundedPath(ctx, layer.x, y, layer.w, layer.h, layer.radius); ctx.fill() }
