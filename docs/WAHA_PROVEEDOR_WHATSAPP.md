@@ -201,6 +201,8 @@ Reversión de staging: `wrangler rollback 56401a84-…` → (opcional) `database
 
 ## 14. Recomendaciones antes de producción
 
+> **Aviso (2026-11-12 22:05 UTC):** producción ya no corre `56b1450b`. Ahora la API es **`3c53c1d8`** (fábrica de publicidad) y el panel **`6f503c33`**, publicados desde la rama local `integracion/motor-publicitario` (`8d8f560`, basada en `891d17a`). Esta rama **no** incluye la fábrica. Antes de publicar algo desde aquí hay que **integrar `integracion/motor-publicitario`**; si no, la fábrica desaparecería de producción. Allí `wrangler.production.toml` ya fija `AI_MESSAGE_QUOTA_MODE = "shadow"`.
+
 1. Decidir el **alojamiento 24/7** (servidor dedicado con 2 CPU y 4 GB) y un **túnel con nombre** con Cloudflare Access.
 2. Crear la **cola de producción** y su configuración en `wrangler.production.toml` (no hecho).
 3. Pruebas reales de 20, 50 y 100 fotos, voz, CSV, reposición, desconexión y restauración, y Telegram de punta a punta en staging.
