@@ -15,6 +15,7 @@ import { backToMenu } from './menus'
 import type { PendingOperation } from './operations'
 import { parseCommerce } from './commerce/parse'
 import { sameColor, sameSize } from './commerce/language'
+import { continuePhotoBatch } from '../../whatsapp/photoBatch'
 
 export type PendingProductDraft = { operation: PendingOperation; draft: TelegramProductDraft }
 type DraftCategory = { id: number; name: string; slug: string }
@@ -415,6 +416,12 @@ export async function handleProductDraftCallback(ctx: AssistantContext, intent: 
   switch (intent) {
     case 'cancel':
       await cancelProductDraft(ctx, operationId)
+      if (active.draft.batch) {
+        // Product of a WhatsApp photo batch: cancelling it skips to the next product of the batch.
+        await say(ctx, 'Listo, omití este producto. No se publicó. (Escribe <b>cancelar lote</b> para dejar todo el lote.)')
+        await continuePhotoBatch(ctx, active.draft, 'skipped')
+        return
+      }
       await say(ctx, 'Listo, cancelé el borrador. No se publicó nada.', backToMenu())
       return
     case 'done':
@@ -611,6 +618,8 @@ export async function publishProductDraft(ctx: AssistantContext, active: Pending
   await sayPhoto(ctx, mainPhoto.telegramFileId,
     `✅ <b>¡Producto publicado!</b>\n${escapeHtml(saved?.name || product.name)}\nCódigo: ${escapeHtml(product.sku)} · ${formatMoney(Number(saved?.price ?? product.price), ctx.store.currency)}\n` +
     `Stock: ${saved?.stock ?? product.variants.reduce((sum, variant) => sum + variant.stock, 0)} u. · Fotos: ${imageUrls.length}\n\nYa está visible en tu tienda:\n${escapeHtml(url)}`,
-    backToMenu())
+    draft.batch ? undefined : backToMenu())
+  // Product of a WhatsApp photo batch: go on with the next one (no-op for every other draft).
+  if (draft.batch) { await continuePhotoBatch(ctx, draft, 'published'); return }
   await advanceAfterPublishedProduct(ctx)
 }

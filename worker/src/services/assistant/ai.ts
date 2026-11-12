@@ -6,6 +6,12 @@ import { completeMessage, QUOTA_BLOCKED_MESSAGE, quotaAlertText, releaseMessage,
 import { conversationContext, say, type AssistantContext } from './context'
 import { suggestProductFromPhotos, type VisionSuggestion } from '../../ai/productVision'
 
+/** Canal del registro de IA: Telegram/panel (sin canal), WhatsApp oficial o WAHA, cada uno por separado. */
+export function aiChannelOf(ctx: Pick<AssistantContext, 'channel'>): 'whatsapp' | 'whatsapp_waha' | undefined {
+  if (!ctx.channel) return undefined
+  return ctx.channel.provider === 'waha' ? 'whatsapp_waha' : 'whatsapp'
+}
+
 export type AiOutcome<T> = { ok: true; value: T } | { ok: false; message: string }
 
 const FAILURE_MESSAGES: Record<string, string> = {
@@ -27,11 +33,11 @@ export async function withAiBudget<T extends { usage?: TokenUsage; model?: strin
   if (!ctx.env.GEMINI_API_KEY) return { ok: false, message: 'La IA todavía no está activada en esta plataforma. Puedes usar los botones y comandos.' }
   const budget = await checkAiBudget(ctx.db, ctx.env, ctx.store.id)
   if (!budget.allowed) {
-    await recordAiUsage(ctx.db, ctx.env, { storeId: ctx.store.id, channel: ctx.channel ? 'whatsapp' : undefined, feature, status: 'blocked' })
+    await recordAiUsage(ctx.db, ctx.env, { storeId: ctx.store.id, channel: aiChannelOf(ctx), feature, status: 'blocked' })
     return { ok: false, message: BUDGET_MESSAGES[budget.reason || 'budget_exhausted'] }
   }
   // Quota of AI messages (off by default). One interaction counts once, however many calls it needs.
-  const ref = ctx.updateId > 0 ? { storeId: ctx.store.id, eventKey: `${ctx.channel ? 'wa' : 'tg'}:${ctx.updateId}`, feature, voiceSeconds: ctx.voiceSeconds, fingerprint: ctx.fingerprint } : null
+  const ref = ctx.updateId > 0 ? { storeId: ctx.store.id, eventKey: `${ctx.channel ? (ctx.channel.provider === 'waha' ? 'wa:waha' : 'wa') : 'tg'}:${ctx.updateId}`, feature, voiceSeconds: ctx.voiceSeconds, fingerprint: ctx.fingerprint } : null
   if (ref) {
     const reservation = await reserveMessage(ctx.db, ctx.env, ref).catch((error) => {
       // A counter failure must never take the assistant down: the interaction proceeds uncounted and is logged.
@@ -39,13 +45,13 @@ export async function withAiBudget<T extends { usage?: TokenUsage; model?: strin
       return { state: 'off' } as const
     })
     if (reservation.state === 'blocked') {
-      await recordAiUsage(ctx.db, ctx.env, { storeId: ctx.store.id, channel: ctx.channel ? 'whatsapp' : undefined, feature, status: 'blocked' })
+      await recordAiUsage(ctx.db, ctx.env, { storeId: ctx.store.id, channel: aiChannelOf(ctx), feature, status: 'blocked' })
       return { ok: false, message: QUOTA_BLOCKED_MESSAGE(reservation.limit, reservation.cycle.end) }
     }
   }
   try {
     const value = await call()
-    const recorded = await recordAiUsage(ctx.db, ctx.env, { storeId: ctx.store.id, channel: ctx.channel ? 'whatsapp' : undefined, feature, model: value.model, usage: value.usage, status: 'ok' })
+    const recorded = await recordAiUsage(ctx.db, ctx.env, { storeId: ctx.store.id, channel: aiChannelOf(ctx), feature, model: value.model, usage: value.usage, status: 'ok' })
     if (ref) {
       const completed = await completeMessage(ctx.db, ctx.env, ref, { costMicros: estimateCostMicros(ctx.env, value.usage || { promptTokens: 0, outputTokens: 0 }), promptTokens: value.usage?.promptTokens || 0 })
         .catch((error) => { console.error('AI message counter failed:', error instanceof Error ? error.message : 'unknown'); return { alert: null } })
@@ -57,7 +63,7 @@ export async function withAiBudget<T extends { usage?: TokenUsage; model?: strin
     return { ok: true, value }
   } catch (error) {
     if (ref) await releaseMessage(ctx.db, ctx.env, ref).catch(() => undefined)
-    await recordAiUsage(ctx.db, ctx.env, { storeId: ctx.store.id, channel: ctx.channel ? 'whatsapp' : undefined, feature, usage: usageFromError(error), status: 'error' })
+    await recordAiUsage(ctx.db, ctx.env, { storeId: ctx.store.id, channel: aiChannelOf(ctx), feature, usage: usageFromError(error), status: 'error' })
     const category = error instanceof GeminiRequestError ? error.category : 'request'
     const code = geminiFailureCode(error)
     console.error('Assistant AI call failed:', feature, code)

@@ -1,5 +1,6 @@
 /**
- * Adaptador de WhatsApp del asistente de tiendas. Recibe los eventos de Meta, identifica al
+ * Adaptador de WhatsApp del asistente de tiendas. Recibe los eventos de Meta (Cloud API oficial) o de
+ * WAHA, los normaliza a un formato común (inbound.ts), identifica al
  * comerciante vinculado y entrega cada mensaje al MISMO motor que usa Telegram
  * (services/telegram.ts → dispatchAssistantUpdate). Aquí no hay reglas de productos, inventario
  * ni permisos: solo canal, identidad, trazabilidad y costos.
@@ -16,6 +17,9 @@ import {
   findIdentity, linkCodeIn, linkWhatsApp, revokeIdentity, senderFrom, throttle,
   whatsappChatId, whatsappUpdateId, whatsappUserKey, type Sender, type WhatsAppIdentity,
 } from './identity'
+import { fromMetaMessage, readStoredInbound, type MetaInboundMessage, type NormalizedInbound, type WhatsAppProvider } from './inbound'
+import { downloadWahaMedia, sendWahaImage, sendWahaText, wahaEnabled, wahaSeenAndTyping, wahaStopTyping, type WahaSessionStatus } from './waha'
+import { handleBatchText, maintainPhotoBatches, receiveBatchPhoto, shouldBatchPhoto } from './photoBatch'
 
 type Bindings = Env['Bindings']
 
@@ -58,15 +62,10 @@ const UNLINKED_TEXT = [
   'Si no tienes una tienda, conócenos en https://tiendiaexpres.com/',
 ].join('\n')
 
-type InboundMessage = {
-  id?: string; type?: string; timestamp?: string; from?: string; from_user_id?: string
-  text?: { body?: string }
-  interactive?: { button_reply?: { id?: string }; list_reply?: { id?: string } }
-  button?: { payload?: string }
-  image?: { id?: string; caption?: string; mime_type?: string }
-  audio?: { id?: string; mime_type?: string; voice?: boolean }
-  document?: { id?: string; filename?: string; mime_type?: string; caption?: string }
-}
+type InboundMessage = MetaInboundMessage
+
+/** Programa trabajo que debe seguir después de responder al proveedor (waitUntil en producción). */
+export type Defer = (work: Promise<unknown>) => void
 
 /**
  * Tiendas habilitadas para el canal (WHATSAPP_PILOT_STORE_IDS): una lista de ids, o «*» para todas.
@@ -102,12 +101,44 @@ export async function recordWebhook(env: Bindings, db: D1Database, payload: unkn
         // The message id is the idempotency key: a redelivery from Meta inserts nothing.
         const inserted = await db.prepare(
           `INSERT OR IGNORE INTO whatsapp_messages (wa_message_id, direction, sender_key, kind, status, payload_json, error_code) VALUES (?, 'in', ?, ?, ?, ?, ?)`,
-        ).bind(message.id, sender.key, kind, skip ? 'ignored' : 'received', skip ? null : JSON.stringify({ message, sender }), stale ? 'STALE' : null).run()
+        ).bind(message.id, sender.key, kind, skip ? 'ignored' : 'received', skip ? null : JSON.stringify({ v: 2, inbound: fromMetaMessage(message, sender, String(env.WHATSAPP_PHONE_NUMBER_ID || '')) }), stale ? 'STALE' : null).run()
         if (inserted.meta.changes && !skip) pending.push(Number(inserted.meta.last_row_id))
       }
     }
   }
   return pending
+}
+
+/**
+ * WAHA: guarda un evento ya autenticado y normalizado. Devuelve el renglón por procesar (o null).
+ * El id del mensaje lleva el prefijo del proveedor, así nunca choca con un id de Meta.
+ */
+export async function recordWahaMessage(db: D1Database, inbound: NormalizedInbound): Promise<number | null> {
+  const inserted = await db.prepare(
+    `INSERT OR IGNORE INTO whatsapp_messages (wa_message_id, direction, sender_key, kind, status, payload_json, provider) VALUES (?, 'in', ?, ?, 'received', ?, 'waha')`,
+  ).bind(`waha:${inbound.messageId}`, inbound.sender.key, inbound.kind, JSON.stringify({ v: 2, inbound })).run()
+  if (inserted.meta.changes) {
+    await db.prepare(
+      `INSERT INTO whatsapp_channels (provider, session_name, status, last_message_at) VALUES ('waha', ?, 'WORKING', unixepoch())
+       ON CONFLICT(provider, session_name) DO UPDATE SET last_message_at = unixepoch(), updated_at = unixepoch()`,
+    ).bind(inbound.sessionId).run().catch(() => undefined)
+  }
+  return inserted.meta.changes ? Number(inserted.meta.last_row_id) : null
+}
+
+/** WAHA: estado de la sesión (vinculada, esperando QR, caída). Los cambios quedan como evento de plataforma. */
+export async function recordWahaStatus(db: D1Database, status: WahaSessionStatus): Promise<void> {
+  const previous = await db.prepare(`SELECT status FROM whatsapp_channels WHERE provider = 'waha' AND session_name = ?`).bind(status.session).first<{ status: string }>()
+  await db.prepare(
+    `INSERT INTO whatsapp_channels (provider, session_name, status, phone_ending, last_status_at) VALUES ('waha', ?, ?, ?, ?)
+     ON CONFLICT(provider, session_name) DO UPDATE SET status = excluded.status, phone_ending = COALESCE(excluded.phone_ending, phone_ending),
+       last_status_at = excluded.last_status_at, updated_at = unixepoch()`,
+  ).bind(status.session, status.status, status.phoneEnding, status.at).run()
+  if (previous?.status !== status.status) {
+    const level = ['FAILED', 'STOPPED', 'SCAN_QR_CODE'].includes(status.status) ? 'warning' : 'info'
+    await db.prepare(`INSERT INTO platform_events (level, source, code, detail) VALUES (?, 'whatsapp', 'WAHA_SESSION_STATUS', ?)`)
+      .bind(level, `${status.session}: ${previous?.status ?? 'sin estado'} -> ${status.status}`).run().catch(() => undefined)
+  }
 }
 
 function rateMicros(env: Partial<Bindings>, category: string): number | null {
@@ -139,35 +170,80 @@ async function recordStatus(env: Partial<Bindings>, db: D1Database, status: Reco
 
 // ───────────────────────── Envío ─────────────────────────
 
-type Outbox = {
+export type Outbox = {
   env: Bindings; db: D1Database; sender: Sender; inboundId: number; inboundWaId: string
   identityId: number | null; storeId: number | null; lastInboundAt: number; sent: number
+  provider: WhatsAppProvider
+  /** Límite de respuestas de este mensaje (por defecto MAX_REPLIES_PER_MESSAGE). */
+  replyLimit?: number
 }
 
-async function deliver(outbox: Outbox, html: string, replyMarkup?: Record<string, unknown>): Promise<Option[] | null> {
-  const { messages, numbered } = buildOutbound(html, replyMarkup)
+const pause = (env: Partial<Bindings>, ms: number) => (env.ENVIRONMENT === 'test' ? Promise.resolve() : new Promise((resolve) => setTimeout(resolve, ms)))
+
+export async function deliver(outbox: Outbox, html: string, replyMarkup?: Record<string, unknown>): Promise<Option[] | null> {
+  const waha = outbox.provider === 'waha'
+  const { messages, numbered } = buildOutbound(html, replyMarkup, { interactive: !waha })
   for (const message of messages) {
-    // Free-form replies are only allowed within 24 h of the merchant's last message, and one
-    // incoming message never fans out into an unbounded number of (possibly billed) replies.
-    const blocked = Math.floor(Date.now() / 1000) - outbox.lastInboundAt > WINDOW_SECONDS ? 'WINDOW_CLOSED' : outbox.sent >= MAX_REPLIES_PER_MESSAGE ? 'REPLY_LIMIT' : null
+    // Meta: free-form replies are only allowed within 24 h of the merchant's last message. Every provider:
+    // one incoming message never fans out into an unbounded number of (possibly billed) replies.
+    const windowClosed = !waha && Math.floor(Date.now() / 1000) - outbox.lastInboundAt > WINDOW_SECONDS
+    const blocked = windowClosed ? 'WINDOW_CLOSED' : outbox.sent >= (outbox.replyLimit ?? MAX_REPLIES_PER_MESSAGE) ? 'REPLY_LIMIT' : null
     let waId = `local:${crypto.randomUUID()}`
     let failure = blocked
     if (!blocked) {
-      try { waId = await sendWhatsApp(outbox.env, { phone: outbox.sender.phone, businessUserId: outbox.sender.businessUserId }, message); outbox.sent++ }
-      catch (error) { failure = error instanceof WhatsAppApiError ? error.code : 'SEND_FAILED' }
+      try {
+        if (waha) {
+          // WAHA: ritmo humano (leído, escribiendo, breve pausa, texto), como recomienda su documentación.
+          await pause(outbox.env, 500 + Math.floor(Math.random() * 700))
+          waId = await sendWahaText(outbox.env, outbox.sender, String((message.text as { body?: string } | undefined)?.body || ''))
+        } else {
+          waId = await sendWhatsApp(outbox.env, { phone: outbox.sender.phone, businessUserId: outbox.sender.businessUserId }, message)
+        }
+        outbox.sent++
+      } catch (error) {
+        failure = error instanceof WhatsAppApiError ? error.code : error instanceof Error && error.message.startsWith('WAHA_API_') ? error.message.slice(9, 49) : 'SEND_FAILED'
+      }
     }
     await outbox.db.prepare(
-      `INSERT OR IGNORE INTO whatsapp_messages (wa_message_id, direction, sender_key, identity_id, store_id, kind, status, reply_to, error_code) VALUES (?, 'out', ?, ?, ?, ?, ?, ?, ?)`,
-    ).bind(waId, outbox.sender.key, outbox.identityId, outbox.storeId, String(message.type), failure ? 'error' : 'sent', outbox.inboundId, failure).run()
+      `INSERT OR IGNORE INTO whatsapp_messages (wa_message_id, direction, sender_key, identity_id, store_id, kind, status, reply_to, error_code, provider) VALUES (?, 'out', ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(waId, outbox.sender.key, outbox.identityId, outbox.storeId, String(message.type), failure ? 'error' : 'sent', outbox.inboundId, failure, outbox.provider).run()
     if (failure && !blocked) throw new Error(`WHATSAPP_SEND_${failure}`)
   }
+  if (waha && messages.length) await wahaStopTyping(outbox.env, outbox.sender)
   return numbered
 }
 
-function createChannel(outbox: Outbox): AssistantChannel {
+async function downloadMedia(outbox: Outbox, ref: string, maxBytes: number): Promise<{ bytes: Uint8Array; mimeType: string }> {
+  return outbox.provider === 'waha' ? downloadWahaMedia(outbox.env, ref, maxBytes) : downloadWhatsAppMedia(outbox.env, ref, maxBytes)
+}
+
+/** Bytes de una foto que el motor nombra por su id: foto de un lote (R2) o archivo recibido por WAHA. */
+async function sendPhotoViaWaha(outbox: Outbox, photo: string): Promise<void> {
+  if (outbox.sent >= (outbox.replyLimit ?? MAX_REPLIES_PER_MESSAGE)) return
+  let image: { bytes: Uint8Array; mimeType: string } | null = null
+  const item = /^batch:(\d{1,12})$/.exec(photo)
+  if (item && outbox.env.ASSETS) {
+    const row = await outbox.db.prepare(`SELECT temp_key, content_type FROM whatsapp_photo_items WHERE id = ? AND store_id = ?`).bind(Number(item[1]), outbox.storeId).first<{ temp_key: string | null; content_type: string | null }>()
+    const object = row?.temp_key ? await outbox.env.ASSETS.get(row.temp_key) : null
+    if (object) image = { bytes: new Uint8Array(await object.arrayBuffer()), mimeType: String(row!.content_type || 'image/jpeg') }
+  } else if (/^[A-Za-z0-9_-]{1,64}\/[A-Za-z0-9@._-]{1,200}$/.test(photo)) {
+    image = await downloadWahaMedia(outbox.env, photo, WHATSAPP_IMAGE_LIMIT)
+    if (!/^image\//.test(image.mimeType)) image = { ...image, mimeType: inspectRasterImage(image.bytes).contentType }
+  }
+  if (!image) return
+  await pause(outbox.env, 400 + Math.floor(Math.random() * 500))
+  const waId = await sendWahaImage(outbox.env, outbox.sender, image)
+  outbox.sent++
+  await outbox.db.prepare(
+    `INSERT OR IGNORE INTO whatsapp_messages (wa_message_id, direction, sender_key, identity_id, store_id, kind, status, reply_to, provider) VALUES (?, 'out', ?, ?, ?, 'image', 'sent', ?, 'waha')`,
+  ).bind(waId, outbox.sender.key, outbox.identityId, outbox.storeId, outbox.inboundId).run()
+}
+
+export function createChannel(outbox: Outbox): AssistantChannel {
   const { env, db } = outbox
   return {
     name: 'whatsapp',
+    provider: outbox.provider,
     unsupported: new Set(['batches', 'team', 'panel_password', 'onboarding'] as const),
     helpText: WHATSAPP_HELP_TEXT,
     accessHelpText: WHATSAPP_ACCESS_TEXT,
@@ -180,17 +256,25 @@ function createChannel(outbox: Outbox): AssistantChannel {
       return { ok: true, result: { message_id: outbox.sent } }
     },
     // The merchant has just sent the photo; the preview is the summary with its buttons.
-    async sendPhoto(_photo, caption, replyMarkup) { await this.send(caption, replyMarkup) },
-    async typing() { await markReadAndTyping(env, outbox.inboundWaId) },
+    async sendPhoto(photo, caption, replyMarkup) {
+      // WAHA: the product photo goes first (preview and published product), then the text with its options.
+      // Meta: the merchant has just sent the photo; the preview is the summary with its buttons.
+      if (outbox.provider === 'waha') await sendPhotoViaWaha(outbox, photo).catch((error) => console.error('WAHA image send failed:', error instanceof Error ? error.message.slice(0, 60) : 'unknown'))
+      await this.send(caption, replyMarkup)
+    },
+    async typing() {
+      if (outbox.provider === 'waha') await wahaSeenAndTyping(env, outbox.sender, outbox.inboundWaId)
+      else await markReadAndTyping(env, outbox.inboundWaId)
+    },
     async downloadImage(fileId) {
       let bytes: Uint8Array
-      try { bytes = (await downloadWhatsAppMedia(env, fileId, WHATSAPP_IMAGE_LIMIT)).bytes }
-      catch (error) { throw new Error(error instanceof Error && error.message === 'WHATSAPP_MEDIA_TOO_LARGE' ? 'TELEGRAM_IMAGE_TOO_LARGE' : 'TELEGRAM_FILE_DOWNLOAD_FAILED') }
+      try { bytes = (await downloadMedia(outbox, fileId, WHATSAPP_IMAGE_LIMIT)).bytes }
+      catch (error) { throw new Error(error instanceof Error && /_MEDIA_TOO_LARGE$/.test(error.message) ? 'TELEGRAM_IMAGE_TOO_LARGE' : 'TELEGRAM_FILE_DOWNLOAD_FAILED') }
       return { bytes, ...inspectRasterImage(bytes) }
     },
-    async downloadFile(fileId, maxBytes) { return (await downloadWhatsAppMedia(env, fileId, maxBytes)).bytes },
+    async downloadFile(fileId, maxBytes) { return (await downloadMedia(outbox, fileId, maxBytes)).bytes },
     async downloadVoice(fileId) {
-      const { bytes } = await downloadWhatsAppMedia(env, fileId, VOICE_LIMIT)
+      const { bytes } = await downloadMedia(outbox, fileId, VOICE_LIMIT)
       if (bytes[0] !== 0x4f || bytes[1] !== 0x67 || bytes[2] !== 0x67 || bytes[3] !== 0x53) throw new Error('WhatsApp voice is not an OGG stream')
       return { mimeType: 'audio/ogg', data: bytesToBase64(bytes), seconds: oggOpusSeconds(bytes) }
     },
@@ -200,7 +284,7 @@ function createChannel(outbox: Outbox): AssistantChannel {
 // ───────────────────────── Procesamiento ─────────────────────────
 
 /** Procesa un mensaje entrante guardado. Solo un proceso lo toma; nunca se ejecuta dos veces. */
-export async function processInbound(env: Bindings, db: D1Database, rowId: number): Promise<void> {
+export async function processInbound(env: Bindings, db: D1Database, rowId: number, opts: { defer?: Defer } = {}): Promise<void> {
   const row = await db.prepare(
     `UPDATE whatsapp_messages SET status = 'processing', attempts = attempts + 1, updated_at = unixepoch()
      WHERE id = ? AND direction = 'in' AND status = 'received' RETURNING wa_message_id AS waId, payload_json AS payload`,
@@ -208,8 +292,11 @@ export async function processInbound(env: Bindings, db: D1Database, rowId: numbe
   if (!row) return
   let outcome: { status: 'processed' | 'ignored' | 'failed'; code?: string; identityId?: number | null; storeId?: number | null } = { status: 'processed' }
   try {
-    const { message, sender } = JSON.parse(row.payload || '{}') as { message: InboundMessage; sender: Sender }
-    outcome = await handleInbound(env, db, { rowId, waId: row.waId, message, sender })
+    const inbound = readStoredInbound(row.payload, String(env.WHATSAPP_PHONE_NUMBER_ID || ''))
+    if (!inbound) throw new Error('INBOUND_UNREADABLE')
+    // A provider switched off after the message was stored: nothing is answered through it.
+    if (inbound.provider === 'waha' && !wahaEnabled(env)) outcome = { status: 'ignored', code: 'WAHA_DISABLED' }
+    else outcome = await handleInbound(env, db, { rowId, inbound, defer: opts.defer })
   } catch (error) {
     // Technical detail stays in the platform's events; the conversation content is never logged.
     const code = (error instanceof Error ? error.message : 'unknown').slice(0, 80)
@@ -226,11 +313,15 @@ export async function processInbound(env: Bindings, db: D1Database, rowId: numbe
 
 type Outcome = { status: 'processed' | 'ignored'; code?: string; identityId?: number | null; storeId?: number | null }
 
-async function handleInbound(env: Bindings, db: D1Database, input: { rowId: number; waId: string; message: InboundMessage; sender: Sender }): Promise<Outcome> {
-  const { message, sender, rowId } = input
-  if (await throttle(db, sender.key, 'messages', 60) > BURST_PER_MINUTE) return { status: 'ignored', code: 'RATE_LIMITED' }
-  const outbox: Outbox = { env, db, sender, inboundId: rowId, inboundWaId: input.waId, identityId: null, storeId: null, lastInboundAt: Math.floor(Date.now() / 1000), sent: 0 }
-  const text = message.type === 'text' ? String(message.text?.body || '').trim().slice(0, 4000) : ''
+async function handleInbound(env: Bindings, db: D1Database, input: { rowId: number; inbound: NormalizedInbound; defer?: Defer }): Promise<Outcome> {
+  const { inbound, rowId } = input
+  const sender = inbound.sender
+  // A batch of forwarded photos arrives as a burst: WAHA photos have their own, wider window, so 100 of them
+  // are not throttled and never use up the window of the texts that follow ("listo", "sí").
+  const photoBurst = inbound.kind === 'image' && inbound.provider === 'waha'
+  if (await throttle(db, photoBurst ? `${sender.key}#photos` : sender.key, 'messages', 60) > (photoBurst ? 8 * BURST_PER_MINUTE : BURST_PER_MINUTE)) return { status: 'ignored', code: 'RATE_LIMITED' }
+  const outbox: Outbox = { env, db, sender, inboundId: rowId, inboundWaId: inbound.messageId, identityId: null, storeId: null, lastInboundAt: Math.floor(Date.now() / 1000), sent: 0, provider: inbound.provider }
+  const text = inbound.kind === 'text' ? inbound.text : ''
 
   const code = text ? linkCodeIn(text) : null
   if (code) {
@@ -263,7 +354,7 @@ async function handleInbound(env: Bindings, db: D1Database, input: { rowId: numb
     return { status: 'ignored', code: 'NO_STORES', identityId: identity.id }
   }
 
-  const update = toAssistantUpdate(identity, rowId, sender.name, message, text)
+  const update = toAssistantUpdate(identity, rowId, sender.name, inbound)
   const channel = createChannel(outbox)
   const who: AssistantIdentity = {
     db, env, botToken: '', chatId: whatsappChatId(identity.id), telegramUserId: whatsappUserKey(identity.id),
@@ -272,22 +363,33 @@ async function handleInbound(env: Bindings, db: D1Database, input: { rowId: numb
   const ctx = await openAssistantContext(who, memberships, update.callback_query ? { data: update.callback_query.data } : null)
   if (!ctx) return { status: 'processed', code: 'STORE_PICKER', identityId: identity.id }
   outbox.storeId = ctx.store.id
+  // Lotes de fotos (WAHA, activados aparte): las fotos sueltas se agrupan por productos con IA y el
+  // comerciante revisa el lote por bloques, en vez de recibir una pregunta por cada foto.
+  if (inbound.kind === 'image' && await shouldBatchPhoto(ctx, inbound)) {
+    const code = await receiveBatchPhoto(ctx, outbox, inbound, input.defer)
+    return { status: 'processed', code, identityId: identity.id, storeId: ctx.store.id }
+  }
+  const batchInput = update.callback_query?.data ?? text
+  if (batchInput && await handleBatchText(ctx, outbox, batchInput, input.defer)) {
+    return { status: 'processed', code: 'PHOTO_BATCH', identityId: identity.id, storeId: ctx.store.id }
+  }
   await dispatchAssistantUpdate(ctx, update)
   await watchVolume(env, db, ctx.store.id)
   return { status: 'processed', identityId: identity.id, storeId: ctx.store.id }
 }
 
 /** El mensaje de WhatsApp en la forma que el motor ya entiende (la misma de Telegram). */
-function toAssistantUpdate(identity: WhatsAppIdentity, rowId: number, firstName: string, message: InboundMessage, text: string): TelegramUpdate {
+function toAssistantUpdate(identity: WhatsAppIdentity, rowId: number, firstName: string, inbound: NormalizedInbound): TelegramUpdate {
   const chatId = whatsappChatId(identity.id)
   const from = { id: chatId, first_name: firstName }
   const chat = { id: chatId, type: 'private' as const }
   const updateId = whatsappUpdateId(rowId)
   const callback = (data: string): TelegramUpdate => ({ update_id: updateId, callback_query: { id: 'whatsapp', from, data: data.slice(0, 200), message: { message_id: rowId, chat, date: 0 } } })
-  const base = { message_id: rowId, from, chat, date: Number(message.timestamp || 0) }
+  const base = { message_id: rowId, from, chat, date: Number(inbound.receivedAt || 0) }
+  const text = inbound.kind === 'text' ? inbound.text : ''
+  const media = inbound.media
 
-  const tapped = message.interactive?.button_reply?.id || message.interactive?.list_reply?.id || message.button?.payload
-  if (typeof tapped === 'string' && tapped) return callback(tapped)
+  if (inbound.kind === 'interactive' && inbound.tapped) return callback(inbound.tapped)
   if (text) {
     // A number answers the last numbered menu, and only while that menu is the last thing shown.
     const choice = /^\d{1,2}$/.test(text) ? numberedChoice(identity.menuJson, Number(text)) : null
@@ -295,17 +397,17 @@ function toAssistantUpdate(identity: WhatsAppIdentity, rowId: number, firstName:
     const normalized = /^\/start\b/i.test(text) ? 'hola' : /^(?:mis )?tiendas?$/i.test(text) ? '/tiendas' : /^ayuda$/i.test(text) ? '/ayuda' : text
     return { update_id: updateId, message: { ...base, text: normalized } }
   }
-  if (message.type === 'image' && message.image?.id) {
-    return { update_id: updateId, message: { ...base, photo: [{ file_id: message.image.id }], ...(message.image.caption ? { caption: message.image.caption.slice(0, 1000) } : {}) } }
+  const caption = inbound.caption ? { caption: inbound.caption.slice(0, 1000) } : {}
+  if (inbound.kind === 'image' && media) {
+    return { update_id: updateId, message: { ...base, photo: [{ file_id: media.ref }], ...caption } }
   }
-  if (message.type === 'audio' && message.audio?.id) {
-    const mime = String(message.audio.mime_type || '')
-    return /ogg|opus/i.test(mime)
-      ? { update_id: updateId, message: { ...base, voice: { file_id: message.audio.id, duration: 0, mime_type: mime } } }
-      : { update_id: updateId, message: { ...base, audio: { file_id: message.audio.id, duration: 0, mime_type: mime } } }
+  if (inbound.kind === 'audio' && media) {
+    return media.voice
+      ? { update_id: updateId, message: { ...base, voice: { file_id: media.ref, duration: 0, mime_type: media.mimeType } } }
+      : { update_id: updateId, message: { ...base, audio: { file_id: media.ref, duration: 0, mime_type: media.mimeType } } }
   }
-  if (message.type === 'document' && message.document?.id) {
-    return { update_id: updateId, message: { ...base, document: { file_id: message.document.id, file_name: String(message.document.filename || 'archivo').slice(0, 200), mime_type: String(message.document.mime_type || '').split(';')[0] }, ...(message.document.caption ? { caption: message.document.caption.slice(0, 1000) } : {}) } }
+  if (inbound.kind === 'document' && media) {
+    return { update_id: updateId, message: { ...base, document: { file_id: media.ref, file_name: String(media.filename || 'archivo').slice(0, 200), mime_type: media.mimeType.split(';')[0] }, ...caption } }
   }
   // Stickers, locations, videos, contacts: the engine answers what it can work with.
   return { update_id: updateId, message: base }
@@ -343,15 +445,20 @@ export async function maintainWhatsApp(env: Bindings, db: D1Database): Promise<v
     db.prepare('DELETE FROM whatsapp_link_tokens WHERE expires_at < unixepoch() - 7 * 86400'),
     db.prepare('DELETE FROM whatsapp_throttles WHERE window_started_at < unixepoch() - 7 * 86400'),
   ])
-  if (!whatsappEnabled(env)) return
-  const waiting = await db.prepare(`SELECT id FROM whatsapp_messages WHERE direction = 'in' AND status = 'received' AND created_at < unixepoch() - 60 ORDER BY id LIMIT 10`).all<{ id: number }>()
+  // Photo batches: retention of temporary images runs even with the channel off.
+  await maintainPhotoBatches(env, db).catch((error) => console.error('WhatsApp photo batches maintenance failed:', error instanceof Error ? error.message : 'unknown'))
+  const providers = [whatsappEnabled(env) ? 'meta' : null, wahaEnabled(env) ? 'waha' : null].filter(Boolean) as string[]
+  if (!providers.length) return
+  const waiting = await db.prepare(
+    `SELECT id FROM whatsapp_messages WHERE direction = 'in' AND status = 'received' AND created_at < unixepoch() - 60 AND provider IN (${providers.map(() => '?').join(', ')}) ORDER BY id LIMIT 10`,
+  ).bind(...providers).all<{ id: number }>()
   for (const row of waiting.results || []) await processInbound(env, db, row.id)
 }
 
 /** Consumo del canal por tienda en un mes (AAAA-MM). Los mensajes sin tienda son costo de plataforma. */
 export async function whatsappUsageReport(db: D1Database, period: string) {
   const messages = await db.prepare(
-    `SELECT m.store_id AS storeId, s.name AS storeName,
+    `SELECT m.provider AS provider, m.store_id AS storeId, s.name AS storeName,
             SUM(m.direction = 'in') AS inbound, SUM(m.direction = 'out' AND m.status <> 'error') AS outbound,
             SUM(m.direction = 'out' AND m.status = 'error') AS failed,
             SUM(m.direction = 'out' AND m.billable = 1) AS billable, SUM(m.direction = 'out' AND m.billable = 0) AS free,
@@ -360,7 +467,7 @@ export async function whatsappUsageReport(db: D1Database, period: string) {
             SUM(m.direction = 'in' AND m.kind = 'document') AS documents,
             COALESCE(SUM(m.estimated_cost_micros), 0) AS estimatedMetaCostMicros
      FROM whatsapp_messages m LEFT JOIN stores s ON s.id = m.store_id
-     WHERE strftime('%Y-%m', m.created_at, 'unixepoch') = ? GROUP BY m.store_id ORDER BY outbound DESC`,
+     WHERE strftime('%Y-%m', m.created_at, 'unixepoch') = ? GROUP BY m.provider, m.store_id ORDER BY outbound DESC`,
   ).bind(period).all()
   const categories = await db.prepare(
     `SELECT store_id AS storeId, COALESCE(pricing_category, 'sin_informar') AS category, COALESCE(pricing_type, '') AS type, COUNT(*) AS messages, SUM(billable = 1) AS billable
@@ -368,14 +475,26 @@ export async function whatsappUsageReport(db: D1Database, period: string) {
   ).bind(period).all()
   // AI interactions of the WhatsApp assistant: their own ledger, apart from the Telegram quota of the plan.
   const ai = await db.prepare(
-    `SELECT store_id AS storeId, COUNT(*) AS aiMessages, SUM(kind = 'voice') AS voiceMessages, COALESCE(SUM(audio_seconds), 0) AS audioSeconds,
+    `SELECT CASE WHEN event_key LIKE 'wa:waha:%' THEN 'waha' ELSE 'meta' END AS provider, store_id AS storeId, COUNT(*) AS aiMessages, SUM(kind = 'voice') AS voiceMessages, COALESCE(SUM(audio_seconds), 0) AS audioSeconds,
             COALESCE(SUM(ai_cost_micros), 0) AS aiCostMicros, COALESCE(SUM(transcription_cost_micros), 0) AS transcriptionCostMicros
-     FROM whatsapp_ai_ledger WHERE status = 'consumed' AND strftime('%Y-%m', created_at) = ? GROUP BY store_id`,
+     FROM whatsapp_ai_ledger WHERE status = 'consumed' AND strftime('%Y-%m', created_at) = ? GROUP BY provider, store_id`,
   ).bind(period).all()
   // Every AI call made from WhatsApp (photos, documents, descriptions included), never added to the store budget.
   const calls = await db.prepare(
-    `SELECT store_id AS storeId, feature, status, COUNT(*) AS calls, COALESCE(SUM(estimated_cost_micros), 0) AS costMicros
-     FROM ai_usage_events WHERE channel = 'whatsapp' AND period = ? GROUP BY store_id, feature, status`,
+    `SELECT CASE channel WHEN 'whatsapp_waha' THEN 'waha' ELSE 'meta' END AS provider, store_id AS storeId, feature, status, COUNT(*) AS calls, COALESCE(SUM(estimated_cost_micros), 0) AS costMicros
+     FROM ai_usage_events WHERE channel IN ('whatsapp', 'whatsapp_waha') AND period = ? GROUP BY provider, store_id, feature, status`,
   ).bind(period).all()
-  return { period, stores: messages.results || [], categories: categories.results || [], ai: ai.results || [], aiCalls: calls.results || [] }
+  // Connections of the platform (WAHA sessions): the bot number is a property of the connection, never of a store.
+  const channels = await db.prepare(
+    `SELECT provider, session_name AS session, status, phone_ending AS phoneEnding, last_status_at AS lastStatusAt, last_message_at AS lastMessageAt FROM whatsapp_channels ORDER BY provider, session_name`,
+  ).all()
+  const batches = await db.prepare(
+    `SELECT store_id AS storeId, COUNT(*) AS batches, COALESCE(SUM(photo_count), 0) AS photos, COALESCE(SUM(duplicate_count), 0) AS duplicates,
+            COALESCE(SUM(published_count), 0) AS published, COALESCE(SUM(skipped_count), 0) AS skipped
+     FROM whatsapp_photo_batches WHERE strftime('%Y-%m', created_at, 'unixepoch') = ? GROUP BY store_id`,
+  ).bind(period).all()
+  return {
+    period, stores: messages.results || [], categories: categories.results || [], ai: ai.results || [], aiCalls: calls.results || [],
+    channels: channels.results || [], photoBatches: batches.results || [],
+  }
 }

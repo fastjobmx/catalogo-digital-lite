@@ -91,12 +91,16 @@ function uniqueTitles(options: Option[], max: number): string[] {
   })
 }
 
-export function buildOutbound(html: string, replyMarkup?: Record<string, unknown>): Outbound {
+/**
+ * interactive = false (WAHA): sin botones ni listas, que WhatsApp no garantiza fuera de la API
+ * oficial. Las opciones van como menú numerado y el comerciante responde con el número.
+ */
+export function buildOutbound(html: string, replyMarkup?: Record<string, unknown>, opts: { interactive?: boolean } = {}): Outbound {
   const { options, links } = readKeyboard(replyMarkup)
   const body = [htmlToWhatsApp(html), links.join('\n')].filter(Boolean).join('\n\n') || '…'
   if (!options.length) return { messages: chunks(body).map(textMessage), numbered: null }
 
-  if (options.length > 10) {
+  if (opts.interactive === false || options.length > 10) {
     const menu = options.map((option, index) => `${index + 1}. ${option.label}`).join('\n')
     return { messages: chunks(`${body}\n\n${menu}\n\nResponde con el número de la opción.`).map(textMessage), numbered: options }
   }

@@ -39,6 +39,7 @@ import { handleGuideCallback, handleGuideText, mentionsGuide, showGuide, startGu
 import { activeTelegramBatch, analyzeTelegramBatchNext, cancelTelegramBatch, finishTelegramBatchReceiving, handleTelegramBatchText, publishTelegramBatch, receiveTelegramBatchPhoto, requestTelegramBatchAnalysis, requestTelegramBatchPublish, showTelegramBatch, startTelegramBatch } from './telegramProductBatches'
 import { detectOrderViewIntent, showOrderView } from './assistant/orders'
 import { findOrder } from './orders'
+import { continuePhotoBatch } from '../whatsapp/photoBatch'
 import {
   advanceAfterConfirmedBanner, advanceAfterConfirmedLogo, continueOnboarding,
   handleOnboardingCallback, handleOnboardingText, renderOnboarding, showOnboardingForStart,
@@ -514,6 +515,13 @@ async function handleCommand(ctx: AssistantContext, text: string): Promise<boole
     case '/cancelar': {
       if (await activeTelegramBatch(ctx)) { await cancelTelegramBatch(ctx); return true }
       const draft = await getPendingProductDraft(ctx)
+      if (draft?.draft.batch) {
+        // Product of a WhatsApp photo batch: cancelling it skips to the next one (Telegram drafts never carry a batch).
+        await cancelProductDraft(ctx, draft.operation.operation_id)
+        await say(ctx, 'Listo, omití este producto. No se publicó. (Escribe <b>cancelar lote</b> para dejar todo el lote.)')
+        await continuePhotoBatch(ctx, draft.draft, 'skipped')
+        return true
+      }
       if (draft) { await cancelProductDraft(ctx, draft.operation.operation_id); await say(ctx, 'Cancelé el borrador del producto. No se publicó nada.', backToMenu()); return true }
       const attach = await getPendingAttach(ctx)
       if (attach) { await handleAttachCallback(ctx, 'cancel', attach.operation.operation_id); return true }

@@ -24,6 +24,8 @@ export type ChannelFeature = 'batches' | 'team' | 'panel_password' | 'onboarding
  */
 export interface AssistantChannel {
   name: 'whatsapp'
+  /** Proveedor del transporte (sin definir = Meta Cloud API). Solo separa costos; el motor no cambia. */
+  provider?: 'meta' | 'waha'
   unsupported: ReadonlySet<ChannelFeature>
   helpText?: string
   accessHelpText?: string

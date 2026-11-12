@@ -1,0 +1,90 @@
+# WAHA (WhatsApp HTTP API) para el asistente TiendIA Exprés: entorno LOCAL / STAGING aislado.
+# No es la API oficial de Meta (ver docs/WAHA_PROVEEDOR_WHATSAPP.md, riesgos).
+#
+#   waha      motor GOWS (sin navegador), versión fijada. Solo escucha en 127.0.0.1:3000.
+#   gateway   nginx con lista blanca: lo único que el Worker de Cloudflare puede tocar
+#             (enviar texto, marcar leído/escribiendo, descargar archivos, resolver LID,
+#             consultar el estado). Sin panel, sin Swagger, sin control de sesiones.
+#   tunnel    (perfil "tunnel") túnel HTTPS saliente de Cloudflare hacia el gateway.
+#
+# Arranque:  docker compose up -d            (solo local)
+#            docker compose --profile tunnel up -d   (local + túnel para el Worker de staging)
+# Secretos:  .env (no versionado). Plantilla: .env.example. Generar con scripts/init-env.mjs.
+
+name: tiendia-waha
+
+services:
+  waha:
+    image: devlikeapro/waha:gows-2026.10.1
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      WHATSAPP_DEFAULT_ENGINE: GOWS
+      WAHA_MEDIA_STORAGE: LOCAL
+      WHATSAPP_FILES_FOLDER: /app/.media
+      # Los archivos recibidos se borran solos a la hora: el Worker los copia a R2 al recibirlos.
+      WHATSAPP_FILES_LIFETIME: "3600"
+      WAHA_EVENTS_DOWNLOAD_MEDIA: "true"
+      WAHA_EVENTS_DOWNLOAD_MEDIA_MIMETYPES: "image,audio,application/pdf,text/csv,text/plain,application/vnd.ms-excel"
+      WAHA_LOG_FORMAT: JSON
+      WAHA_LOG_LEVEL: info
+      WAHA_PRINT_QR: "False"
+      WAHA_API_KEY_EXCLUDE_PATH: "ping"
+      WHATSAPP_SWAGGER_ENABLED: "false"
+      # Solo eventos necesarios: mensajes entrantes y estado de la sesión.
+      WHATSAPP_HOOK_EVENTS: "message,session.status"
+      WHATSAPP_HOOK_RETRIES_POLICY: exponential
+      WHATSAPP_HOOK_RETRIES_DELAY_SECONDS: "3"
+      WHATSAPP_HOOK_RETRIES_ATTEMPTS: "6"
+    ports:
+      # Nunca 0.0.0.0: el panel y la API administrativa solo existen en este equipo.
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ./data/sessions:/app/.sessions
+      - ./data/media:/app/.media
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/ping').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }
+    deploy:
+      resources:
+        limits: { cpus: "2", memory: 2g }
+
+  gateway:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NGINX_ENVSUBST_FILTER: "^(WAHA_GATEWAY_TOKEN|WAHA_SESSION)$"
+    depends_on:
+      waha: { condition: service_healthy }
+    volumes:
+      - ./gateway/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+    ports:
+      - "127.0.0.1:3080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/gateway-health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  tunnel:
+    image: cloudflare/cloudflared:2026.10.0
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    depends_on:
+      gateway: { condition: service_healthy }
+    # Túnel rápido (URL aleatoria *.trycloudflare.com) para staging. Para una URL fija con
+    # Cloudflare Access, ver docs/WAHA_PROVEEDOR_WHATSAPP.md §Túnel con nombre.
+    command: ["tunnel", "--no-autoupdate", "--url", "http://gateway:8080"]
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }

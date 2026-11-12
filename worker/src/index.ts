@@ -25,6 +25,7 @@ import seoRoutes from './routes/seo'
 import emailRoutes from './routes/email'
 import whatsappRoutes from './routes/whatsapp'
 import { maintainWhatsApp } from './whatsapp/processor'
+import { consumeWhatsAppJobs } from './whatsapp/photoBatch'
 import { purgeEmailLogs } from './email/send'
 import { pollDeliveryStatus } from './email/webhooks'
 import { cleanupExpiredTrials } from './services/trials'
@@ -120,6 +121,22 @@ export type Env = {
  WHATSAPP_MONITOR_DAILY_MESSAGES?: string
  /** Extra host suffixes allowed for media downloads (comma separated). */
  WHATSAPP_MEDIA_HOSTS?: string
+ /**
+  * WAHA (WhatsApp HTTP API): proveedor alternativo NO oficial. Apagado salvo WAHA_ENABLED = 'true'.
+  * WAHA_API_URL = gateway HTTPS de infra/waha; WAHA_API_KEY = clave de sesión limitada (lectura y envío).
+  */
+ WAHA_ENABLED?: string
+ WAHA_API_URL?: string
+ WAHA_API_KEY?: string
+ WAHA_GATEWAY_TOKEN?: string
+ WAHA_WEBHOOK_HMAC_KEY?: string
+ WAHA_SESSION?: string
+ /** Lotes de fotos agrupados por IA (solo WAHA): 'true' activa; máximo de fotos por lote y segundos de espera. */
+ WAHA_PHOTO_BATCH_ENABLED?: string
+ WAHA_PHOTO_BATCH_MAX?: string
+ WAHA_PHOTO_QUIET_SECONDS?: string
+ /** Cola opcional para los pasos de lotes de fotos (sin el límite de 30 s de waitUntil). */
+ WHATSAPP_JOBS?: Queue<{ type: string; batchId: string; force?: boolean }>
  }
  Variables: {
  isAdmin: boolean
@@ -212,6 +229,8 @@ const worker = {
   context.waitUntil(maintainWhatsApp(env, env.DB).catch((error) => console.error('WhatsApp maintenance failed:', error instanceof Error ? error.message : 'unknown')))
   context.waitUntil(cleanupAssistantMemory(env.DB).catch((error) => console.error('Assistant memory cleanup failed:', error instanceof Error ? error.message : 'unknown')))
  },
+ /** Cola WHATSAPP_JOBS (solo si está configurada): pasos de los lotes de fotos de WhatsApp. */
+ queue: (batch: MessageBatch<{ type?: string; batchId?: string; force?: boolean }>, env: Env['Bindings']) => consumeWhatsAppJobs(batch, env),
 }
 
 export default worker

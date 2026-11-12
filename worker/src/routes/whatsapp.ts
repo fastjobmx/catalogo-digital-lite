@@ -6,6 +6,7 @@
  *   GET  /api/whatsapp/link        estado de la vinculación del usuario autenticado
  *   DELETE /api/whatsapp/link      revocar la vinculación
  *   GET  /api/whatsapp/report      consumo por tienda (solo superadministrador)
+ *   POST /api/whatsapp/waha/webhook  eventos firmados de WAHA (proveedor alternativo, no oficial)
  * No es el WhatsApp de pedidos de los compradores: ese flujo no pasa por aquí.
  */
 import { Hono } from 'hono'
@@ -13,7 +14,8 @@ import type { Env } from '../index'
 import { adminAuth, platformAuth } from '../middleware/auth'
 import { constantTimeEqual, MAX_WEBHOOK_BYTES, verifyWebhookSignature, whatsappConfigured, whatsappEnabled } from '../whatsapp/api'
 import { createLinkCode, LINK_CODE_TTL_SECONDS, revokeIdentity } from '../whatsapp/identity'
-import { pilotAllows, processInbound, recordWebhook, whatsappUsageReport } from '../whatsapp/processor'
+import { pilotAllows, processInbound, recordWahaMessage, recordWahaStatus, recordWebhook, whatsappUsageReport } from '../whatsapp/processor'
+import { MAX_WAHA_WEBHOOK_BYTES, parseWahaEvent, verifyWahaSignature, wahaConfigured, wahaEnabled, wahaSessionStatus } from '../whatsapp/waha'
 
 const app = new Hono<Env>()
 
@@ -54,6 +56,46 @@ app.post('/webhook', async (c) => {
   if (c.env.ENVIRONMENT === 'test') await work
   else c.executionCtx.waitUntil(work)
   return c.json({ ok: true, received: pending.length })
+})
+
+/**
+ * WAHA (proveedor alternativo, NO oficial). Receptor propio: su firma es HMAC-SHA512 en
+ * X-Webhook-Hmac sobre el cuerpo original, distinta de la de Meta.
+ */
+app.post('/waha/webhook', async (c) => {
+  const key = c.env.WAHA_WEBHOOK_HMAC_KEY
+  if (!key) return c.json({ error: 'Channel not configured' }, 503)
+  if (Number(c.req.header('content-length') || 0) > MAX_WAHA_WEBHOOK_BYTES) return c.json({ error: 'Payload too large' }, 413)
+  const raw = await c.req.arrayBuffer()
+  if (raw.byteLength > MAX_WAHA_WEBHOOK_BYTES) return c.json({ error: 'Payload too large' }, 413)
+  if (!await verifyWahaSignature(raw, c.req.header('X-Webhook-Hmac'), c.req.header('X-Webhook-Hmac-Algorithm'), key)) return c.json({ error: 'Invalid signature' }, 401)
+  // Authentic events are always acknowledged (WAHA retries anything else).
+  if (!wahaEnabled(c.env) || !wahaConfigured(c.env)) return c.json({ ok: true, disabled: true })
+  let body: unknown
+  try { body = JSON.parse(new TextDecoder().decode(raw)) } catch { return c.json({ ok: true, ignored: 'invalid_json' }) }
+  const parsed = parseWahaEvent(c.env, body, { requestId: c.req.header('X-Webhook-Request-Id') || undefined })
+  const defer = (work: Promise<unknown>) => {
+    const guarded = work.catch((error) => console.error('WAHA processing failed:', error instanceof Error ? error.message : 'unknown'))
+    if (c.env.ENVIRONMENT === 'test') return guarded
+    c.executionCtx.waitUntil(guarded)
+    return guarded
+  }
+  try {
+    if (parsed.kind === 'status') {
+      await recordWahaStatus(c.env.DB, parsed.status)
+      return c.json({ ok: true, status: parsed.status.status })
+    }
+    if (parsed.kind === 'ignored') return c.json({ ok: true, ignored: parsed.reason })
+    const rowId = await recordWahaMessage(c.env.DB, parsed.inbound)
+    if (rowId === null) return c.json({ ok: true, duplicate: true })
+    // The answer to WAHA never waits for the AI: the message is processed after the response.
+    const work = defer(processInbound(c.env, c.env.DB, rowId, { defer }))
+    if (c.env.ENVIRONMENT === 'test') await work
+    return c.json({ ok: true, received: 1 })
+  } catch (error) {
+    console.error('WAHA webhook could not be stored:', error instanceof Error ? error.message : 'unknown')
+    return c.json({ error: 'Temporarily unavailable' }, 503)
+  }
 })
 
 app.post('/link-code', adminAuth, async (c) => {
@@ -98,7 +140,8 @@ app.delete('/link', adminAuth, async (c) => {
 app.get('/report', platformAuth, async (c) => {
   const period = c.req.query('period') || new Date().toISOString().slice(0, 7)
   if (!/^\d{4}-\d{2}$/.test(period)) return c.json({ error: 'period must be YYYY-MM' }, 400)
-  return c.json({ enabled: whatsappEnabled(c.env), configured: whatsappConfigured(c.env), ...await whatsappUsageReport(c.env.DB, period) })
+  const waha = { enabled: wahaEnabled(c.env), configured: wahaConfigured(c.env), session: wahaEnabled(c.env) ? await wahaSessionStatus(c.env) : null }
+  return c.json({ enabled: whatsappEnabled(c.env), configured: whatsappConfigured(c.env), waha, ...await whatsappUsageReport(c.env.DB, period) })
 })
 
 export default app

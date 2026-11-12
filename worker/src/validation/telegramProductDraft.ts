@@ -48,6 +48,8 @@ export const telegramProductDraftSchema = z.object({
   defaultColor: z.string().trim().max(48).optional(),
   suggestedCategory: z.string().trim().max(60).optional(),
   visibleBrand: z.string().trim().max(60).optional(),
+  /** Producto de un lote de fotos de WhatsApp (whatsapp/photoBatch.ts). Telegram nunca lo usa. */
+  batch: z.object({ id: z.string().regex(/^[0-9a-f-]{36}$/), group: z.number().int().nonnegative(), total: z.number().int().positive() }).optional(),
 }).superRefine((draft, ctx) => {
   if (draft.primaryImageIndex >= Math.max(1, draft.images.length)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['primaryImageIndex'], message: 'Invalid primary image index' })
