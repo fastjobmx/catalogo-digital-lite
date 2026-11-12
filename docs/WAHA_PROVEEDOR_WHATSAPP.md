@@ -176,7 +176,7 @@ Límites:
 
 | Recurso | Estado |
 |---|---|
-| Worker `sneakerhub-telegram-staging` | **`6e4bca5f`** = esta rama (sin commit al desplegar, base `e4f486e`). Retorno: `56401a84` |
+| Worker `sneakerhub-telegram-staging` | **`6e4bca5f`** = código del commit `a51495d` de esta rama. Retorno: `56401a84` |
 | D1 staging | 0026 aplicada. Marcador previo: `00000400-00000000-00005121-c9aa92dfabee20e0a528a6be60a4a2cd` |
 | Cola | `tiendia-whatsapp-jobs-staging` (productor y consumidor). Configurada en `wrangler.remote-staging.toml` (local, no versionado) |
 | Variables nuevas | `WAHA_ENABLED=true`, `WAHA_SESSION=tiendia`, `WAHA_API_URL=<túnel>`, `WAHA_PHOTO_BATCH_ENABLED=true`, `WAHA_PHOTO_QUIET_SECONDS=5`, `WAHA_PHOTO_BATCH_MAX=100`. Piloto `1,94` |
