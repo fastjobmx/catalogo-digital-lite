@@ -190,7 +190,7 @@ Límites:
 
 | Recurso | Estado |
 |---|---|
-| Worker `sneakerhub-telegram-staging` | **`04d82f16`** = código del último commit local de esta rama. Retorno: `56401a84` |
+| Worker `sneakerhub-telegram-staging` | **`059a0711`**, desplegado desde `0bc9aa3` con el directorio limpio (código = `47a1a2c`). Retorno: `56401a84` |
 | D1 staging | 0026 aplicada. Marcador previo: `00000400-00000000-00005121-c9aa92dfabee20e0a528a6be60a4a2cd` |
 | Cola | `tiendia-whatsapp-jobs-staging` (productor y consumidor). Configurada en `wrangler.remote-staging.toml` (local, no versionado) |
 | Variables nuevas | `WAHA_ENABLED=true`, `WAHA_SESSION=tiendia`, `WAHA_API_URL=<túnel>`, `WAHA_PHOTO_BATCH_ENABLED=true`, `WAHA_PHOTO_QUIET_SECONDS=20`, `WAHA_PHOTO_BATCH_MAX=100`. Piloto `1,94` |
@@ -202,6 +202,10 @@ Reversión de staging: `wrangler rollback 56401a84-…` → (opcional) `database
 ## 14. Recomendaciones antes de producción
 
 > **Aviso (2026-11-12 22:05 UTC):** producción ya no corre `56b1450b`. Ahora la API es **`3c53c1d8`** (fábrica de publicidad) y el panel **`6f503c33`**, publicados desde la rama local `integracion/motor-publicitario` (`8d8f560`, basada en `891d17a`). Esta rama **no** incluye la fábrica. Después se hizo push de `main` por avance directo: **`main` = producción** (`fffdc37`, igual a la rama de integración). Antes de publicar algo desde aquí basta **integrar `main`** (ensayo con `git merge-tree`: sin conflictos); si no, la fábrica desaparecería de producción. Allí `wrangler.production.toml` ya fija `AI_MESSAGE_QUOTA_MODE = "shadow"`.
+>
+> **Al integrar `main`** (verificado con `git merge-tree`; integración de referencia en la rama local `integracion/produccion-whatsapp`, `eab1ef9`):
+> - git combina sin conflicto, pero `AI_MESSAGE_QUOTA_MODE` queda **dos veces** en `worker/wrangler.production.toml`: el TOML sería inválido y el despliegue fallaría. Hay que dejar una sola declaración.
+> - **Orden obligatorio en producción: 0024 → 0025 → 0026 y solo después la API.** `ai/usage.ts` (desde 0025) escribe `ai_usage_events.channel`; sin 0025, esa escritura falla también para Telegram y el estudio.
 
 1. Decidir el **alojamiento 24/7** (servidor dedicado con 2 CPU y 4 GB) y un **túnel con nombre** con Cloudflare Access.
 2. Crear la **cola de producción** y su configuración en `wrangler.production.toml` (no hecho).
@@ -209,6 +213,6 @@ Reversión de staging: `wrangler rollback 56401a84-…` → (opcional) `database
 4. Usar un número **dedicado**, nunca el personal ni el de un comercio. Plan B: Meta Cloud API ya implementada.
 5. Piloto con una tienda interna (`WHATSAPP_PILOT_STORE_IDS`) y revisión diaria de `/api/whatsapp/report`, que ya separa Meta y WAHA y trae el estado de la sesión y los lotes.
 6. Política de conservación por escrito para los comerciantes (fotos y mensajes).
-7. Aplicar 0026 en producción con copia y marcador, desplegar con `WAHA_ENABLED` apagado, hacer humo y solo entonces activar el piloto.
+7. Aplicar 0024, 0025 y 0026 (en ese orden) en producción con copia y marcador, desplegar con `WAHA_ENABLED` apagado, hacer humo y solo entonces activar el piloto.
 8. **Mejora de agrupación**: una pasada final que una productos repetidos entre tandas (por ejemplo, con un resumen de texto de los grupos y una foto representativa de cada uno). Hoy se corrige a mano con «une».
 9. La corrección de la voz (`inlineData` sin `seconds`) también arregla el canal de Meta, que nunca se había probado con audio real.
