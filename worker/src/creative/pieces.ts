@@ -11,6 +11,7 @@ import { validIdempotencyKey } from '../ai/credits'
 import { CreativeError } from './brandKit'
 import type { CreativeContext } from './contracts'
 import { imageDimensions, sha256Hex, sniffImageType } from './imageInfo'
+import { DESIGN_VIDEO_SECONDS, parseDesign } from './designOptions'
 import {
   CREATIVE_FORMATS, CREATIVE_TEMPLATES, defaultCopy, isFormat, isTemplate, loadFacts, manualCopy, templateBadge, templateEligibility,
   type CreativeCopy, type CreativeFacts, type FormatKey, type PieceKind, type TemplateDef, type TemplateKey,
@@ -67,7 +68,7 @@ export async function specHash(spec: unknown): Promise<string> {
   return sha256Hex(new TextEncoder().encode(JSON.stringify(canonical(spec))))
 }
 
-type PlanInput = { kind?: unknown; template?: unknown; format?: unknown; productIds?: unknown; quality?: unknown; seconds?: unknown; copy?: unknown }
+type PlanInput = { kind?: unknown; template?: unknown; format?: unknown; productIds?: unknown; quality?: unknown; seconds?: unknown; copy?: unknown; design?: unknown }
 
 export function pieceService(env: Env['Bindings']) {
   const db = env.DB
@@ -102,8 +103,11 @@ export function pieceService(env: Env['Bindings']) {
     if (!def.kinds.includes(kind)) throw new CreativeError('KIND_NOT_ALLOWED', `«${def.label}» no se ofrece como ${kind}`)
     if (kind === 'video' && !CREATIVE_FORMATS[format].video) throw new CreativeError('FORMAT_NOT_ALLOWED', 'Ese formato es solo para imágenes')
     const quality: Quality = input.quality === 'alta' ? 'alta' : 'estandar'
-    const seconds = kind === 'video' ? Number(input.seconds ?? def.seconds[0]) : null
-    if (seconds !== null && !def.seconds.includes(seconds)) throw new CreativeError('INVALID_DURATION', `Elige una duración de ${def.seconds.join(', ')} segundos`)
+    const design = parseDesign(input.design, template)
+    const seconds = kind === 'video' ? Number(input.seconds ?? (design ? 10 : def.seconds[0])) : null
+    // Videos del motor de diseño: duración libre entre 6 y 20 s. Los clásicos, las de su plantilla.
+    const validSeconds = seconds === null || (design ? Number.isInteger(seconds) && seconds >= DESIGN_VIDEO_SECONDS.min && seconds <= DESIGN_VIDEO_SECONDS.max : def.seconds.includes(seconds))
+    if (!validSeconds) throw new CreativeError('INVALID_DURATION', design ? `Elige una duración entre ${DESIGN_VIDEO_SECONDS.min} y ${DESIGN_VIDEO_SECONDS.max} segundos` : `Elige una duración de ${def.seconds.join(', ')} segundos`)
     const facts = await loadFacts(env, ctx, ids(input.productIds))
     const eligibility = templateEligibility(template, facts, Boolean(facts.brand.name && facts.brand.slogan))
     if (!eligibility.ok) throw new CreativeError('TEMPLATE_NOT_ELIGIBLE', eligibility.reason || 'Esta plantilla no aplica a la selección', 409)
@@ -114,14 +118,19 @@ export function pieceService(env: Env['Bindings']) {
     const size = CREATIVE_FORMATS[format]
     const slides = kind === 'carrusel' ? facts.products.length : 1
     const spec = {
-      version: 1, kind, mode: 'convencional' as const, template, format, quality, seconds, productIds: facts.products.map((product) => product.id),
+      version: design ? 2 : 1, kind, mode: 'convencional' as const, template, format, quality, seconds, productIds: facts.products.map((product) => product.id),
       width: size.width, height: size.height, slides,
       // Capas verificadas: lo que la pieza afirma, tal como se dibuja.
       badge: templateBadge(template, facts),
-      products: facts.products.map((product) => ({ id: product.id, name: product.name, priceText: product.priceText, compareAtText: template === 'oferta_aprobada' ? product.compareAtText : null, image: product.images[0] ?? null, beforeAfter: template === 'antes_despues' ? product.beforeAfter : null })),
+      products: facts.products.map((product) => ({
+        id: product.id, name: product.name, priceText: product.priceText, compareAtText: template === 'oferta_aprobada' ? product.compareAtText : null, image: product.images[0] ?? null, beforeAfter: template === 'antes_despues' ? product.beforeAfter : null,
+        // Motor de diseño: datos reales adicionales (la referencia solo se dibuja si el comercio la pide).
+        ...(design ? { reference: product.sku || null, category: product.category, discountPercent: template === 'oferta_aprobada' ? product.discountPercent : null, gallery: product.images.slice(0, 3) } : {}),
+      })),
       brand: { name: facts.brand.name, slogan: facts.brand.slogan, logoUrl: facts.brand.logoUrl, colors: facts.brand.colors, font: facts.brand.font },
       storeUrl: template === 'invitacion_catalogo' ? facts.store.url : null,
       copy: { headline: copy.headline, description: copy.description, benefits: copy.benefits, cta: copy.cta },
+      ...(design ? { design } : {}),
     }
     const hash = await specHash(spec)
     const existing = await db.prepare(`${SELECT} WHERE p.store_id = ? AND p.spec_hash = ? AND p.status <> 'rechazado' AND p.files_json <> '[]' ORDER BY p.created_at DESC LIMIT 1`).bind(ctx.storeId, hash).first<Row>()
