@@ -1,18 +1,40 @@
 /** Pintado y exportación de piezas comerciales en el navegador (Canvas 2D + WebCodecs).
  *
- * No usa IA ni servidores de render: el equipo del comerciante dibuja las capas de scene.ts y codifica el
- * archivo. Los videos se generan cuadro por cuadro con marcas de tiempo exactas (no en tiempo real), así que
- * el resultado no depende de la velocidad del equipo. */
+ * No usa IA ni servidores de render: el equipo del comerciante dibuja las capas de scene.ts (composición
+ * clásica) o de design/compose.ts (motor de diseño) y codifica el archivo. Los videos se generan cuadro por
+ * cuadro con marcas de tiempo exactas (no en tiempo real), así que el resultado no depende de la velocidad
+ * del equipo. */
 import { ArrayBufferTarget, Muxer } from 'mp4-muxer'
 import { resolveImageUrl } from '../imageSources'
-import { VIDEO_FPS, buildScene, frameAt, frameCount, videoSize, type Layer, type PlanSpec } from './scene'
+import { VIDEO_FPS, buildScene, frameAt, frameCount, videoSize, type Layer, type PlanSpec, type Scene } from './scene'
+import { composeDesign, cutKey, type DesignContext } from './design/compose'
+import { cssFont, ensureFonts } from './design/fonts'
+import { analyzePhoto, subjectRect, type PhotoAnalysis } from './design/photo'
+import { seededRandom } from './design/color'
+import { styleFonts } from './design/styles'
 
 export type ImageMap = Map<string, ImageBitmap>
 export type AssetLoader = (assetId: string) => Promise<Blob>
+export type OutputType = 'png' | 'jpeg' | 'webp'
+
+/** ¿La pieza usa el motor de diseño? Antes/después y las piezas solo de marca siguen con la composición clásica. */
+export function usesDesign(spec: PlanSpec): boolean {
+  return Boolean(spec.design) && spec.template !== 'antes_despues' && spec.products.length > 0
+}
+
+/** Escena de una diapositiva: motor de diseño cuando aplica y hay contexto; si no, la composición clásica. */
+export function sceneFor(spec: PlanSpec, slide: number, design: DesignContext | null): Scene {
+  return design && usesDesign(spec) ? composeDesign(spec, slide, design) : buildScene(spec, slide)
+}
 
 /** Todas las fuentes de imagen que usa el plan (fotos, antes/después y logo). */
 export function specSources(spec: PlanSpec): string[] {
   const sources = new Set<string>()
+  if (usesDesign(spec)) {
+    for (const product of spec.products) if (product.image) sources.add(product.image)
+    if (spec.brand.logoUrl) sources.add(spec.brand.logoUrl)
+    return [...sources]
+  }
   const slides = spec.kind === 'carrusel' || (spec.kind === 'video' && spec.products.length > 1) ? spec.products.length : 1
   for (let slide = 0; slide < slides; slide++) for (const layer of buildScene(spec, slide).layers) if (layer.type === 'image') sources.add(layer.src)
   return [...sources]
@@ -62,6 +84,74 @@ export async function ensureFont(family: string): Promise<string> {
   } catch { return 'Inter' }
 }
 
+// ---- análisis de fotos y recorte de fondo -----------------------------------------------------------
+
+const canvasOf = (width: number, height: number) => {
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(width))
+  canvas.height = Math.max(1, Math.round(height))
+  return canvas
+}
+
+function readPixels(bitmap: ImageBitmap, maxSide = 360) {
+  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height))
+  const canvas = canvasOf(bitmap.width * scale, bitmap.height * scale)
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })!
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+  return { width: canvas.width, height: canvas.height, data: ctx.getImageData(0, 0, canvas.width, canvas.height).data }
+}
+
+/** Recorta el fondo con la máscara del análisis. Los píxeles del producto se copian tal cual (sin retoque). */
+async function cutout(bitmap: ImageBitmap, analysis: PhotoAnalysis): Promise<ImageBitmap | null> {
+  const { mask, maskWidth, maskHeight } = analysis.cutout
+  if (!mask) return null
+  // Se encoge la máscara un píxel para no arrastrar el halo del fondo al ampliarla.
+  const eroded = new Uint8ClampedArray(maskWidth * maskHeight * 4)
+  for (let y = 0; y < maskHeight; y++) for (let x = 0; x < maskWidth; x++) {
+    const i = y * maskWidth + x
+    let value = mask[i]!
+    if (value && (x === 0 || y === 0 || x === maskWidth - 1 || y === maskHeight - 1 || !mask[i - 1] || !mask[i + 1] || !mask[i - maskWidth] || !mask[i + maskWidth])) value = 110
+    eroded[i * 4 + 3] = value
+  }
+  const maskCanvas = canvasOf(maskWidth, maskHeight)
+  maskCanvas.getContext('2d')!.putImageData(new ImageData(eroded, maskWidth, maskHeight), 0, 0)
+  const scale = Math.min(1, 1800 / Math.max(bitmap.width, bitmap.height))
+  const canvas = canvasOf(bitmap.width * scale, bitmap.height * scale)
+  const ctx = canvas.getContext('2d')!
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+  ctx.globalCompositeOperation = 'destination-in'
+  ctx.imageSmoothingEnabled = true
+  ctx.imageSmoothingQuality = 'high'
+  ctx.drawImage(maskCanvas, 0, 0, canvas.width, canvas.height)
+  const rect = subjectRect(analysis, 0.02)
+  return createImageBitmap(canvas, Math.round(rect.x * scale), Math.round(rect.y * scale), Math.max(1, Math.round(rect.w * scale)), Math.max(1, Math.round(rect.h * scale)))
+}
+
+/** Prepara el motor de diseño: carga tipografías del estilo, analiza fotos y logo, y recorta fondos confiables. */
+export async function prepareDesign(spec: PlanSpec, images: ImageMap): Promise<{ design: DesignContext; notes: string[] }> {
+  const notes: string[] = []
+  await ensureFonts(styleFonts(spec.design?.style ?? ''))
+  const photos = new Map<string, PhotoAnalysis>()
+  const cutouts = new Set<string>()
+  const products = new Set(spec.products.map((product) => product.image).filter((src): src is string => Boolean(src)))
+  for (const [src, bitmap] of images) {
+    if (src.startsWith('cut:')) continue
+    const analysis = analyzePhoto(readPixels(bitmap), { width: bitmap.width, height: bitmap.height })
+    photos.set(src, analysis)
+    // El recorte se prepara siempre (si es confiable): la opción «Quitar fondo» decide si se usa, sin recalcular.
+    if (!products.has(src)) continue
+    if (analysis.cutout.ok) {
+      const bitmapCut = await cutout(bitmap, analysis).catch(() => null)
+      if (bitmapCut) { images.set(cutKey(src), bitmapCut); cutouts.add(src) }
+    } else if (analysis.cutout.reason) notes.push(analysis.cutout.reason)
+  }
+  const measurer = canvasOf(8, 8).getContext('2d')!
+  const measure = (text: string, font: string) => { measurer.font = font; return measurer.measureText(text).width }
+  return { design: { photos, cutouts, measure }, notes: [...new Set(notes)] }
+}
+
+// ---- pintado ---------------------------------------------------------------------------------------
+
 type Ctx = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
 
 function roundedPath(ctx: Ctx, x: number, y: number, w: number, h: number, radius: number) {
@@ -73,6 +163,21 @@ function roundedPath(ctx: Ctx, x: number, y: number, w: number, h: number, radiu
   ctx.arcTo(x, y + h, x, y, r)
   ctx.arcTo(x, y, x + w, y, r)
   ctx.closePath()
+}
+
+function shapePath(ctx: Ctx, mask: 'rect' | 'circle' | 'arch' | undefined, x: number, y: number, w: number, h: number, radius: number) {
+  if (mask === 'circle') { ctx.beginPath(); ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2); ctx.closePath(); return }
+  if (mask === 'arch') {
+    const r = Math.min(w / 2, h / 2)
+    ctx.beginPath()
+    ctx.moveTo(x, y + h)
+    ctx.lineTo(x, y + r)
+    ctx.arc(x + w / 2, y + r, w / 2, Math.PI, 0)
+    ctx.lineTo(x + w, y + h)
+    ctx.closePath()
+    return
+  }
+  roundedPath(ctx, x, y, w, h, radius)
 }
 
 /** Parte un texto en líneas que caben en `maxWidth`; la última se corta con puntos suspensivos si sobra. */
@@ -94,66 +199,284 @@ export function wrapLines(measure: (value: string) => number, value: string, max
   return kept
 }
 
+// Cachés por mapa de bits (fondo desenfocado y reflejo): en video se dibujan cientos de veces.
+const blurCache = new WeakMap<ImageBitmap, Map<string, HTMLCanvasElement>>()
+function blurred(bitmap: ImageBitmap, w: number, h: number): HTMLCanvasElement {
+  const key = `${Math.round(w)}x${Math.round(h)}`
+  const map = blurCache.get(bitmap) ?? new Map<string, HTMLCanvasElement>()
+  blurCache.set(bitmap, map)
+  const cached = map.get(key)
+  if (cached) return cached
+  // Desenfoque por reducción y ampliación sucesivas: funciona en todos los navegadores (sin ctx.filter).
+  const small = canvasOf(Math.max(4, w / 28), Math.max(4, h / 28))
+  const sctx = small.getContext('2d')!
+  const scale = Math.max(small.width / bitmap.width, small.height / bitmap.height)
+  sctx.drawImage(bitmap, (small.width - bitmap.width * scale) / 2, (small.height - bitmap.height * scale) / 2, bitmap.width * scale, bitmap.height * scale)
+  const mid = canvasOf(small.width * 4, small.height * 4)
+  const mctx = mid.getContext('2d')!
+  mctx.imageSmoothingQuality = 'high'
+  mctx.drawImage(small, 0, 0, mid.width, mid.height)
+  const out = canvasOf(w, h)
+  const octx = out.getContext('2d')!
+  octx.imageSmoothingQuality = 'high'
+  octx.drawImage(mid, 0, 0, out.width, out.height)
+  // Velo claro para que el fondo no compita con el producto.
+  octx.fillStyle = 'rgba(255,255,255,0.18)'
+  octx.fillRect(0, 0, out.width, out.height)
+  map.set(key, out)
+  return out
+}
+
+const patternCache = new Map<string, HTMLCanvasElement>()
+function noiseTile(seed: number, color: string): HTMLCanvasElement {
+  const key = `${seed}|${color}`
+  const cached = patternCache.get(key)
+  if (cached) return cached
+  const tile = canvasOf(160, 160)
+  const ctx = tile.getContext('2d')!
+  const random = seededRandom(seed)
+  ctx.fillStyle = color
+  for (let i = 0; i < 900; i++) ctx.fillRect(Math.floor(random() * 160), Math.floor(random() * 160), 1 + Math.floor(random() * 2), 1)
+  patternCache.set(key, tile)
+  return tile
+}
+
+function drawShape(ctx: Ctx, layer: Extract<Layer, { type: 'shape' }>, y: number) {
+  const { x, w, h } = layer
+  ctx.fillStyle = layer.color
+  ctx.strokeStyle = layer.color
+  ctx.lineWidth = layer.stroke
+  const cx = x + w / 2, cy = y + h / 2
+  if (layer.shape === 'circle') { ctx.beginPath(); ctx.ellipse(cx, cy, w / 2, h / 2, 0, 0, Math.PI * 2); ctx.fill(); return }
+  if (layer.shape === 'ring') { ctx.beginPath(); ctx.ellipse(cx, cy, Math.max(1, w / 2 - layer.stroke / 2), Math.max(1, h / 2 - layer.stroke / 2), 0, 0, Math.PI * 2); ctx.stroke(); return }
+  if (layer.shape === 'arc') { const start = (layer.rotation * Math.PI) / 180; ctx.beginPath(); ctx.ellipse(cx, cy, w / 2, h / 2, 0, start, start + Math.PI * 0.8); ctx.stroke(); return }
+  if (layer.shape === 'ellipse') {
+    // Sombra de contacto: elipse con borde difuso.
+    ctx.save()
+    ctx.translate(cx, cy)
+    ctx.scale(1, Math.max(0.01, h / w))
+    const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, w / 2)
+    gradient.addColorStop(0, layer.color)
+    gradient.addColorStop(1, 'rgba(0,0,0,0)')
+    ctx.fillStyle = gradient
+    ctx.beginPath(); ctx.arc(0, 0, w / 2, 0, Math.PI * 2); ctx.fill()
+    ctx.restore()
+    return
+  }
+  if (layer.shape === 'poly' && layer.points && layer.points.length >= 6) {
+    ctx.beginPath()
+    ctx.moveTo(layer.points[0]!, layer.points[1]! + (y - layer.y))
+    for (let i = 2; i < layer.points.length; i += 2) ctx.lineTo(layer.points[i]!, layer.points[i + 1]! + (y - layer.y))
+    ctx.closePath(); ctx.fill(); return
+  }
+  if (layer.shape === 'burst' || layer.shape === 'sparkle') {
+    const spikes = layer.shape === 'sparkle' ? 4 : Math.max(8, layer.size ?? 16)
+    const outer = Math.min(w, h) / 2
+    const innerR = layer.shape === 'sparkle' ? outer * 0.28 : outer * 0.86
+    const rotation = (layer.rotation * Math.PI) / 180
+    ctx.beginPath()
+    for (let i = 0; i < spikes * 2; i++) {
+      const r = i % 2 === 0 ? outer : innerR
+      const angle = rotation + (i * Math.PI) / spikes - Math.PI / 2
+      ctx.lineTo(cx + Math.cos(angle) * r, cy + Math.sin(angle) * r)
+    }
+    ctx.closePath(); ctx.fill(); return
+  }
+  if (layer.shape === 'blob') {
+    const random = seededRandom(layer.seed + 11)
+    const points = 8
+    const radii = Array.from({ length: points }, () => 0.86 + random() * 0.16)
+    ctx.beginPath()
+    for (let i = 0; i <= points; i++) {
+      const a = (i / points) * Math.PI * 2
+      const b = ((i + 0.5) / points) * Math.PI * 2
+      const r = radii[i % points]!
+      const rn = radii[(i + 1) % points]!
+      const px = cx + Math.cos(a) * (w / 2) * r, py = cy + Math.sin(a) * (h / 2) * r
+      if (i === 0) ctx.moveTo(px, py)
+      else ctx.quadraticCurveTo(cx + Math.cos(a - Math.PI / points) * (w / 2) * ((r + rn) / 1.86), cy + Math.sin(a - Math.PI / points) * (h / 2) * ((r + rn) / 1.86), px, py)
+      void b
+    }
+    ctx.closePath(); ctx.fill(); return
+  }
+  // Texturas: se recortan a su caja.
+  ctx.save()
+  ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip()
+  const step = Math.max(4, layer.size ?? 24)
+  if (layer.shape === 'dots') {
+    for (let py = y + step / 2; py < y + h; py += step) for (let px = x + step / 2; px < x + w; px += step) { ctx.beginPath(); ctx.arc(px, py, step * 0.13, 0, Math.PI * 2); ctx.fill() }
+  } else if (layer.shape === 'lines') {
+    ctx.translate(cx, cy)
+    ctx.rotate((layer.rotation * Math.PI) / 180)
+    const span = Math.hypot(w, h)
+    for (let p = -span; p < span; p += step) ctx.fillRect(p, -span, Math.max(1, layer.stroke), span * 2)
+  } else if (layer.shape === 'grid') {
+    for (let px = x; px <= x + w; px += step) ctx.fillRect(px, y, Math.max(1, layer.stroke), h)
+    for (let py = y; py <= y + h; py += step) ctx.fillRect(x, py, w, Math.max(1, layer.stroke))
+  } else if (layer.shape === 'noise') {
+    const pattern = ctx.createPattern(noiseTile(layer.seed, layer.color), 'repeat')
+    if (pattern) { ctx.fillStyle = pattern; ctx.fillRect(x, y, w, h) }
+  } else if (layer.shape === 'rule') ctx.fillRect(x, y, w, Math.max(1, layer.stroke))
+  ctx.restore()
+}
+
+function drawImageLayer(ctx: Ctx, layer: Extract<Layer, { type: 'image' }>, y: number, images: ImageMap) {
+  const bitmap = images.get(layer.src)
+  if (!bitmap || layer.reveal <= 0) return
+  const { x, w, h } = layer
+  const frameW = w * layer.reveal
+  const hasFrame = Boolean(layer.matte || layer.mask || layer.radius || layer.blur || layer.fit === 'cover')
+  // Sombra del marco (o del producto recortado) antes de recortar el área de dibujo.
+  if (layer.shadow && hasFrame && !layer.src.startsWith('cut:')) {
+    ctx.save()
+    ctx.shadowColor = layer.shadow.color
+    ctx.shadowBlur = layer.shadow.blur
+    ctx.shadowOffsetY = layer.shadow.offsetY
+    ctx.fillStyle = layer.matte ?? '#FFFFFF'
+    shapePath(ctx, layer.mask, x, y, frameW, h, layer.radius)
+    ctx.fill()
+    ctx.restore()
+  }
+  ctx.save()
+  if (hasFrame) { shapePath(ctx, layer.mask, x, y, frameW, h, layer.radius); ctx.clip() }
+  if (layer.matte) { ctx.fillStyle = layer.matte; ctx.fillRect(x, y, w, h) }
+  if (layer.blur) { ctx.drawImage(blurred(bitmap, w, h), x, y, w, h); ctx.restore(); return }
+  const crop = layer.crop ?? { x: 0, y: 0, w: bitmap.width, h: bitmap.height }
+  const fitScale = (layer.fit === 'cover' ? Math.max : Math.min)(w / crop.w, h / crop.h) * layer.zoom
+  const dw = crop.w * fitScale
+  const dh = crop.h * fitScale
+  const dx = x + (w - dw) / 2
+  const dy = y + (h - dh) / 2
+  ctx.imageSmoothingQuality = 'high'
+  if (layer.shadow && !hasFrame) {
+    ctx.shadowColor = layer.shadow.color
+    ctx.shadowBlur = layer.shadow.blur
+    ctx.shadowOffsetY = layer.shadow.offsetY
+  }
+  ctx.drawImage(bitmap, crop.x, crop.y, crop.w, crop.h, dx, dy, dw, dh)
+  ctx.restore()
+  if (layer.reflection && layer.reflection > 0) {
+    // Reflejo sutil: la parte inferior del producto, invertida y desvanecida.
+    const rh = Math.min(dh * 0.32, h * 0.32)
+    const temp = canvasOf(dw, rh)
+    const tctx = temp.getContext('2d')!
+    tctx.translate(0, rh)
+    tctx.scale(1, -1)
+    tctx.drawImage(bitmap, crop.x, crop.y + crop.h * (1 - rh / dh), crop.w, crop.h * (rh / dh), 0, 0, dw, rh)
+    tctx.setTransform(1, 0, 0, 1, 0, 0)
+    tctx.globalCompositeOperation = 'destination-in'
+    const fade = tctx.createLinearGradient(0, 0, 0, rh)
+    fade.addColorStop(0, 'rgba(0,0,0,1)')
+    fade.addColorStop(1, 'rgba(0,0,0,0)')
+    tctx.fillStyle = fade
+    tctx.fillRect(0, 0, dw, rh)
+    ctx.save()
+    ctx.globalAlpha *= layer.reflection
+    ctx.drawImage(temp, dx, dy + dh + 2)
+    ctx.restore()
+  }
+}
+
+/** Dibuja una línea con espaciado entre letras (el mismo cálculo que usa la medición del motor). */
+function fillSpaced(ctx: Ctx, text: string, x: number, y: number, spacing: number, align: 'left' | 'center' | 'right') {
+  if (!spacing) { ctx.textAlign = align; ctx.fillText(text, x, y); return }
+  const total = ctx.measureText(text).width + spacing * Math.max(0, text.length - 1)
+  let cursor = align === 'center' ? x - total / 2 : align === 'right' ? x - total : x
+  ctx.textAlign = 'left'
+  for (const char of text) { ctx.fillText(char, cursor, y); cursor += ctx.measureText(char).width + spacing }
+}
+
+function drawText(ctx: Ctx, layer: Extract<Layer, { type: 'text' }>, y: number, font: string) {
+  const family = layer.font?.family ?? font
+  const lineHeight = layer.font?.lineHeight ?? 1.22
+  let size = layer.size
+  const setFont = () => { ctx.font = layer.font ? cssFont(family, layer.weight, size, layer.font.italic) : `${layer.weight} ${size}px "${font}", Inter, system-ui, sans-serif` }
+  setFont()
+  let lines: string[]
+  const spacing = (layer.font?.letterSpacing ?? 0) * layer.size
+  const widthOf = (value: string) => ctx.measureText(value).width + spacing * Math.max(0, value.length - 1)
+  if (layer.lines?.length) {
+    lines = layer.lines
+    // Seguro: si la fuente real midiera distinto, la línea se reduce en vez de salirse.
+    const widest = Math.max(...lines.map(widthOf))
+    if (widest > layer.w + 1) { size = Math.max(8, size * (layer.w / widest)); setFont() }
+  } else if (layer.shrink) {
+    // Cifras y datos exactos: nunca se cortan; se reduce el tamaño hasta que quepan completos.
+    while (size > 10 && ctx.measureText(layer.text).width > layer.w) { size -= 1; setFont() }
+    lines = [layer.text]
+  } else lines = wrapLines((value) => ctx.measureText(value).width, layer.text, layer.w, layer.maxLines)
+  ctx.fillStyle = layer.color
+  ctx.textBaseline = 'top'
+  const x = layer.align === 'center' ? layer.x + layer.w / 2 : layer.align === 'right' ? layer.x + layer.w : layer.x
+  lines.forEach((line, index) => {
+    const lineY = y + index * layer.size * lineHeight + (layer.size - size) / 2 + (layer.font ? layer.size * (lineHeight - 1) * 0.5 : 0)
+    fillSpaced(ctx, line, x, lineY, spacing * (size / layer.size), layer.align)
+    if (layer.strike) {
+      const width = widthOf(line)
+      const start = layer.align === 'center' ? x - width / 2 : layer.align === 'right' ? x - width : x
+      ctx.fillRect(start, lineY + size * 0.5, width, Math.max(2, size * 0.07))
+    }
+  })
+}
+
+function drawPill(ctx: Ctx, layer: Extract<Layer, { type: 'pill' }>, y: number, font: string) {
+  if (layer.font) {
+    // Motor de diseño: la cápsula ocupa exactamente su caja y el texto va centrado.
+    let size = layer.size
+    const setFont = () => { ctx.font = cssFont(layer.font!.family, layer.weight ?? 800, size, layer.font!.italic) }
+    setFont()
+    const spacing = (layer.font.letterSpacing ?? 0) * size
+    const padX = layer.size * 0.9
+    while (size > 8 && ctx.measureText(layer.text).width + spacing * (layer.text.length - 1) > layer.w - padX * 1.6) { size -= 1; setFont() }
+    ctx.fillStyle = layer.bg
+    roundedPath(ctx, layer.x, y, layer.w, layer.h, layer.radius ?? layer.h / 2)
+    ctx.fill()
+    ctx.fillStyle = layer.color
+    ctx.textBaseline = 'middle'
+    fillSpaced(ctx, layer.text, layer.x + layer.w / 2, y + layer.h / 2 + size * 0.04, spacing, 'center')
+    return
+  }
+  let size = layer.size
+  const setFont = () => { ctx.font = `800 ${size}px "${font}", Inter, system-ui, sans-serif` }
+  setFont()
+  const padX = layer.size * 0.9
+  while (size > 10 && ctx.measureText(layer.text).width + padX * 2 > layer.w) { size -= 1; setFont() }
+  const width = ctx.measureText(layer.text).width + padX * 2
+  const x = layer.align === 'right' ? layer.x + layer.w - width : layer.align === 'center' ? layer.x + (layer.w - width) / 2 : layer.x
+  ctx.fillStyle = layer.bg
+  roundedPath(ctx, x, y, width, layer.h, layer.h / 2)
+  ctx.fill()
+  ctx.fillStyle = layer.color
+  ctx.textBaseline = 'middle'
+  ctx.textAlign = 'left'
+  ctx.fillText(layer.text, x + padX, y + layer.h / 2 + size * 0.04)
+}
+
 function drawLayer(ctx: Ctx, layer: Layer, images: ImageMap, font: string) {
   if (layer.opacity <= 0) return
   ctx.save()
   ctx.globalAlpha = layer.opacity
   const y = layer.y + layer.offsetY
   if (layer.type === 'rect') {
-    ctx.fillStyle = layer.color
-    roundedPath(ctx, layer.x, y, layer.w, layer.h, layer.radius)
-    ctx.fill()
-  } else if (layer.type === 'image') {
-    const bitmap = images.get(layer.src)
-    if (bitmap && layer.reveal > 0) {
-      roundedPath(ctx, layer.x, y, layer.w * layer.reveal, layer.h, layer.radius)
-      ctx.clip()
-      if (layer.fit === 'contain') { ctx.fillStyle = '#FFFFFF'; ctx.fillRect(layer.x, y, layer.w, layer.h) }
-      const scale = (layer.fit === 'cover' ? Math.max : Math.min)(layer.w / bitmap.width, layer.h / bitmap.height) * layer.zoom
-      const w = bitmap.width * scale
-      const h = bitmap.height * scale
-      ctx.imageSmoothingQuality = 'high'
-      ctx.drawImage(bitmap, layer.x + (layer.w - w) / 2, y + (layer.h - h) / 2, w, h)
-    }
-  } else if (layer.type === 'text') {
-    let size = layer.size
-    const setFont = () => { ctx.font = `${layer.weight} ${size}px "${font}", Inter, system-ui, sans-serif` }
-    setFont()
-    let lines: string[]
-    if (layer.shrink) {
-      // Cifras y datos exactos: nunca se cortan; se reduce el tamaño hasta que quepan completos.
-      while (size > 10 && ctx.measureText(layer.text).width > layer.w) { size -= 1; setFont() }
-      lines = [layer.text]
-    } else lines = wrapLines((value) => ctx.measureText(value).width, layer.text, layer.w, layer.maxLines)
-    ctx.fillStyle = layer.color
-    ctx.textBaseline = 'top'
-    ctx.textAlign = layer.align
-    const x = layer.align === 'center' ? layer.x + layer.w / 2 : layer.x
-    lines.forEach((line, index) => {
-      const lineY = y + index * layer.size * 1.22 + (layer.size - size) / 2
-      ctx.fillText(line, x, lineY)
-      if (layer.strike) {
-        const width = ctx.measureText(line).width
-        const start = layer.align === 'center' ? x - width / 2 : x
-        ctx.fillRect(start, lineY + size * 0.52, width, Math.max(2, size * 0.07))
-      }
-    })
-  } else {
-    let size = layer.size
-    const setFont = () => { ctx.font = `800 ${size}px "${font}", Inter, system-ui, sans-serif` }
-    setFont()
-    const padX = layer.size * 0.9
-    while (size > 10 && ctx.measureText(layer.text).width + padX * 2 > layer.w) { size -= 1; setFont() }
-    const width = ctx.measureText(layer.text).width + padX * 2
-    const x = layer.align === 'right' ? layer.x + layer.w - width : layer.align === 'center' ? layer.x + (layer.w - width) / 2 : layer.x
-    ctx.fillStyle = layer.bg
-    roundedPath(ctx, x, y, width, layer.h, layer.h / 2)
-    ctx.fill()
-    ctx.fillStyle = layer.color
-    ctx.textBaseline = 'middle'
-    ctx.textAlign = 'left'
-    ctx.fillText(layer.text, x + padX, y + layer.h / 2 + size * 0.04)
-  }
+    if (layer.stroke) { ctx.strokeStyle = layer.color; ctx.lineWidth = layer.stroke; roundedPath(ctx, layer.x, y, layer.w, layer.h, layer.radius); ctx.stroke() }
+    else { ctx.fillStyle = layer.color; roundedPath(ctx, layer.x, y, layer.w, layer.h, layer.radius); ctx.fill() }
+  } else if (layer.type === 'gradient') {
+    const gradient = layer.radial
+      ? ctx.createRadialGradient(layer.x + layer.w / 2, y + layer.h / 2, 0, layer.x + layer.w / 2, y + layer.h / 2, Math.max(layer.w, layer.h) / 2)
+      : (() => {
+          const angle = (layer.angle * Math.PI) / 180
+          const cx = layer.x + layer.w / 2, cy = y + layer.h / 2
+          const r = (Math.abs(Math.cos(angle)) * layer.w + Math.abs(Math.sin(angle)) * layer.h) / 2
+          return ctx.createLinearGradient(cx - Math.sin(angle) * r, cy + Math.cos(angle) * -r, cx + Math.sin(angle) * r, cy + Math.cos(angle) * r)
+        })()
+    for (const [offset, color] of layer.stops) gradient.addColorStop(Math.min(1, Math.max(0, offset)), color)
+    ctx.fillStyle = gradient
+    if (layer.circle) { ctx.beginPath(); ctx.ellipse(layer.x + layer.w / 2, y + layer.h / 2, layer.w / 2, layer.h / 2, 0, 0, Math.PI * 2); ctx.fill() }
+    else { roundedPath(ctx, layer.x, y, layer.w, layer.h, layer.radius); ctx.fill() }
+  } else if (layer.type === 'shape') drawShape(ctx, layer, y)
+  else if (layer.type === 'image') drawImageLayer(ctx, layer, y, images)
+  else if (layer.type === 'text') drawText(ctx, layer, y, font)
+  else drawPill(ctx, layer, y, font)
   ctx.restore()
 }
 
@@ -164,30 +487,34 @@ export function drawLayers(ctx: Ctx, layers: Layer[], images: ImageMap, font: st
   ctx.restore()
 }
 
-const canvasOf = (width: number, height: number) => {
-  const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
-  return canvas
-}
 const toBlob = (canvas: HTMLCanvasElement, type: string, quality?: number) => new Promise<Blob>((resolve, reject) => canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('No se pudo exportar la imagen'))), type, quality))
 
-/** Exporta la imagen (o cada diapositiva del carrusel) al tamaño exacto del formato. */
-export async function exportImages(spec: PlanSpec, images: ImageMap, font: string): Promise<Blob[]> {
+/** Límite del servidor para imágenes (6 MB); se deja margen. */
+const MAX_IMAGE_BYTES = 5.8 * 1024 * 1024
+
+/** Exporta la imagen (o cada diapositiva del carrusel) al tamaño exacto del formato.
+ * `output` elige PNG, JPG o WebP; sin elegir, la calidad «alta» usa PNG y la estándar JPG. Si un PNG supera el
+ * límite de la plataforma, se guarda en JPG de alta calidad. */
+export async function exportImages(spec: PlanSpec, images: ImageMap, font: string, design: DesignContext | null = null, output: OutputType | null = null): Promise<Blob[]> {
   const blobs: Blob[] = []
+  const type = output ?? (spec.quality === 'alta' ? 'png' : 'jpeg')
   for (let slide = 0; slide < spec.slides; slide++) {
     const canvas = canvasOf(spec.width, spec.height)
-    drawLayers(canvas.getContext('2d')!, buildScene(spec, slide).layers, images, font)
-    blobs.push(spec.quality === 'alta' ? await toBlob(canvas, 'image/png') : await toBlob(canvas, 'image/jpeg', 0.92))
+    drawLayers(canvas.getContext('2d')!, sceneFor(spec, slide, design).layers, images, font)
+    let blob = type === 'png' ? await toBlob(canvas, 'image/png') : await toBlob(canvas, `image/${type}`, 0.92)
+    // WebP no está en todos los navegadores: algunos devuelven PNG. Se acepta lo que el servidor valida.
+    if (blob.size > MAX_IMAGE_BYTES) blob = await toBlob(canvas, 'image/jpeg', 0.9)
+    blobs.push(blob)
   }
   return blobs
 }
 
 /** Dibuja en un lienzo visible el cuadro del segundo `t` (vista previa). */
-export function drawPreview(canvas: HTMLCanvasElement, spec: PlanSpec, images: ImageMap, font: string, slide: number, t: number | null) {
+export function drawPreview(canvas: HTMLCanvasElement, spec: PlanSpec, images: ImageMap, font: string, slide: number, t: number | null, design: DesignContext | null = null) {
   const ctx = canvas.getContext('2d')!
   ctx.clearRect(0, 0, canvas.width, canvas.height)
-  drawLayers(ctx, t === null ? buildScene(spec, slide).layers : frameAt(spec, t), images, font, canvas.width / spec.width)
+  const build = (s: PlanSpec, n: number) => sceneFor(s, n, design)
+  drawLayers(ctx, t === null ? build(spec, slide).layers : frameAt(spec, t, build), images, font, canvas.width / spec.width)
 }
 
 export interface VideoExport { blob: Blob; durationMs: number; width: number; height: number; encoder: 'webcodecs-h264' | 'mediarecorder' }
@@ -202,14 +529,15 @@ async function h264Config(width: number, height: number, bitrate: number): Promi
 }
 
 /** Exporta el video. Preferido: H.264 en MP4 cuadro por cuadro (WebCodecs). Respaldo: grabación del lienzo (WebM). */
-export async function exportVideo(spec: PlanSpec, images: ImageMap, font: string, onProgress: (fraction: number) => void = () => undefined): Promise<VideoExport> {
+export async function exportVideo(spec: PlanSpec, images: ImageMap, font: string, onProgress: (fraction: number) => void = () => undefined, design: DesignContext | null = null): Promise<VideoExport> {
   const { width, height } = videoSize(spec)
   const scale = width / spec.width
   const total = frameCount(spec)
   const seconds = spec.seconds || 6
   const canvas = canvasOf(width, height)
   const ctx = canvas.getContext('2d')!
-  const paint = (frame: number) => { ctx.clearRect(0, 0, width, height); drawLayers(ctx, frameAt(spec, frame / VIDEO_FPS), images, font, scale) }
+  const build = (s: PlanSpec, n: number) => sceneFor(s, n, design)
+  const paint = (frame: number) => { ctx.clearRect(0, 0, width, height); drawLayers(ctx, frameAt(spec, frame / VIDEO_FPS, build), images, font, scale) }
   const config = await h264Config(width, height, spec.quality === 'alta' ? 8_000_000 : 4_000_000)
 
   if (config) {

@@ -119,7 +119,7 @@ describe('plantillas y datos verificados', () => {
     const facts: CreativeFacts = {
       store: { name: 'Tienda A', url: 'https://tiendas.test/t/tienda-a', currency: 'COP' },
       brand: { name: 'Tienda A', slogan: null, tone: null, logoUrl: null, colors: [], font: null },
-      products: [{ id: 1, name: 'Camisa de lino', description: 'Camisa de lino fresca con 2 bolsillos.', category: 'Ropa', price: 50000, priceFrom: false, priceText: '$ 50.000', compareAtText: null, discountPercent: null, stock: 9, daysSinceCreated: 3, images: ['x'], beforeAfter: null }],
+      products: [{ id: 1, sku: 'A1', name: 'Camisa de lino', description: 'Camisa de lino fresca con 2 bolsillos.', category: 'Ropa', price: 50000, priceFrom: false, priceText: '$ 50.000', compareAtText: null, discountPercent: null, stock: 9, daysSinceCreated: 3, images: ['x'], beforeAfter: null }],
     }
     const base = defaultCopy('producto_nuevo', facts)
     expect(base).toMatchObject({ headline: 'Nuevo: Camisa de lino', benefits: [], cta: 'Pídelo por WhatsApp' })
@@ -208,6 +208,43 @@ describe('piezas convencionales', () => {
     const ok = await json(await save({ ...video, durationMs: 6033 }, [MP4], 'video-0003', A, 'video/mp4'))
     expect(ok.piece).toMatchObject({ kind: 'video', mode: 'convencional', credits: 0, files: [{ contentType: 'video/mp4', width: 720, height: 1280, durationMs: 6033 }] })
     expect(sniffVideoType(new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 1, 2]))).toBe('video/webm')
+  })
+})
+
+describe('motor de diseño publicitario', () => {
+  const DESIGN = { style: 'minimalista_premium', layout: 'editorial', seed: 7, colors: ['#b76e79'], showPrice: true, removeBg: true, showReference: true }
+  const plan = (body: Record<string, unknown>) => A('/creatives/plan', { method: 'POST', body: { kind: 'imagen', template: 'producto_destacado', format: 'vertical', productIds: [ids.A1], ...body } })
+
+  it('el plan guarda el estilo validado, la referencia real y es otra pieza distinta de la clásica', async () => {
+    const classic = await json(await plan({}))
+    expect(classic.spec.version).toBe(1)
+    expect(classic.spec.design).toBeUndefined()
+    expect(classic.spec.products[0].reference).toBeUndefined()
+    const designed = await json(await plan({ design: DESIGN }))
+    expect(designed.spec).toMatchObject({ version: 2, design: { ...DESIGN, colors: ['#B76E79'] } })
+    expect(designed.spec.products[0]).toMatchObject({ reference: 'A1', category: 'Ropa', gallery: expect.any(Array) })
+    expect(designed.specHash).not.toBe(classic.specHash)
+    // Otra variante (semilla) es otra huella: no se confunde con la anterior.
+    const other = await json(await plan({ design: { ...DESIGN, seed: 8 } }))
+    expect(other.specHash).not.toBe(designed.specHash)
+  })
+
+  it('rechaza estilos, composiciones y colores fuera de la lista, y una oferta sin precio', async () => {
+    expect((await json(await plan({ design: { ...DESIGN, style: 'otro' } }))).code).toBe('INVALID_STYLE')
+    expect((await json(await plan({ design: { ...DESIGN, layout: 'x' } }))).code).toBe('INVALID_LAYOUT')
+    expect((await json(await plan({ design: { ...DESIGN, colors: ['red'] } }))).code).toBe('INVALID_COLORS')
+    expect((await json(await plan({ design: { ...DESIGN, seed: -1 } }))).code).toBe('INVALID_SEED')
+    expect((await json(await A('/creatives/plan', { method: 'POST', body: { kind: 'imagen', template: 'oferta_aprobada', format: 'vertical', productIds: [ids.A3], design: { ...DESIGN, showPrice: false } } }))).code).toBe('PRICE_REQUIRED')
+  })
+
+  it('formato de anuncio horizontal 1200 × 628 con resolución exacta; guarda WebP y JPG', async () => {
+    const spec = { kind: 'imagen', template: 'producto_destacado', format: 'anuncio', productIds: [ids.A1], design: DESIGN }
+    expect((await json(await plan({ format: 'anuncio', design: DESIGN }))).spec).toMatchObject({ width: 1200, height: 628 })
+    expect((await json(await save(spec, [createPng(1080, 1080)], 'pieza-diseno-001'))).code).toBe('INVALID_RESOLUTION')
+    const created = await json(await save(spec, [createPng(1200, 628)], 'pieza-diseno-002'))
+    expect(created.piece).toMatchObject({ format: 'anuncio', files: [{ width: 1200, height: 628 }] })
+    expect(created.piece.spec.design.style).toBe('minimalista_premium')
+    expect((await json(await A('/creatives/catalog'))).formats.some((item: { key: string }) => item.key === 'anuncio')).toBe(true)
   })
 })
 
