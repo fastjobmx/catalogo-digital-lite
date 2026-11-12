@@ -9,7 +9,7 @@
  * No inventa precios, marcas, referencias ni cantidades, y no modifica productos existentes.
  */
 import type { Env } from '../index'
-import { callGeminiJson, UNTRUSTED_CONTENT_RULE, type GeminiPart } from '../ai/geminiClient'
+import { callGeminiJson, geminiFailureCode, UNTRUSTED_CONTENT_RULE, type GeminiPart } from '../ai/geminiClient'
 import { checkAiBudget, recordAiUsage } from '../ai/usage'
 import { roleAllows } from '../tenancy/access'
 import { slugify } from '../tenancy/stores'
@@ -55,6 +55,9 @@ const MAX_PHOTOS_PER_PRODUCT = 10
 /** Fotos por llamada de IA y tope de bytes por llamada (Gemini admite ~20 MB en línea). */
 const AI_CHUNK_PHOTOS = 8
 const AI_CHUNK_BYTES = 9 * 1024 * 1024
+/** En la cola hay tiempo: tandas más grandes agrupan mejor (menos productos partidos entre tandas). */
+const QUEUE_CHUNK_PHOTOS = 16
+const QUEUE_CHUNK_BYTES = 11 * 1024 * 1024
 /** Tiempo de trabajo por paso: cabe en los 30 s de waitUntil. En la cola (WHATSAPP_JOBS) el paso puede durar minutos. */
 const STEP_BUDGET_MS = 20_000
 const QUEUE_STEP_BUDGET_MS = 8 * 60_000
@@ -64,6 +67,12 @@ const AI_CALL_RESERVE_MS = 15_000
 const NOTICE_RECEIPT = 1
 const NOTICE_FULL = 2
 const NOTICE_SUMMARY = 4
+/** Hay un trabajo programado en la cola para este lote (uno a la vez, no uno por foto). */
+const JOB_ARMED = 8
+
+export type StepResult = 'locked' | 'waiting' | 'pending' | 'summarized' | 'idle'
+
+const noticeFailed = (error: unknown) => console.error('Photo batch message not sent:', error instanceof Error ? error.message.slice(0, 60) : 'unknown')
 const LOCK_SECONDS = 90
 const STALE_OPEN_SECONDS = 48 * 60 * 60
 
@@ -79,7 +88,8 @@ export function photoBatchEnabled(env: Partial<Bindings>): boolean {
 const batchMax = (env: Partial<Bindings>) => Math.min(200, Math.max(1, Number(env.WAHA_PHOTO_BATCH_MAX) || 100))
 const quietSeconds = (env: Partial<Bindings>) => {
   const value = Number(env.WAHA_PHOTO_QUIET_SECONDS)
-  return Number.isFinite(value) && value >= 0 ? Math.min(120, value) : 12
+  // Merchants forward in several rounds (selecting photos takes a while): 20 s of silence ends the batch.
+  return Number.isFinite(value) && value >= 0 ? Math.min(120, value) : 20
 }
 const now = () => Math.floor(Date.now() / 1000)
 
@@ -135,14 +145,13 @@ export async function receiveBatchPhoto(ctx: AssistantContext, outbox: Outbox, i
     await db.prepare(`UPDATE whatsapp_photo_batches SET status = 'collecting', receiving_notice_sent = receiving_notice_sent & ~${NOTICE_RECEIPT | NOTICE_SUMMARY}, updated_at = unixepoch() WHERE id = ? AND status = 'grouped'`).bind(batch.id).run()
   }
 
-  const position = Number((await db.prepare('SELECT COALESCE(MAX(position), 0) + 1 AS next FROM whatsapp_photo_items WHERE batch_id = ?').bind(batch.id).first<{ next: number }>())?.next || 1)
   const caption = inbound.caption ? inbound.caption.slice(0, 500) : null
   const record = async (status: string, hash: string, error: string | null, extra: Partial<Record<'temp_key' | 'content_type' | 'extension' | 'byte_length' | 'width' | 'height', string | number>> = {}) => {
     const inserted = await db.prepare(
       `INSERT OR IGNORE INTO whatsapp_photo_items (batch_id, store_id, message_id, album_id, content_hash, temp_key, content_type, extension, byte_length, width, height, caption, forwarded, position, status, error_code)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM whatsapp_photo_items WHERE batch_id = ?), ?, ?)`,
     ).bind(batch!.id, ctx.store.id, inbound.messageId, inbound.albumId ?? null, hash, extra.temp_key ?? null, extra.content_type ?? null, extra.extension ?? null,
-      extra.byte_length ?? null, extra.width ?? null, extra.height ?? null, caption, inbound.forwarded ? 1 : 0, position, status, error).run()
+      extra.byte_length ?? null, extra.width ?? null, extra.height ?? null, caption, inbound.forwarded ? 1 : 0, batch!.id, status, error).run()
     const column = status === 'stored' ? 'photo_count' : status === 'duplicate' ? 'duplicate_count' : 'rejected_count'
     if (inserted.meta.changes) await db.prepare(`UPDATE whatsapp_photo_batches SET ${column} = ${column} + 1, last_photo_at = unixepoch(), updated_at = unixepoch() WHERE id = ?`).bind(batch!.id).run()
     return Boolean(inserted.meta.changes)
@@ -206,20 +215,33 @@ export async function receiveBatchPhoto(ctx: AssistantContext, outbox: Outbox, i
  */
 async function scheduleStep(env: Bindings, db: D1Database, batchId: string, outbox: Outbox, defer?: Defer): Promise<void> {
   const wait = quietSeconds(env)
+  // With the queue no AI call ever runs inside waitUntil (it would be cut off at 30 s and leave the batch locked).
+  if (env.WHATSAPP_JOBS) { await armJob(env, db, batchId, wait + 1); return }
   const deadline = Date.now() + 27_000
   const work = (async () => {
     // Full chunks are analysed while photos keep arriving, so 100 photos are mostly analysed by the time the last one lands.
     await runBatchStep(env, db, batchId, { outbox, onlyFullChunks: true, deadline })
     if (env.ENVIRONMENT === 'test') return
-    if (env.WHATSAPP_JOBS) {
-      await env.WHATSAPP_JOBS.send({ type: 'photo_batch_step', batchId }, { delaySeconds: wait + 1 })
-      return
-    }
     await sleep((wait + 1) * 1000)
     await runBatchStep(env, db, batchId, { outbox, deadline })
   })()
   if (env.ENVIRONMENT === 'test' || !defer) await work.catch((error) => console.error('Photo batch step failed:', error instanceof Error ? error.message : 'unknown'))
   else defer(work)
+}
+
+/** Programa UN trabajo en la cola para el lote si no hay otro pendiente. */
+async function armJob(env: Bindings, db: D1Database, batchId: string, delaySeconds: number, force = false): Promise<boolean> {
+  if (!env.WHATSAPP_JOBS) return false
+  const armed = await db.prepare(`UPDATE whatsapp_photo_batches SET receiving_notice_sent = receiving_notice_sent | ${JOB_ARMED} WHERE id = ? AND (receiving_notice_sent & ${JOB_ARMED}) = 0 RETURNING id`).bind(batchId).first()
+  if (!armed && !force) return false
+  try {
+    await env.WHATSAPP_JOBS.send({ type: 'photo_batch_step', batchId, ...(force ? { force: true } : {}) }, { delaySeconds: Math.max(0, Math.min(120, Math.ceil(delaySeconds))) })
+  } catch (error) {
+    // Could not enqueue: disarm so the next photo, message or the scheduled task tries again.
+    await db.prepare(`UPDATE whatsapp_photo_batches SET receiving_notice_sent = receiving_notice_sent & ~${JOB_ARMED} WHERE id = ?`).bind(batchId).run()
+    throw error
+  }
+  return true
 }
 
 // ───────────────────────── Agrupación con IA ─────────────────────────
@@ -254,8 +276,17 @@ type GroupingReply = {
 
 const cleanText = (value: unknown, max: number) => (typeof value === 'string' ? value.replace(/[<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, max) : '')
 
+/** The brand is never put in the name on the AI's word: the merchant confirms it in the draft. */
+function withoutBrand(name: string, brand: string): string {
+  if (!brand) return name
+  const words = brand.split(/\s+/).filter((word) => word.length > 1).map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  if (!words.length) return name
+  const stripped = name.replace(new RegExp(`\\b(?:${words.join('|')})\\b`, 'gi'), ' ').replace(/\s+/g, ' ').trim()
+  return stripped.length >= 3 ? stripped : name
+}
+
 /** Una tanda de fotos → grupos por producto. Si la IA no está disponible, cada álbum (o foto suelta) es un grupo. */
-async function groupChunk(env: Bindings, db: D1Database, batch: BatchRow, items: ItemRow[], previous: BatchGroup | null): Promise<{ assignments: Map<number, number | 'not_product'>; groups: BatchGroup[]; continuesPrevious: Set<number> }> {
+async function groupChunk(env: Bindings, db: D1Database, batch: BatchRow, items: ItemRow[], recent: BatchGroup[], deadline: number): Promise<{ assignments: Map<number, number | 'not_product'>; groups: BatchGroup[]; continuesPrevious: Set<number> }> {
   const fallback = () => {
     const groups: BatchGroup[] = []
     const byAlbum = new Map<string, number>()
@@ -275,11 +306,14 @@ async function groupChunk(env: Bindings, db: D1Database, batch: BatchRow, items:
     await recordAiUsage(db, env, { storeId: batch.store_id, channel: 'whatsapp_waha', feature: 'agrupar_fotos', status: 'blocked' })
     return fallback()
   }
+  const previous = recent.at(-1) ?? null
   const parts: GeminiPart[] = []
   const categories = (await db.prepare('SELECT name FROM categories WHERE store_id = ? AND is_active = 1 ORDER BY sort_order, name LIMIT 40').bind(batch.store_id).all<{ name: string }>()).results?.map((row) => row.name) || []
   parts.push({ text: [
     `Agrupa estas ${items.length} fotografías por producto. Están numeradas en orden de llegada.`,
-    previous ? `Producto anterior (justo antes de estas fotos): "${previous.name}" (${previous.colors.join(', ') || 'sin color'}). Si las primeras fotos son de ese mismo producto, marca su grupo con continuesPrevious=true.` : 'No hay producto anterior.',
+    previous
+      ? `Productos ya identificados justo antes de estas fotos: ${recent.map((group) => `"${group.name || 'sin nombre'}" (${group.colors.join(', ') || 'sin color'})`).join('; ')}. El último es "${previous.name || 'sin nombre'}": si las primeras fotos son de ese mismo producto, marca su grupo con continuesPrevious=true.`
+      : 'No hay productos anteriores.',
     `Categorías existentes de la tienda: ${categories.join(', ') || 'ninguna'}.`,
   ].join('\n') })
   for (const [index, item] of items.entries()) {
@@ -288,15 +322,14 @@ async function groupChunk(env: Bindings, db: D1Database, batch: BatchRow, items:
     parts.push({ text: `Foto ${index + 1}${item.album_id ? ` (álbum ${item.album_id.slice(-4)})` : ''}${item.caption ? `. Texto del comerciante: "${item.caption.slice(0, 200)}"` : ''}:` })
     parts.push({ inlineData: { mimeType: item.content_type || 'image/jpeg', data: bytesToBase64(new Uint8Array(await object.arrayBuffer())) } })
   }
-  try {
-    const result = await callGeminiJson(env, fetch, {
+  const request = {
       system: [
         'Organizas fotografías que un comerciante reenvió para crear fichas de catálogo en español.',
         'Un grupo = un producto vendible. Varias fotos del mismo artículo (ángulos, detalles, empaque, la misma referencia en otros colores) van en el MISMO grupo.',
         'Artículos distintos (otro modelo, otro tipo de producto) van en grupos distintos. Nunca supongas que cada foto es un producto distinto.',
         'Las fotos de un mismo álbum suelen ser del mismo producto, pero sepáralas si claramente muestran artículos distintos.',
         'isProduct=false para capturas de chats, comprobantes, personas sin producto o imágenes que no muestran algo vendible.',
-        'name: nombre comercial corto y genérico (máximo 8 palabras). description: 1 o 2 frases solo con lo visible.',
+        'name: tipo de producto con sus rasgos visibles (color, estilo, material aparente), máximo 8 palabras, SIN marca ni nombre de modelo (por ejemplo "Tenis blancos de caña baja", no "Nike Dunk Low"). La marca o el modelo que se lean claramente van solo en visibleBrand. description: una sola frase corta solo con lo visible.',
         'Nunca propongas precio, tallas, cantidades, referencias ni que es original. visibleBrand solo si el logotipo o la marca se leen claramente; si no, vacío.',
         'category: preferiblemente una de las categorías existentes; si ninguna aplica, un nombre corto.',
         'Numera los grupos desde 1 en el orden en que aparece su primera foto.',
@@ -304,9 +337,13 @@ async function groupChunk(env: Bindings, db: D1Database, batch: BatchRow, items:
       ],
       parts,
       schema: groupingSchema,
-      maxOutputTokens: 4096,
+      // The model also spends output tokens thinking: a tight limit cut the JSON short on real batches.
+      maxOutputTokens: 8192,
       temperature: 0.1,
-    })
+  }
+  for (let attempt = 1; ; attempt++) {
+  try {
+    const result = await callGeminiJson(env, fetch, request)
     await recordAiUsage(db, env, { storeId: batch.store_id, channel: 'whatsapp_waha', feature: 'agrupar_fotos', model: result.model, usage: result.usage, status: 'ok' })
     const reply = result.data as GroupingReply
     const localGroups = new Map<number, number>()
@@ -318,7 +355,7 @@ async function groupChunk(env: Bindings, db: D1Database, batch: BatchRow, items:
       localGroups.set(number, groups.length)
       if (group.continuesPrevious === true && previous) continuesPrevious.add(groups.length)
       groups.push({
-        name: cleanText(group.name, 120), category: cleanText(group.category, 60), brand: cleanText(group.visibleBrand, 60),
+        name: withoutBrand(cleanText(group.name, 120), cleanText(group.visibleBrand, 60)), category: cleanText(group.category, 60), brand: cleanText(group.visibleBrand, 60),
         colors: (Array.isArray(group.colors) ? group.colors : []).map((color) => cleanText(color, 30)).filter(Boolean).slice(0, 6),
         description: cleanText(group.description, 600), items: [],
       })
@@ -339,11 +376,28 @@ async function groupChunk(env: Bindings, db: D1Database, batch: BatchRow, items:
       groups.push({ name: '', category: '', colors: [], brand: '', description: '', items: [item.id] })
       assignments.set(item.id, groups.length - 1)
     }
-    return { assignments, groups: groups.filter((group) => group.items.length), continuesPrevious }
+    // Groups the model announced without photos are dropped, and every index is remapped accordingly.
+    const kept: BatchGroup[] = []
+    const remap = new Map<number, number>()
+    const keptContinues = new Set<number>()
+    for (const [index, group] of groups.entries()) {
+      if (!group.items.length) continue
+      remap.set(index, kept.length)
+      if (continuesPrevious.has(index)) keptContinues.add(kept.length)
+      kept.push(group)
+    }
+    for (const [id, target] of assignments) if (target !== 'not_product') assignments.set(id, remap.get(target)!)
+    return { assignments, groups: kept, continuesPrevious: keptContinues }
   } catch (error) {
+    const code = geminiFailureCode(error)
     await recordAiUsage(db, env, { storeId: batch.store_id, channel: 'whatsapp_waha', feature: 'agrupar_fotos', status: 'error' }).catch(() => undefined)
-    console.error('Photo batch grouping failed:', error instanceof Error ? error.message.slice(0, 80) : 'unknown')
+    await db.prepare(`INSERT INTO platform_events (store_id, level, source, code, detail) VALUES (?, 'warning', 'gemini', 'GEMINI_REQUEST', ?)`)
+      .bind(batch.store_id, `agrupar_fotos:${code}:intento${attempt}`.slice(0, 120)).run().catch(() => undefined)
+    console.error('Photo batch grouping failed:', code)
+    // One more attempt when there is time for it; otherwise albums / single photos become the groups.
+    if (attempt < 2 && deadline - Date.now() > AI_CALL_RESERVE_MS) continue
     return fallback()
+  }
   }
 }
 
@@ -366,40 +420,47 @@ async function similarProduct(db: D1Database, storeId: number, name: string): Pr
  * Un paso de trabajo sobre el lote (nunca dos a la vez: candado con vencimiento). Analiza tandas pendientes
  * y, cuando ya no llegan fotos y todo está analizado, envía el resumen. Seguro de repetir.
  */
-export async function runBatchStep(env: Bindings, db: D1Database, batchId: string, opts: { outbox?: Outbox; onlyFullChunks?: boolean; force?: boolean; deadline?: number } = {}): Promise<void> {
+export async function runBatchStep(env: Bindings, db: D1Database, batchId: string, opts: { outbox?: Outbox; onlyFullChunks?: boolean; force?: boolean; deadline?: number } = {}): Promise<StepResult> {
   const quiet = quietSeconds(env)
   const claimed = await db.prepare(
     `UPDATE whatsapp_photo_batches SET lock_until = unixepoch() + ${LOCK_SECONDS}, updated_at = unixepoch()
      WHERE id = ? AND status IN ('collecting', 'grouping') AND (lock_until IS NULL OR lock_until < unixepoch()) RETURNING *`,
   ).bind(batchId).first<BatchRow>()
-  if (!claimed) return
+  if (!claimed) {
+    const current = await db.prepare(`SELECT status FROM whatsapp_photo_batches WHERE id = ?`).bind(batchId).first<{ status: string }>()
+    return current && (current.status === 'collecting' || current.status === 'grouping') ? 'locked' : 'idle'
+  }
   let batch = claimed
   const deadline = opts.deadline ?? Date.now() + STEP_BUDGET_MS
   let outOfTime = false
   try {
     const outbox = opts.outbox ?? await outboxFor(env, db, batch)
-    if (!outbox) { await db.prepare(`UPDATE whatsapp_photo_batches SET status = 'cancelled', error_code = 'UNLINKED', completed_at = unixepoch() WHERE id = ?`).bind(batchId).run(); await purgeBatchAssets(env, batchId); return }
+    if (!outbox) { await db.prepare(`UPDATE whatsapp_photo_batches SET status = 'cancelled', error_code = 'UNLINKED', completed_at = unixepoch() WHERE id = ?`).bind(batchId).run(); await purgeBatchAssets(env, batchId); return 'idle' }
     const quietReached = opts.force || now() - batch.last_photo_at >= quiet
+    // Photos still arriving: only full chunks are analysed now; the summary waits for the quiet period.
+    const fullOnly = Boolean(opts.onlyFullChunks) || !quietReached
     while (true) {
-      const pending = (await db.prepare(`SELECT id, temp_key, content_type, byte_length, caption, album_id, group_index, status, position FROM whatsapp_photo_items WHERE batch_id = ? AND status = 'stored' AND group_index IS NULL ORDER BY position LIMIT ?`)
-        .bind(batchId, AI_CHUNK_PHOTOS).all<ItemRow>()).results || []
+      const chunkPhotos = env.WHATSAPP_JOBS ? QUEUE_CHUNK_PHOTOS : AI_CHUNK_PHOTOS
+      const pending = (await db.prepare(`SELECT id, temp_key, content_type, byte_length, caption, album_id, group_index, status, position FROM whatsapp_photo_items WHERE batch_id = ? AND status = 'stored' AND group_index IS NULL ORDER BY position, id LIMIT ?`)
+        .bind(batchId, chunkPhotos).all<ItemRow>()).results || []
       if (!pending.length) break
-      if (opts.onlyFullChunks && pending.length < AI_CHUNK_PHOTOS) break
-      if (!quietReached && !opts.onlyFullChunks) break
+      if (fullOnly && pending.length < chunkPhotos) break
       if (batch.status === 'collecting' && quietReached && !(batch.receiving_notice_sent & NOTICE_RECEIPT)) {
         // One notice for the whole batch, never one per photo.
         await db.prepare(`UPDATE whatsapp_photo_batches SET receiving_notice_sent = receiving_notice_sent | ${NOTICE_RECEIPT} WHERE id = ?`).bind(batchId).run()
         batch.receiving_notice_sent |= NOTICE_RECEIPT
         const total = batch.photo_count
-        await deliver(outbox, `📸 He recibido ${total === 1 ? '1 fotografía' : `${total} fotografías`}. Estoy revisando si corresponden a uno o varios productos…`)
+        // A notice that cannot be sent (provider down) never stops the analysis.
+        await deliver(outbox, `📸 He recibido ${total === 1 ? '1 fotografía' : `${total} fotografías`}. Estoy revisando si corresponden a uno o varios productos… Si me sigues enviando fotos, las sumo a este mismo lote.`).catch(noticeFailed)
       }
       // Never start an AI call that could be cut off by the platform's time limit: the next trigger resumes it.
       if (deadline - Date.now() < AI_CALL_RESERVE_MS) { outOfTime = true; break }
       // Respect the per-call byte budget.
       let bytes = 0
-      const chunk = pending.filter((item) => (bytes += Number(item.byte_length || 0)) <= AI_CHUNK_BYTES || item === pending[0])
+      const chunkBytes = env.WHATSAPP_JOBS ? QUEUE_CHUNK_BYTES : AI_CHUNK_BYTES
+      const chunk = pending.filter((item) => (bytes += Number(item.byte_length || 0)) <= chunkBytes || item === pending[0])
       const groups = groupsOf(batch)
-      const result = await groupChunk(env, db, batch, chunk, groups.at(-1) ?? null)
+      const result = await groupChunk(env, db, batch, chunk, groups.slice(-3), deadline)
       const merged = [...groups]
       const indexOf = new Map<number, number>()
       for (const [local, group] of result.groups.entries()) {
@@ -428,17 +489,23 @@ export async function runBatchStep(env: Bindings, db: D1Database, batchId: strin
       batch = (await db.prepare('SELECT * FROM whatsapp_photo_batches WHERE id = ?').bind(batchId).first<BatchRow>())!
     }
     const left = Number((await db.prepare(`SELECT COUNT(*) AS n FROM whatsapp_photo_items WHERE batch_id = ? AND status = 'stored' AND group_index IS NULL`).bind(batchId).first<{ n: number }>())?.n || 0)
-    if (left || !quietReached || opts.onlyFullChunks) {
-      // More work later (next photo, the quiet timer or the scheduled task). Long batches report progress once per step.
-      if (left && quietReached && batch.analyzed_count) await deliver(outbox, `⏳ Voy en ${batch.analyzed_count} de ${batch.analyzed_count + left} fotos…`)
-      else if (left && quietReached && outOfTime) await deliver(outbox, 'Sigo revisando tus fotos. Si en un minuto no te llega el resumen, escríbeme cualquier cosa y lo termino.')
-      return
+    if (left || fullOnly) {
+      // More work later (next photo, the quiet timer, the queue or the scheduled task). Long batches report progress once per step.
+      if (left && quietReached && !opts.onlyFullChunks && batch.analyzed_count) await deliver(outbox, `⏳ Voy en ${batch.analyzed_count} de ${batch.analyzed_count + left} fotos…`).catch(noticeFailed)
+      else if (left && quietReached && !opts.onlyFullChunks && outOfTime && !env.WHATSAPP_JOBS) await deliver(outbox, 'Sigo revisando tus fotos. Si en un minuto no te llega el resumen, escríbeme cualquier cosa y lo termino.').catch(noticeFailed)
+      return quietReached && left ? 'pending' : 'waiting'
     }
     // Everything analysed and no new photos (checked again now, photos may have landed meanwhile): the summary, sent exactly once.
     const done = await db.prepare(
       `UPDATE whatsapp_photo_batches SET status = 'grouped', updated_at = unixepoch() WHERE id = ? AND status IN ('collecting', 'grouping') AND (? = 1 OR last_photo_at <= unixepoch() - ?) RETURNING *`,
     ).bind(batchId, opts.force ? 1 : 0, quiet).first<BatchRow>()
-    if (done) await sendSummary(db, outbox, done)
+    if (done) {
+      // A summary that cannot be sent stays pending (its flag is set only when it goes out): the next message
+      // of the merchant or the scheduled task sends it. The grouping itself is already saved.
+      try { await sendSummary(db, outbox, done) } catch (error) { noticeFailed(error); return 'idle' }
+      return 'summarized'
+    }
+    return 'waiting'
   } catch (error) {
     const code = (error instanceof Error ? error.message : 'unknown').slice(0, 60)
     await db.prepare(`UPDATE whatsapp_photo_batches SET error_code = ? WHERE id = ?`).bind(code, batchId).run()
@@ -489,7 +556,17 @@ export async function consumeWhatsAppJobs(batch: MessageBatch<{ type?: string; b
     const id = message.body?.batchId
     if (message.body?.type !== 'photo_batch_step' || !id || !/^[0-9a-f-]{36}$/.test(id)) { message.ack(); continue }
     try {
-      await runBatchStep(env, env.DB, id, { deadline: Date.now() + QUEUE_STEP_BUDGET_MS, force: message.body.force === true })
+      // This job is running: photos arriving from now on may arm the next one.
+      await env.DB.prepare(`UPDATE whatsapp_photo_batches SET receiving_notice_sent = receiving_notice_sent & ~${JOB_ARMED} WHERE id = ?`).bind(id).run()
+      const result = await runBatchStep(env, env.DB, id, { deadline: Date.now() + QUEUE_STEP_BUDGET_MS, force: message.body.force === true })
+      // Never drop the work: a locked batch, photos still arriving or a step out of time are scheduled again.
+      if (result === 'locked' || result === 'waiting' || result === 'pending') {
+        const row = await env.DB.prepare(`SELECT last_photo_at, lock_until FROM whatsapp_photo_batches WHERE id = ?`).bind(id).first<{ last_photo_at: number; lock_until: number | null }>()
+        const delay = result === 'locked' ? Math.max(5, Number(row?.lock_until || 0) - now() + 2)
+          : result === 'pending' ? 1
+          : Math.max(2, quietSeconds(env) - (now() - Number(row?.last_photo_at || now())) + 1)
+        await armJob(env, env.DB, id, delay)
+      }
       message.ack()
     } catch (error) {
       console.error('Photo batch job failed:', error instanceof Error ? error.message.slice(0, 80) : 'unknown')
@@ -514,13 +591,14 @@ export async function handleBatchText(ctx: AssistantContext, outbox: Outbox, inp
   const isCancel = button?.[1] === 'cancel' || /^\/?cancelar (?:el )?lote[.!]*$/i.test(text)
 
   // Recovery: the merchant writes and the batch never got its summary (the background step was cut off).
-  if (!isCancel && (batch.status === 'collecting' || batch.status === 'grouping') && now() - batch.last_photo_at >= quietSeconds(ctx.env) && !(batch.lock_until && batch.lock_until > now())) {
-    if (ctx.env.WHATSAPP_JOBS) {
-      // The queue has no 30-second limit: the summary arrives from there.
-      await ctx.env.WHATSAPP_JOBS.send({ type: 'photo_batch_step', batchId: batch.id, force: true })
-      await say(ctx, 'Estoy terminando de revisar tus fotos; en unos segundos te envío el resumen.')
-      return true
-    }
+  const quietNow = (batch.status === 'collecting' || batch.status === 'grouping') && now() - batch.last_photo_at >= quietSeconds(ctx.env)
+  if (!isCancel && quietNow && ctx.env.WHATSAPP_JOBS) {
+    // The queue has no 30-second limit (and waits out a stale lock): the summary arrives from there.
+    await armJob(ctx.env, ctx.db, batch.id, 0, true)
+    await say(ctx, 'Estoy terminando de revisar tus fotos; en unos segundos te envío el resumen.')
+    return true
+  }
+  if (!isCancel && quietNow && !(batch.lock_until && batch.lock_until > now())) {
     await runBatchStep(ctx.env, ctx.db, batch.id, { outbox, force: true })
     const after = await openBatch(ctx.db, ctx.chatId)
     if (after?.status === 'grouped') return true
@@ -539,7 +617,7 @@ export async function handleBatchText(ctx: AssistantContext, outbox: Outbox, inp
     // The merchant writes while photos are still being reviewed: finish now instead of waiting for the timer.
     if (/^(?:listo|ya|eso es todo|son todas|termin[eé])[.!]*$/i.test(text)) {
       await say(ctx, 'Perfecto, reviso las fotos que me enviaste…')
-      if (ctx.env.WHATSAPP_JOBS) { await ctx.env.WHATSAPP_JOBS.send({ type: 'photo_batch_step', batchId: batch.id, force: true }); return true }
+      if (ctx.env.WHATSAPP_JOBS) { await armJob(ctx.env, ctx.db, batch.id, 0, true); return true }
       const work = runBatchStep(ctx.env, ctx.db, batch.id, { outbox, force: true })
       if (ctx.env.ENVIRONMENT === 'test' || !defer) await work; else defer(work)
       return true
@@ -625,7 +703,7 @@ async function openGroupDraft(ctx: AssistantContext, batch: BatchRow): Promise<v
   const group = groups[index]
   if (!group) { await finishBatch(ctx, batch); return }
   if (!ctx.env.ASSETS) { await say(ctx, 'El almacenamiento de fotos no está disponible en este momento. Intenta de nuevo en unos minutos.'); return }
-  const items = (await ctx.db.prepare(`SELECT id, temp_key, content_type, byte_length, caption, album_id, group_index, status, position FROM whatsapp_photo_items WHERE batch_id = ? AND id IN (${group.items.map(() => '?').join(',')}) AND status = 'stored' ORDER BY position`)
+  const items = (await ctx.db.prepare(`SELECT id, temp_key, content_type, byte_length, caption, album_id, group_index, status, position FROM whatsapp_photo_items WHERE batch_id = ? AND id IN (${group.items.map(() => '?').join(',')}) AND status = 'stored' ORDER BY position, id`)
     .bind(batch.id, ...group.items).all<ItemRow>()).results || []
   const operationId = crypto.randomUUID()
   const draft = createTelegramProductDraft()
@@ -790,7 +868,11 @@ export async function maintainPhotoBatches(env: Bindings, db: D1Database): Promi
   const waiting = (await db.prepare(
     `SELECT id FROM whatsapp_photo_batches WHERE status IN ('collecting', 'grouping') AND last_photo_at < unixepoch() - ? AND (lock_until IS NULL OR lock_until < unixepoch()) ORDER BY last_photo_at LIMIT 5`,
   ).bind(quietSeconds(env) + 30).all<{ id: string }>()).results || []
-  for (const row of waiting) await runBatchStep(env, db, row.id).catch((error) => console.error('Photo batch recovery failed:', error instanceof Error ? error.message : 'unknown'))
+  for (const row of waiting) {
+    // With the queue, recovery goes there too (a stale lock from a cut-off step is waited out by the job).
+    const work = env.WHATSAPP_JOBS ? armJob(env, db, row.id, 0, true) : runBatchStep(env, db, row.id)
+    await work.catch((error) => console.error('Photo batch recovery failed:', error instanceof Error ? error.message : 'unknown'))
+  }
   // Summaries lost to a cut-off background step are delivered here at the latest.
   const unsent = (await db.prepare(`SELECT * FROM whatsapp_photo_batches WHERE status = 'grouped' AND (receiving_notice_sent & ${NOTICE_SUMMARY}) = 0 AND updated_at < unixepoch() - 60 LIMIT 5`).all<BatchRow>()).results || []
   for (const row of unsent) {
@@ -799,4 +881,4 @@ export async function maintainPhotoBatches(env: Bindings, db: D1Database): Promi
   }
 }
 
-export const _test = { applyMerchantText, summaryText }
+export const _test = { applyMerchantText, summaryText, withoutBrand }

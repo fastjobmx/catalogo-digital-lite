@@ -120,13 +120,21 @@ beforeEach(async () => {
       }
       if (/^\/api\/(sendSeen|startTyping|stopTyping)$/.test(path)) return new Response('{}')
       const file = /^\/api\/files\/tiendia\/(.+)$/.exec(path)?.[1]
-      if (file) return files[file] ? new Response(files[file], { headers: { 'content-type': 'image/png' } }) : new Response('', { status: 404 })
+      if (file) return files[file] ? new Response(files[file], { headers: { 'content-type': file.endsWith('.oga') ? 'audio/ogg' : 'image/png' } }) : new Response('', { status: 404 })
       return new Response('', { status: 404 })
     }
     if (url.includes('generativelanguage.googleapis.com')) {
       geminiCalls++
       const request = JSON.parse(String(init?.body))
+      for (const part of request.contents?.[0]?.parts || []) {
+        if (part.inlineData && Object.keys(part.inlineData).some((key) => !['mimeType', 'data'].includes(key))) {
+          return new Response(JSON.stringify({ error: { status: 'INVALID_ARGUMENT', message: 'Invalid JSON payload received. Unknown name "seconds" at contents[0].parts[1].inline_data' } }), { status: 400 })
+        }
+      }
       const system = String(request.systemInstruction?.parts?.[0]?.text || '')
+      if (request.contents?.[0]?.parts?.some((part: any) => part.inlineData?.mimeType === 'audio/ogg')) {
+        return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({ action: 'update_stock', params: { sku: 'SAN-1', size: '38', stock: 4 }, missing: [], summary: 'Sumar 3 a la 38', needsConfirmation: true, transcript: 'llegaron tres pares más talla 38 de las sandalias' }) }] } }], usageMetadata: { promptTokenCount: 400, candidatesTokenCount: 40 } }))
+      }
       if (system.includes('Organizas fotografías')) {
         groupingCalls++
         const photos = request.contents[0].parts.filter((part: any) => part.inlineData).length
@@ -260,6 +268,23 @@ describe('conversación por WAHA con el motor común', () => {
     await say('hola', INTRUSO_PHONE)
     expect(h.db.query("SELECT status, error_code FROM whatsapp_messages WHERE direction = 'in'")).toEqual([{ status: 'failed', error_code: 'WHATSAPP_SEND_502' }])
     expect(h.db.query("SELECT status, error_code FROM whatsapp_messages WHERE direction = 'out'")).toEqual([{ status: 'error', error_code: '502' }])
+  })
+
+  it('una nota de voz real de GOWS se transcribe (Gemini solo recibe mimeType y data)', async () => {
+    await link()
+    h.env.GEMINI_API_KEY = 'gemini-de-pruebas'
+    h.db.query('UPDATE stores SET ai_enabled = 1, ai_monthly_budget_micros = 50000000 WHERE id = ?', tienda)
+    const page = new Uint8Array(64)
+    page.set([0x4f, 0x67, 0x67, 0x53])
+    let rest = 48_000 * 6
+    for (let i = 0; i < 8; i++) { page[6 + i] = rest % 256; rest = Math.floor(rest / 256) }
+    files['VOZ1.oga'] = page
+    await post(msg({ lid: ANA_LID, phone: ANA_PHONE }, '', {
+      hasMedia: true, media: { url: `http://localhost:3000/api/files/${SESSION}/VOZ1.oga`, mimetype: 'audio/ogg; codecs=opus', filename: null, error: null },
+    }, { audioMessage: { mimetype: 'audio/ogg; codecs=opus', PTT: true, seconds: 6 } }))
+    expect(texts().join(' | ')).toContain('Entendí')
+    expect(h.db.query("SELECT feature, status, channel FROM ai_usage_events WHERE feature = 'voz'")).toEqual([{ feature: 'voz', status: 'ok', channel: 'whatsapp_waha' }])
+    expect(h.db.query("SELECT kind, audio_seconds FROM whatsapp_ai_ledger")).toEqual([{ kind: 'voice', audio_seconds: 6 }])
   })
 
   it('con lotes apagados, una foto entra al flujo de siempre (foto → borrador → confirmación)', async () => {
@@ -481,6 +506,23 @@ describe('lotes de fotos (WAHA)', () => {
     expect(last()).toContain('posible')
   })
 
+  it('si WAHA está caído al enviar el resumen, el análisis queda guardado y el resumen sale al recuperarse', async () => {
+    await link()
+    h.env.WAHA_PHOTO_QUIET_SECONDS = '0'
+    await sendPhotos(3, { prefix: 'D' })
+    h.db.query('UPDATE whatsapp_photo_batches SET last_photo_at = last_photo_at - 120')
+    sendStatus = 530
+    await maintainWhatsApp(h.env, h.env.DB)
+    expect(batch()).toMatchObject({ status: 'grouped', analyzed_count: 3 })
+    expect(batch().receiving_notice_sent & 4).toBe(0)
+    sendStatus = 200
+    sent.length = 0
+    h.db.query('UPDATE whatsapp_photo_batches SET updated_at = updated_at - 120')
+    await maintainWhatsApp(h.env, h.env.DB)
+    expect(last()).toContain('posible producto')
+    expect(batch().receiving_notice_sent & 4).toBe(4)
+  })
+
   it('la cola WHATSAPP_JOBS (opcional) ejecuta el paso y confirma el mensaje', async () => {
     await link()
     await sendPhotos(3, { prefix: 'J' })
@@ -493,11 +535,46 @@ describe('lotes de fotos (WAHA)', () => {
     expect(last()).toContain('posible producto')
   })
 
+  it('con cola: ninguna IA en segundo plano, un solo trabajo por lote y nunca se pierde por un candado', async () => {
+    await link()
+    const jobs: Array<{ body: any; delay?: number }> = []
+    h.env.WHATSAPP_JOBS = { send: async (body: unknown, options?: { delaySeconds?: number }) => { jobs.push({ body, delay: options?.delaySeconds }) } } as never
+    await sendPhotos(20, { prefix: 'Z' })
+    // Twenty photos: no AI call while they arrive (it would run inside waitUntil) and one job armed, not twenty.
+    expect(groupingCalls).toBe(0)
+    expect(jobs).toHaveLength(1)
+    const run = async () => {
+      const acked: string[] = []
+      const job = jobs.shift()!
+      await consumeWhatsAppJobs({ messages: [{ body: job.body, ack: () => acked.push('ack'), retry: () => acked.push('retry') }] } as never, h.env)
+      return acked
+    }
+    // Photos still arriving: the full chunk is analysed, the job re-arms itself and nothing is said yet.
+    expect(await run()).toEqual(['ack'])
+    // In the queue the chunks are of 16 photos.
+    expect(batch().analyzed_count).toBe(16)
+    expect(jobs).toHaveLength(1)
+    expect(sent).toHaveLength(0)
+    // A lock left by a step that was cut off: the job is scheduled again, not dropped.
+    h.db.query('UPDATE whatsapp_photo_batches SET lock_until = unixepoch() + 60, last_photo_at = last_photo_at - 60')
+    expect(await run()).toEqual(['ack'])
+    expect(jobs).toHaveLength(1)
+    expect(jobs[0]!.delay).toBeGreaterThanOrEqual(60)
+    h.db.query('UPDATE whatsapp_photo_batches SET lock_until = NULL')
+    expect(await run()).toEqual(['ack'])
+    expect(batch()).toMatchObject({ status: 'grouped', analyzed_count: 20 })
+    expect(last()).toContain('He identificado')
+    expect(jobs).toHaveLength(0)
+  })
+
   it('lee precio y tallas escritos por el comerciante sin inventar nada', () => {
     const draft = { version: 1, stage: 'collecting', fields: {}, variants: [], images: [], primaryImageIndex: 0 } as any
     expect(batchTest.applyMerchantText(draft, 'Recarga del 20 al 33 $60.000')).toBe(true)
     expect(draft.fields.price).toBe(60000)
     expect(draft.variants).toEqual([])
+    expect(batchTest.withoutBrand('Zapatillas deportivas Nike Dunk Low', 'Nike')).toBe('Zapatillas deportivas Dunk Low')
+    expect(batchTest.withoutBrand('Zapatillas infantiles Coach', 'Coach')).toBe('Zapatillas infantiles')
+    expect(batchTest.withoutBrand('Nike', 'Nike')).toBe('Nike')
     const plain = { version: 1, stage: 'collecting', fields: {}, variants: [], images: [], primaryImageIndex: 0 } as any
     expect(batchTest.applyMerchantText(plain, 'zapatos lindos 38')).toBe(false)
     expect(plain.fields.price).toBeUndefined()

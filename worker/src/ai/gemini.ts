@@ -102,7 +102,7 @@ export async function interpretWithGemini(
     ],
     parts: [
       { text: message.slice(0, 4000) },
-      ...(audio ? [{ inlineData: audio }] : []),
+      ...(audio ? [{ inlineData: { mimeType: audio.mimeType, data: audio.data } }] : []),
     ],
     schema: PROPOSAL_SCHEMA,
   })

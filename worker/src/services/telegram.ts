@@ -451,7 +451,8 @@ async function handleVoice(ctx: AssistantContext, message: TelegramMessage): Pro
   const seconds = voice.duration || audio.seconds || 1
   if (seconds > 120) { await say(ctx, 'La nota de voz es muy larga. Envíame una de máximo 2 minutos.'); return }
   ctx.voiceSeconds = Math.max(1, Math.round(seconds))
-  const outcome = await interpretRequest(ctx, 'Interpreta la nota de voz adjunta.', audio)
+  // Gemini only accepts { mimeType, data } as inline data: the measured duration must not travel with it.
+  const outcome = await interpretRequest(ctx, 'Interpreta la nota de voz adjunta.', { mimeType: audio.mimeType, data: audio.data })
   if (!outcome.ok) { await say(ctx, outcome.message); return }
   const transcript = outcome.value.transcript?.trim()
   if (!transcript) { await say(ctx, 'No logré entender el audio. ¿Puedes repetirlo con más claridad o escribirlo?'); return }

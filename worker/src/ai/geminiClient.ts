@@ -85,7 +85,13 @@ export async function classifyGeminiError(response: Response): Promise<GeminiReq
         ? 'unknown-request-field'
         : /schema/.test(diagnostic)
           ? 'schema-definition'
-          : 'unclassified'
+          : /mime|media type|unsupported.*(audio|file|format)/.test(diagnostic)
+            ? 'unsupported-media'
+            : /too large|payload|exceeds|maximum/.test(diagnostic)
+              ? 'payload-too-large'
+              : /invalid argument|invalid_argument/.test(diagnostic)
+                ? 'invalid-argument'
+                : 'unclassified'
   const category: GeminiFailureCategory = status === 429
     ? 'quota'
     : status >= 500

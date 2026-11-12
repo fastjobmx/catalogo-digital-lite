@@ -24,6 +24,12 @@ const FAILURE_MESSAGES: Record<string, string> = {
   request: 'No pude entender bien la solicitud. ¿Puedes decirlo de otra forma?',
 }
 
+/** Feature plus the technical cause (HTTP status and classified reason, or the error name): never message content. */
+function failureDetail(feature: string, error: unknown): string {
+  if (error instanceof GeminiRequestError) return `${feature}:${error.status}:${error.reason}`.slice(0, 120)
+  return `${feature}:${error instanceof Error ? error.name : 'unknown'}`.slice(0, 120)
+}
+
 /** Runs a Gemini call only when the store has budget, and records its usage. */
 export async function withAiBudget<T extends { usage?: TokenUsage; model?: string }>(
   ctx: AssistantContext,
@@ -69,7 +75,7 @@ export async function withAiBudget<T extends { usage?: TokenUsage; model?: strin
     console.error('Assistant AI call failed:', feature, code)
     // Every AI failure is visible to the platform (/errores) without exposing content.
     await ctx.db.prepare(`INSERT INTO platform_events (store_id, level, source, code, detail) VALUES (?, ?, 'gemini', ?, ?)`)
-      .bind(ctx.store.id, category === 'request' || category === 'structured_schema' ? 'warning' : 'error', code, feature).run().catch(() => undefined)
+      .bind(ctx.store.id, category === 'request' || category === 'structured_schema' ? 'warning' : 'error', code, ctx.channel ? failureDetail(feature, error) : feature).run().catch(() => undefined)
     return { ok: false, message: FAILURE_MESSAGES[category] || FAILURE_MESSAGES.request! }
   }
 }

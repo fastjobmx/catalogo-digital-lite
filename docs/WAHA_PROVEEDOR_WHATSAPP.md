@@ -16,7 +16,7 @@ Rama `feat/whatsapp-admin-bot` (2026-11-12). Prototipo funcional en **staging**.
 | Fotos | Telegram ya tenía `/lote`: **1 foto = 1 producto**. Faltaba agrupar varias fotos por producto |
 | Borradores | `assistant/productDraft.ts`: el borrador `create_product` con vista previa y confirmación obligatoria. Se reutiliza tal cual |
 | IA | `ai_usage_events.channel`: `NULL` (Telegram/panel), `whatsapp` (Meta) y ahora `whatsapp_waha`. Ninguno de WhatsApp suma al presupuesto mensual de la tienda |
-| Pruebas | Base 636. Ahora **662 pasan**, 17 omitidas (26 nuevas de WAHA; Telegram y Meta sin regresiones) |
+| Pruebas | Base 636. Ahora **665 pasan**, 17 omitidas (29 nuevas de WAHA; Telegram y Meta sin regresiones) |
 
 ## 2. Versión de WAHA y justificación
 
@@ -96,7 +96,7 @@ WAHA  ─► routes/whatsapp.ts /waha/webhook   (X-Webhook-Hmac)      ─┤
 Activo solo con `WAHA_PHOTO_BATCH_ENABLED=true`. Archivo: `whatsapp/photoBatch.ts`.
 
 1. **Recepción silenciosa**: valida el formato (JPG/PNG/WebP), el tamaño (5 MB) y la imagen real. Descarta repetidas por huella **antes de descargar** y guarda en R2 (`whatsapp-batches/<lote>/`). Nunca pregunta nada por cada foto.
-2. **Análisis por tandas de 8 mientras llegan.** Cuando dejan de llegar (5 s en staging), envía **un aviso** y agrupa con IA: varias fotos del mismo artículo forman **un producto**, y lo que no es producto (capturas, comprobantes) se deja aparte.
+2. **Análisis por tandas en la cola** (16 fotos por llamada; 8 sin cola). Cuando dejan de llegar (**20 s de silencio**, porque los comerciantes reenvían en varias tandas), envía **un aviso** y agrupa con IA: varias fotos del mismo artículo forman **un producto**, y lo que no es producto (capturas, comprobantes) se deja aparte. El nombre describe el producto **sin marca ni modelo**; la marca vista va aparte y el comerciante la confirma.
 3. **Resumen**: «He identificado N posibles productos», con avisos de repetidas, archivos inválidos y parecidos con productos existentes. Esos productos nunca se modifican.
 4. Correcciones: «une 1 y 2», «quita 3», «cancelar lote».
 5. Con «sí», abre las fichas una por una con el borrador del motor:
@@ -109,7 +109,13 @@ Activo solo con `WAHA_PHOTO_BATCH_ENABLED=true`. Archivo: `whatsapp/photoBatch.t
 
 No inventa precios, marcas, referencias ni cantidades: solo toma el precio y las tallas que **escribió el comerciante**. Si la IA falla, cada álbum (o foto suelta) es un producto y nada se pierde.
 
-**Trabajos en cola**: el paso final corre en la cola **`WHATSAPP_JOBS`** (Cloudflare Queues). Sin cola, un paso de IA (15-25 s con Gemini) puede superar los 30 s de `waitUntil`: eso pasó en la primera prueba real. Respaldos: el resumen se marca como entregado solo cuando sale, se reenvía con el siguiente mensaje del comerciante y la tarea programada lo retoma.
+**Trabajos en cola**: con la cola **`WHATSAPP_JOBS`** (Cloudflare Queues) **ninguna llamada de IA corre en `waitUntil`**. Un paso de IA tarda 15-25 s con Gemini y superaba los 30 s de `waitUntil`; eso dejó lotes sin respuesta en las pruebas reales. Garantías:
+- hay un solo trabajo programado por lote, que se reprograma mientras siguen llegando fotos (no uno por foto);
+- si el lote está bloqueado por un paso cortado, el trabajo se reprograma en vez de perderse;
+- un aviso que no se puede enviar (proveedor caído) no detiene el análisis;
+- el resumen se marca como entregado solo cuando sale; se reenvía con el siguiente mensaje del comerciante o con la tarea programada.
+
+La IA recibe los últimos tres productos como contexto, tiene 8.192 tokens de salida y reintenta una vez; el motivo técnico de cada fallo queda en `platform_events`. Las posiciones de las fotos se asignan de forma atómica, porque los webhooks llegan en paralelo.
 
 Límites:
 - 100 fotos por lote (`WAHA_PHOTO_BATCH_MAX`, tope 200).
@@ -140,12 +146,20 @@ Límites:
 | Foto → borrador → confirmar → catálogo | ✅ «Tenis Dama running», 250.000, 7 fotos (flujo normal del motor) |
 | Lote de 12 fotos → resumen → ficha → vista previa con foto → publicar | ✅ «Zapatillas deportivas On Running», 220.000, 3 fotos, talla 40 × 6 |
 | Primera versión sin cola | ❌ el resumen se perdió por el límite de 30 s. Corregido con la cola y la recuperación |
+| Cancelar lote | ✅ «los productos ya confirmados siguen publicados»; fotos temporales borradas |
+| 30 fotos | ❌ primero: IA cortada en `waitUntil` y 2 llamadas fallidas (salida truncada) → 12 grupos, 5 sin nombre. ✅ tras las correcciones: **9 productos con nombre**, agrupación confirmada por el usuario |
+| 65 fotos (reenviadas en varias tandas, 3 repetidas) | ✅ 65 analizadas en 5 llamadas, 31 productos, 3 duplicados descartados, 0,075 USD. ⚠️ El aviso dijo «13» porque la pausa entre tandas superó el silencio de 5 s; ahora son 20 s. Hay algunos productos repetidos entre tandas (se corrigen con «une») |
+| Nota de voz | ❌ `400 unknown-request-field`: el canal de WhatsApp pasaba `seconds` dentro de `inlineData` (habría fallado igual con Meta). ✅ Corregido: «me llegó un par más talla 40» → 9 a 10, confirmado |
+| Reposición por texto | ✅ «llegaron tres pares más talla 40…» → 6 a 9, confirmado (sin IA) |
+| Desconexión real | ✅ El PC se suspendió ~4 h: WAHA se reconectó solo a WhatsApp; el **túnel rápido expiró** («Tunnel not found») → túnel nuevo y nueva `WAHA_API_URL` en staging. El mensaje recibido durante la caída quedó registrado y el resumen se envió después |
+| Reinicio controlado de la sesión | ✅ `session.mjs restart` → WORKING en ~3 s, sin desvincular |
+| Telegram de staging | ✅ respondió (interpretación `ok` por Telegram, sesión de la tienda 1) |
 
-**Pendientes con el usuario**: 20, 50 y 100 fotos reales, nota de voz, CSV, reposición, cancelación del lote, desconexión y restauración de la sesión, cambio controlado de número y Telegram de staging de punta a punta.
+**Pendientes**: 100 fotos en un solo lote, CSV real y cambio controlado de número (requiere otro teléfono).
 
 ## 10. Costos
 
-- **IA medida en staging** (gemini-3.8-flash, precios configurados): agrupar 12 fotos ≈ 13.700 tokens de entrada + 5.200 de salida = **0,017 USD**. Proyección lineal: unos 0,14 USD por 100 fotos (estimado, sin verificar a esa escala). Todo WAHA en staging: 0,024 USD.
+- **IA medida en staging** (gemini-3.8-flash, precios configurados): agrupar 65 fotos = 72.400 tokens de entrada + 21.500 de salida = **0,075 USD** (≈ 0,0012 USD por foto; unos 0,12 USD por 100 fotos). Una nota de voz o una interpretación: menos de 0,002 USD.
 - **Cola**: gratis hasta 10.000 operaciones al día; un lote de 100 fotos usa unas 300.
 - **WAHA**: licencia gratis.
 - **Servidor**: hoy este PC (0 USD). Para 24/7 hace falta un servidor con 2 CPU y 4 GB como mínimo; **precio no cotizado** (no se contrató nada).
@@ -155,7 +169,7 @@ Límites:
 
 1. **Suspensión del número** (no oficial). Mitigación: solo responder, nunca iniciar conversaciones; ritmo humano (leído → escribiendo → pausa); foto de perfil; Meta Cloud API como respaldo. Ante los errores 463/475 **no** reiniciar.
 2. **Disponibilidad**: depende de este PC, de Docker y del túnel rápido.
-3. **URL del túnel temporal**: cambia si se reinicia el contenedor `tunnel`. Hay que actualizar `WAHA_API_URL` y volver a desplegar staging. Para algo estable: túnel con nombre en el dominio propio, con Cloudflare Access.
+3. **URL del túnel temporal**: **expiró de verdad** cuando el PC se suspendió, y también cambia si se reinicia el contenedor `tunnel`. Hay que recrearlo (`docker compose --profile tunnel up -d --force-recreate tunnel`), actualizar `WAHA_API_URL` y volver a desplegar staging; mientras tanto, las respuestas fallan con HTTP 530. Para algo estable: túnel con nombre en el dominio propio, con Cloudflare Access.
 4. **Privacidad**: las fotos y conversaciones pueden ser privadas.
    - WAHA borra sus archivos a la hora.
    - Las fotos temporales del lote se borran al terminar.
@@ -176,12 +190,12 @@ Límites:
 
 | Recurso | Estado |
 |---|---|
-| Worker `sneakerhub-telegram-staging` | **`6e4bca5f`** = código del commit `a51495d` de esta rama. Retorno: `56401a84` |
+| Worker `sneakerhub-telegram-staging` | **`04d82f16`** = código del último commit local de esta rama. Retorno: `56401a84` |
 | D1 staging | 0026 aplicada. Marcador previo: `00000400-00000000-00005121-c9aa92dfabee20e0a528a6be60a4a2cd` |
 | Cola | `tiendia-whatsapp-jobs-staging` (productor y consumidor). Configurada en `wrangler.remote-staging.toml` (local, no versionado) |
-| Variables nuevas | `WAHA_ENABLED=true`, `WAHA_SESSION=tiendia`, `WAHA_API_URL=<túnel>`, `WAHA_PHOTO_BATCH_ENABLED=true`, `WAHA_PHOTO_QUIET_SECONDS=5`, `WAHA_PHOTO_BATCH_MAX=100`. Piloto `1,94` |
+| Variables nuevas | `WAHA_ENABLED=true`, `WAHA_SESSION=tiendia`, `WAHA_API_URL=<túnel>`, `WAHA_PHOTO_BATCH_ENABLED=true`, `WAHA_PHOTO_QUIET_SECONDS=20`, `WAHA_PHOTO_BATCH_MAX=100`. Piloto `1,94` |
 | Secretos nuevos | `WAHA_API_KEY` (clave de sesión limitada), `WAHA_GATEWAY_TOKEN`, `WAHA_WEBHOOK_HMAC_KEY` |
-| Datos ficticios | Usuario 60 `waha-prueba@staging.invalid` (sin contraseña), dueño de la tienda 94. Lote `3062583b` abierto en el producto 2 de 7 |
+| Datos ficticios | Usuario 60 `waha-prueba@staging.invalid` (sin contraseña), dueño de la tienda 94. Productos publicados en las pruebas: «Tenis Dama running» y «Zapatillas deportivas On Running» (talla 40: 10 u.). Lote `af725ee6` (65 fotos) esperando «sí» |
 
 Reversión de staging: `wrangler rollback 56401a84-…` → (opcional) `database/rollback/0026_whatsapp_waha.down.sql` → `wrangler queues delete tiendia-whatsapp-jobs-staging` → `docker compose down`.
 
@@ -194,3 +208,5 @@ Reversión de staging: `wrangler rollback 56401a84-…` → (opcional) `database
 5. Piloto con una tienda interna (`WHATSAPP_PILOT_STORE_IDS`) y revisión diaria de `/api/whatsapp/report`, que ya separa Meta y WAHA y trae el estado de la sesión y los lotes.
 6. Política de conservación por escrito para los comerciantes (fotos y mensajes).
 7. Aplicar 0026 en producción con copia y marcador, desplegar con `WAHA_ENABLED` apagado, hacer humo y solo entonces activar el piloto.
+8. **Mejora de agrupación**: una pasada final que una productos repetidos entre tandas (por ejemplo, con un resumen de texto de los grupos y una foto representativa de cada uno). Hoy se corrige a mano con «une».
+9. La corrección de la voz (`inlineData` sin `seconds`) también arregla el canal de Meta, que nunca se había probado con audio real.
