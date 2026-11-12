@@ -17,6 +17,9 @@ STORE_COUNTRY = "CO"
 # (enlaces ya entregados); retirarlo de esta lista cuando se apague el sitio.
 ALLOWED_ORIGIN = "https://app.tiendiaexpres.com,https://catalogo-digital-ia.catalogo-lite-worker.workers.dev,https://catalogo-digital-ia.netlify.app"
 COMMERCE_ENABLED = "true"
+# Cuota de mensajes con IA por plan: solo observa (así corre producción desde 56b1450b, donde se pasó con
+# --var). Queda escrita aquí para que ninguna publicación la devuelva al valor por defecto sin querer.
+AI_MESSAGE_QUOTA_MODE = "shadow"
 # Plataforma 3.0: base pública para enlaces de tiendas (/t/<dirección>) y activaciones.
 PUBLIC_STORE_BASE_URL = "https://app.tiendiaexpres.com"
 # Correo transaccional (Resend). La clave va como secreto RESEND_API_KEY, nunca aquí.
