@@ -77,7 +77,7 @@ beforeEach(async () => {
   h = createHarness({
     WHATSAPP_ADMIN_BOT_ENABLED: 'true', WHATSAPP_ACCESS_TOKEN: 'token-de-pruebas', WHATSAPP_APP_SECRET: APP_SECRET,
     WHATSAPP_VERIFY_TOKEN: 'verificacion-de-pruebas', WHATSAPP_PHONE_NUMBER_ID: PHONE_ID, WHATSAPP_DISPLAY_NUMBER: '+57 300 000 0000',
-    TELEGRAM_BOT_TOKEN: 'bot-token', GEMINI_API_KEY: '', AI_MESSAGE_QUOTA_MODE: 'shadow',
+    TELEGRAM_BOT_TOKEN: 'bot-token', GEMINI_API_KEY: '', AI_MESSAGE_QUOTA_MODE: 'shadow', WHATSAPP_PILOT_STORE_IDS: '*',
   })
   tienda = await seedStore(h.db, { slug: 'moda-wa', name: 'Moda WA', status: 'active' })
   otra = await seedStore(h.db, { slug: 'otra-wa', name: 'Otra WA', status: 'active' })
@@ -310,12 +310,24 @@ describe('vinculación segura', () => {
   it('con piloto configurado, solo las tiendas autorizadas usan el canal', async () => {
     h.env.WHATSAPP_PILOT_STORE_IDS = String(otra)
     expect((await h.request('/api/whatsapp/link-code', { method: 'POST', token: await userToken(anaId, 'ana@pruebas.test'), store: 'moda-wa' })).status).toBe(403)
-    h.env.WHATSAPP_PILOT_STORE_IDS = ''
+    h.env.WHATSAPP_PILOT_STORE_IDS = '*'
     await link()
     h.env.WHATSAPP_PILOT_STORE_IDS = String(otra)
     await say('inventario')
     expect(last()).toContain('no tiene en este momento una tienda activa habilitada')
     expect(texts().join(' ')).not.toMatch(/Sandalias/)
+  })
+
+  it('sin lista de piloto ninguna tienda queda habilitada', async () => {
+    for (const value of ['', ' ', undefined]) {
+      h.env.WHATSAPP_PILOT_STORE_IDS = value
+      expect((await h.request('/api/whatsapp/link-code', { method: 'POST', token: await userToken(anaId, 'ana@pruebas.test'), store: 'moda-wa' })).status).toBe(403)
+    }
+    h.env.WHATSAPP_PILOT_STORE_IDS = '*'
+    await link()
+    h.env.WHATSAPP_PILOT_STORE_IDS = ''
+    await say('inventario')
+    expect(last()).toContain('no tiene en este momento una tienda activa habilitada')
   })
 })
 

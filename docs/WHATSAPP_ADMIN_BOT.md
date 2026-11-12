@@ -130,7 +130,7 @@ Datos que necesito: identificador del número, identificador de la cuenta de Wha
 | `WHATSAPP_ACCOUNT_ID` | variable | Referencia de la cuenta. |
 | `WHATSAPP_ADMIN_BOT_ENABLED` | variable | `true` activa. Cualquier otro valor: apagado. |
 | `WHATSAPP_DISPLAY_NUMBER` | variable | Número para el enlace `wa.me`. |
-| `WHATSAPP_PILOT_STORE_IDS` | variable | Tiendas habilitadas (vacío = todas). |
+| `WHATSAPP_PILOT_STORE_IDS` | variable | Tiendas habilitadas: ids separados por coma, o `*` para todas. Vacío = ninguna. |
 | `WHATSAPP_GRAPH_VERSION` | variable | Por defecto `v26.0`. |
 | `WHATSAPP_RATES_USD_MICROS` | variable | Tarifas para el estimado. |
 | `WHATSAPP_MONITOR_DAILY_MESSAGES`, `WHATSAPP_MEDIA_HOSTS` | variable | Umbral de alerta; hosts extra de descarga. |

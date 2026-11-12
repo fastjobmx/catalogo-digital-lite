@@ -68,10 +68,15 @@ type InboundMessage = {
   document?: { id?: string; filename?: string; mime_type?: string; caption?: string }
 }
 
-/** Tiendas habilitadas para el canal: todas, o solo las del piloto (WHATSAPP_PILOT_STORE_IDS). */
+/**
+ * Tiendas habilitadas para el canal (WHATSAPP_PILOT_STORE_IDS): una lista de ids, o «*» para todas.
+ * Vacío o sin definir = ninguna: abrir el canal a todos los comercios exige escribirlo a propósito.
+ */
 export function pilotAllows(env: Partial<Bindings>, storeId: number): boolean {
-  const pilot = String(env.WHATSAPP_PILOT_STORE_IDS || '').split(',').map((value) => Number(value.trim())).filter((value) => Number.isSafeInteger(value) && value > 0)
-  return !pilot.length || pilot.includes(storeId)
+  const raw = String(env.WHATSAPP_PILOT_STORE_IDS || '').trim()
+  if (raw === '*') return true
+  const pilot = raw.split(',').map((value) => Number(value.trim())).filter((value) => Number.isSafeInteger(value) && value > 0)
+  return pilot.includes(storeId)
 }
 
 // ───────────────────────── Recepción ─────────────────────────

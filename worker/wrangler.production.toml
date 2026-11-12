@@ -30,6 +30,12 @@ EMAIL_TEST_RECIPIENTS = "explorandocdsm@gmail.com"
 # Estudio IA: modelo que devuelve imágenes y su precio de salida (US$60 por millón de tokens de imagen)
 GEMINI_IMAGE_MODEL = "gemini-3.1-flash-image"
 GEMINI_IMAGE_PRICE_OUTPUT_MICROS_PER_MTOK = "60000000"
+# Cuota de mensajes IA: hoy solo observa (shadow). Antes se pasaba con --var en cada despliegue.
+AI_MESSAGE_QUOTA_MODE = "shadow"
+# Asistente administrativo por WhatsApp: APAGADO. Activarlo exige aprobación expresa.
+# Piloto vacío = ninguna tienda; poner ids separados por coma solo de comercios autorizados ("*" abriría a todos: no usar).
+WHATSAPP_ADMIN_BOT_ENABLED = "false"
+WHATSAPP_PILOT_STORE_IDS = ""
 # Secretos adicionales (wrangler secret put): MASTER_BOT_TOKEN, MASTER_WEBHOOK_SECRET,
 # MASTER_ADMIN_TELEGRAM_IDS. Opcional: TELEGRAM_BOT_USERNAME, PLATFORM_AI_MONTHLY_CAP_MICROS.
 

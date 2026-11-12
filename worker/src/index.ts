@@ -113,7 +113,7 @@ export type Env = {
  /** Graph API version (default v26.0) and the public number shown in wa.me links (digits with country code). */
  WHATSAPP_GRAPH_VERSION?: string
  WHATSAPP_DISPLAY_NUMBER?: string
- /** Pilot: comma-separated store ids allowed on the channel (empty = every store). */
+ /** Pilot: comma-separated store ids allowed on the channel or "*" for every store (empty = none). */
  WHATSAPP_PILOT_STORE_IDS?: string
  /** Estimated Meta rates per category in USD micros, e.g. {"service":800,"utility":800}. Only for reports. */
  WHATSAPP_RATES_USD_MICROS?: string
