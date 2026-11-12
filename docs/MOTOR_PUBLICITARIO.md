@@ -1,7 +1,7 @@
 # Fábrica de publicidad (Estudio Creativo · fase 4)
 
 Rama: `feat/motor-publicitario` (sale de `main` = `0bfbc03`). Worktree: `.tmp/wt-motor`.
-Estado: **completa y validada en local. Commits locales; sin push, sin merge y sin despliegue.** No necesita migración de base de datos.
+Estado: **EN PRODUCCIÓN desde el 2026-11-12 22:05 UTC** (autorizado), publicada desde la rama `integracion/motor-publicitario`: API `3c53c1d8`, panel `6f503c33` (retorno: API `56b1450b`, panel `83900c68`). Sin migración. Sin push. Informe: [INFORME_PUBLICACION_FABRICA_PUBLICIDAD.md](INFORME_PUBLICACION_FABRICA_PUBLICIDAD.md).
 
 | Commit | Contenido |
 |---|---|
