@@ -31,7 +31,7 @@ function seo(siteUrl: string, allowIndexing: boolean, noindexHosts: string[]): P
     name: 'mostralopues-seo',
     transformIndexHtml(html, ctx) {
       // Preload the two Latin variable fonts used above the fold (avoids layout shift on swap).
-      const fonts = Object.keys(ctx.bundle ?? {}).filter((f) => /(space-grotesk|manrope)-latin-wght-normal.*\.woff2$/.test(f))
+      const fonts = Object.keys(ctx.bundle ?? {}).filter((f) => /(plus-jakarta-sans|manrope)-latin-wght-normal.*\.woff2$/.test(f))
       const preload = fonts.map((f) => `<link rel="preload" href="/${f}" as="font" type="font/woff2" crossorigin />`).join('\n    ')
       html = html.replace('</title>', `</title>\n    ${preload}`)
       const robots = allowIndexing ? 'index, follow, max-image-preview:large' : 'noindex, nofollow'

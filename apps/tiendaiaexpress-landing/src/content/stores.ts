@@ -1,86 +1,111 @@
-// Editorial list for "Negocios que ya tienen su tienda con TiendIA Exprés".
+// Real stores shown on the landing ("Tiendas reales").
 //
 // How to manage it (superadministrator):
-//  - Show a store as an example: ONLY after the owner agreed, set `authorized: true`, write who
-//    authorized it and when in `authorizedBy`, and copy its capture to src/assets/stores/:
-//      node scripts/snapshot-stores.mjs <slug>    (public first screen of the store, read-only)
-//      python scripts/optimize_stores.py          (writes scripts/.stores/optimized/, not published)
-//      copy <slug>.webp and <slug>-480.webp to src/assets/stores/
-//    An entry is rendered only when it is authorized AND its image is in src/assets/stores/ (or it
-//    reuses an existing asset), so captures of stores that did not authorize are never published.
-//  - Hide it: `authorized: false` (and remove its files from src/assets/stores/). Order: `order`.
-//  - Rebuild and publish the site. This list only affects the landing: it never changes the store's
-//    status, plan or data, and shows no sales, people or private figures.
-//
-// Data audited read-only on 2026-11-11 (production: active stores and their public URLs).
+//  - Show a store: ONLY after the owner agreed, set `authorized: true` and write who authorized it
+//    and when in `authorizedBy`. Then capture its public material (read-only):
+//      node scripts/snapshot-stores.mjs <slug>        desktop first screen → src/assets/stores/
+//      node scripts/snapshot-real-stores.mjs          product photos, phone screen and figures
+//      python scripts/optimize_stores.py && python scripts/optimize_real.py
+//    Product photos are chosen in PICKS (snapshot-real-stores.mjs): originals from the store's own
+//    catalogue, without third-party brand marks or licensed characters.
+//  - Hide it: `authorized: false` (and remove its files from src/assets/stores/ and src/assets/real/).
+//  - This list only affects the landing: it never changes the store's status, plan or data, and
+//    shows no sales, people's data or private figures. Product counts are the public catalogue's.
 import { site } from '../config/site'
-import { screens } from './media'
+import real from './realStores.json'
+import { desktop, products as pilotProducts, productCount, categories, screens, screenSrcSet } from './media'
 
 const captures = import.meta.glob('../assets/stores/*.webp', { eager: true, import: 'default' }) as Record<string, string>
+const realAssets = import.meta.glob('../assets/real/*.webp', { eager: true, import: 'default' }) as Record<string, string>
 const capture = (file: string) => captures[`../assets/stores/${file}`]
+const realAsset = (file: string) => realAssets[`../assets/real/${file}`]
 
-type Image = { src: string; srcSet?: string; width: number; height: number; phone?: boolean }
+type RealStore = { productCount: number; categoryCount: number; products: { sku: string; name: string; price: number; image: string; width: number; height: number }[] }
+const realStores = real.stores as Record<string, RealStore>
+/** Date of the read-only capture of the public catalogues (figures and photos). */
+export const realCapturedAt = real.capturedAt
 
-type Entry = {
+export type StoreProduct = { name: string; price: number; src: string; width: number; height: number }
+export type ShowcaseStore = {
   slug: string
   name: string
   category: string
-  /** Store template, shown when it adds value. */
   template?: string
   blurb: string
-  /** Existing asset, or the base name of a capture in src/assets/stores/. */
-  image: Image | { capture: string }
-  order: number
-  authorized: boolean
-  authorizedBy?: string
+  url: string
+  productCount: number
+  categoryCount: number
+  desktop: { src: string; srcSet?: string; width: number; height: number }
+  phone: { src: string; srcSet?: string }
+  products: StoreProduct[]
 }
+
+type Entry = { slug: string; name: string; category: string; template?: string; blurb: string; order: number; authorized: boolean; authorizedBy?: string }
 
 const ENTRIES: Entry[] = [
   {
-    slug: 'sneakerhub-premium',
-    name: 'SneakerHub Premium',
-    category: 'Calzado y streetwear',
-    blurb: 'La tienda piloto de la plataforma: catálogo con tallas, carrito y pedidos por WhatsApp.',
-    // Reuses the real catalogue capture (the showcase above uses the home, product and cart screens).
-    image: { src: screens.catalog, width: 390, height: 844, phone: true },
+    slug: 'luz-magica',
+    name: 'Luz Mágica',
+    category: 'Tocadores, espejos y muebles',
+    template: 'Boutique',
+    blurb: 'Tocadores, espejos LED y muebles fabricados a la medida, con pago contra entrega y domicilios en Medellín.',
     order: 1,
     authorized: true,
-    authorizedBy: 'Tienda piloto propia de la plataforma, ya publicada como demostración.',
+    authorizedBy: 'Autorización del comercio confirmada por el propietario de la plataforma el 2026-11-11.',
   },
   {
     slug: 'muy-parcero',
     name: 'MUY PARCERO',
     category: 'Tenis, ropa y estilo urbano',
     template: 'Personalizada',
-    blurb: 'Ropa y tenis para dama, caballero y niño, con pedidos por WhatsApp.',
-    image: { capture: 'muy-parcero' },
+    blurb: 'Ropa y tenis para dama, caballero y niño, con una tienda a su medida y pedidos por WhatsApp.',
     order: 2,
     authorized: true,
     authorizedBy: 'Autorización del comercio confirmada por el propietario de la plataforma el 2026-11-11.',
   },
   {
-    slug: 'luz-magica',
-    name: 'Luz Mágica',
-    category: 'Tocadores, espejos y muebles',
-    template: 'Boutique',
-    blurb: 'Tocadores, espejos LED y muebles fabricados a la medida, con domicilios en Medellín.',
-    image: { capture: 'luz-magica' },
+    slug: 'sneakerhub-premium',
+    name: 'SneakerHub Premium',
+    category: 'Calzado y streetwear',
+    blurb: 'La tienda piloto de la plataforma: catálogo con tallas, carrito y pedidos por WhatsApp.',
     order: 3,
     authorized: true,
-    authorizedBy: 'Autorización del comercio confirmada por el propietario de la plataforma el 2026-11-11.',
+    authorizedBy: 'Tienda piloto propia de la plataforma, ya publicada como demostración.',
   },
 ]
 
-function resolveImage(image: Entry['image']): Image | null {
-  if (!('capture' in image)) return image
-  const src = capture(`${image.capture}.webp`)
-  const small = capture(`${image.capture}-480.webp`)
-  return src ? { src, srcSet: small ? `${small} 480w, ${src} 960w` : undefined, width: 960, height: 600 } : null
+function resolve(entry: Entry): ShowcaseStore | null {
+  const base = { slug: entry.slug, name: entry.name, category: entry.category, template: entry.template, blurb: entry.blurb, url: `${site.appUrl}/t/${entry.slug}` }
+  if (entry.slug === 'sneakerhub-premium') {
+    return {
+      ...base,
+      productCount,
+      categoryCount: categories.length,
+      desktop: { ...desktop.home, width: 1440, height: 900 },
+      phone: { src: screens.home, srcSet: screenSrcSet.home },
+      products: pilotProducts.slice(0, 4).map((p) => ({ name: p.name, price: p.price, src: p.src, width: 480, height: 480 })),
+    }
+  }
+  const data = realStores[entry.slug]
+  const src = capture(`${entry.slug}.webp`)
+  const phone = realAsset(`${entry.slug}--movil.webp`)
+  if (!data || !src || !phone) return null
+  const small = capture(`${entry.slug}-480.webp`)
+  const phoneSmall = realAsset(`${entry.slug}--movil-480.webp`)
+  return {
+    ...base,
+    productCount: data.productCount,
+    categoryCount: data.categoryCount,
+    desktop: { src, srcSet: small ? `${small} 480w, ${src} 960w` : undefined, width: 960, height: 600 },
+    phone: { src: phone, srcSet: phoneSmall ? `${phoneSmall} 480w, ${phone} 720w` : undefined },
+    products: data.products.map((p) => ({ name: p.name, price: p.price, src: realAsset(p.image), width: p.width, height: p.height })).filter((p) => p.src),
+  }
 }
 
-export type ShowcaseStore = Omit<Entry, 'image'> & { image: Image; url: string }
-
+/** Rendered only when authorized AND its captures exist, so unauthorized stores are never published. */
 export const showcaseStores: ShowcaseStore[] = ENTRIES.filter((e) => e.authorized)
-  .map((e) => ({ ...e, image: resolveImage(e.image), url: `${site.appUrl}/t/${e.slug}` }))
-  .filter((e): e is ShowcaseStore => e.image !== null)
   .sort((a, b) => a.order - b.order)
+  .map(resolve)
+  .filter((s): s is ShowcaseStore => s !== null)
+
+export const storeBySlug = (slug: string) => showcaseStores.find((s) => s.slug === slug)

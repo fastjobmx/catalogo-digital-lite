@@ -15,8 +15,14 @@ export const site = {
   demoStoreUrl: `${__APP_URL__}/`,
   /** Store owners' panel login. Accounts with several stores choose the store after signing in. */
   adminLoginUrl: `${__APP_URL__}/admin/login`,
-  /** Free trial without sign-up: a temporary, unpublished preview of the visitor's catalogue (48 hours). */
+  /** Free trial without sign-up: a temporary mini store (platform route /prueba). */
   trialUrl: `${__APP_URL__}/prueba`,
+  /**
+   * Trial conditions as the live /prueba page states them (read on 2026-11-12): no e-mail or
+   * password, up to 7 products with a photo, 7 days. The superadministrator can change them in
+   * /plataforma/pruebas: update these two figures when that happens.
+   */
+  trial: { days: 7, products: 7 },
 
   whatsapp: {
     /** International format, digits only. */

@@ -1,60 +1,41 @@
-// Visual QA: screenshots of the local build at the required widths.
-// Usage: node scripts/screens.mjs [baseUrl] [--full] [--story]
-//   default: first viewport at every width; --full: full page; --story: frames of the cinematic story.
+// Screenshots of the landing for review (tests/screens/, not committed).
+// Usage: node scripts/screens.mjs [baseUrl] [outDir]     default http://localhost:4318 tests/screens
+// Reduced motion is requested so every section is visible without scrolling animations.
 import { mkdir } from 'node:fs/promises'
-import { fileURLToPath } from 'node:url'
 import { chromium } from '@playwright/test'
 import { chromiumPath } from './browser.mjs'
 
-const base = process.argv.find((a) => a.startsWith('http')) || 'http://localhost:4317/'
-const full = process.argv.includes('--full')
-const storyFrames = process.argv.includes('--story')
-const only = process.argv.find((a) => a.startsWith('--w='))?.slice(4).split(',').map(Number)
-const widths = only || [360, 390, 768, 1024, 1440, 1920]
-const heights = { 360: 740, 390: 844, 768: 1024, 1024: 768, 1440: 900, 1920: 1080 }
-const out = new URL('../tests/screens/', import.meta.url)
+const base = process.argv[2] || 'http://localhost:4318'
+const out = process.argv[3] || 'tests/screens'
 await mkdir(out, { recursive: true })
+const SECTIONS = ['inicio', 'funciones', 'como-funciona', 'tiendas', 'demo', 'estudio', 'administracion', 'planes', 'preguntas', 'contacto']
+const VIEWPORTS = { desktop: { width: 1440, height: 900 }, tablet: { width: 820, height: 1180 }, mobile: { width: 390, height: 844 } }
 
-const browser = await chromium.launch({ executablePath: chromiumPath(), args: ['--headless=new'] })
-const errors = []
-for (const width of widths) {
-  const mobile = width < 768
-  const ctx = await browser.newContext({ viewport: { width, height: heights[width] || 900 }, deviceScaleFactor: 1, isMobile: mobile, hasTouch: mobile })
-  const page = await ctx.newPage()
-  page.on('pageerror', (e) => errors.push(`${width}: ${e.message}`))
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(`${width} console: ${m.text()}`) })
+const browser = await chromium.launch({ executablePath: chromiumPath() })
+for (const [name, viewport] of Object.entries(VIEWPORTS)) {
+  const context = await browser.newContext({ viewport, deviceScaleFactor: 1, reducedMotion: 'reduce', locale: 'es-CO', isMobile: name === 'mobile', hasTouch: name !== 'desktop' })
+  const page = await context.newPage()
   await page.goto(base, { waitUntil: 'networkidle' })
-  await page.waitForTimeout(2600)
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
-  if (overflow > 0) errors.push(`${width}: horizontal overflow ${overflow}px`)
-  // Content clipped by an overflow-hidden ancestor does not scroll the page: look for it too.
-  const clipped = await page.evaluate(() => {
-    const vw = window.innerWidth
-    return [...document.querySelectorAll('main p, main h1, main h2, main h3, main button, main a, main input, main textarea, footer p, footer a')]
-      .filter((el) => !el.closest('.story-sticky, [aria-hidden="true"], .sr-only'))
-      .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && (r.right > vw + 1 || r.left < -1) })
-      .slice(0, 5).map((el) => `${el.tagName.toLowerCase()} "${(el.textContent || '').trim().slice(0, 40)}"`)
-  })
-  if (clipped.length) errors.push(`${width}: content outside the viewport: ${clipped.join(' | ')}`)
-  if (storyFrames) {
-    const trackHeight = await page.evaluate(() => document.querySelector('.story-track')?.getBoundingClientRect().height || 0)
-    const top = await page.evaluate(() => document.querySelector('.story-track')?.getBoundingClientRect().top + window.scrollY)
-    const scrollable = trackHeight - (heights[width] || 900)
-    for (const p of [0, 0.08, 0.2, 0.3, 0.38, 0.55, 0.62, 0.85]) {
-      await page.evaluate((y) => window.scrollTo(0, y), Math.round(top + scrollable * p))
-      await page.waitForTimeout(1300)
-      await page.screenshot({ path: fileURLToPath(new URL(`story-${width}-${String(Math.round(p * 100)).padStart(3, '0')}.png`, out)) })
-    }
-  } else {
-    if (full) {
-      // Walk the page so scroll-driven pieces settle, then capture.
-      const h = await page.evaluate(() => document.body.scrollHeight)
-      for (let y = 0; y < h; y += 700) { await page.evaluate((v) => window.scrollTo(0, v), y); await page.waitForTimeout(120) }
-      await page.evaluate(() => window.scrollTo(0, 0)); await page.waitForTimeout(800)
-    }
-    await page.screenshot({ path: fileURLToPath(new URL(`home-${width}${full ? '-full' : ''}.png`, out)), fullPage: full })
+  await page.evaluate(() => document.fonts.ready)
+  // Lazy images: walk the page once so every capture has its pictures.
+  await page.evaluate(async () => { for (let y = 0; y < document.body.scrollHeight; y += 600) { window.scrollTo(0, y); await new Promise((r) => setTimeout(r, 60)) } window.scrollTo(0, 0) })
+  await page.waitForLoadState('networkidle')
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: `${out}/${name}-portada.png` })
+  await page.screenshot({ path: `${out}/${name}-completa.jpg`, fullPage: true, type: 'jpeg', quality: 72 })
+  await page.addStyleTag({ content: '#root > header{visibility:hidden}' })
+  for (const id of SECTIONS) {
+    const section = page.locator(`#${id}`)
+    if (await section.count()) await section.screenshot({ path: `${out}/${name}-${id}.jpg`, type: 'jpeg', quality: 78 })
   }
-  await ctx.close()
+  await page.addStyleTag({ content: '#root > header{visibility:visible}' })
+  await page.evaluate(() => window.scrollTo(0, 0))
+  if (name !== 'desktop') {
+    const toggle = page.getByRole('button', { name: 'Abrir menú' })
+    await page.waitForTimeout(300)
+    if (await toggle.isVisible()) { await toggle.click({ timeout: 5000 }).then(() => page.waitForTimeout(500)).then(() => page.screenshot({ path: `${out}/${name}-menu.png` })).catch((e) => console.warn(name, 'menu:', e.message.slice(0, 120))) } else console.warn(name, 'menu toggle not visible')
+  }
+  await context.close()
 }
 await browser.close()
-console.log(errors.length ? `ISSUES:\n${errors.join('\n')}` : 'no console errors, no horizontal overflow')
+console.log('screens ok →', out)

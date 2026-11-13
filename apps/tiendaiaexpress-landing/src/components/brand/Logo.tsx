@@ -1,42 +1,32 @@
-import logo360 from '../../assets/brand/logo-principal-360.webp'
-import logo720 from '../../assets/brand/logo-principal-720.webp'
-import logo1200 from '../../assets/brand/logo-principal-1200.webp'
-import iso96 from '../../assets/brand/isotipo-96.webp'
-import iso192 from '../../assets/brand/isotipo-192.webp'
+import iso96 from '../../assets/brand/isotipo-carrito-96.webp'
+import iso192 from '../../assets/brand/isotipo-carrito-192.webp'
 
 /**
- * Approved logo variants, cut from the official "TiendIA Exprés" artwork (brand/tiendaiaexpress/).
- * Never recolour or stretch it: width is set and height follows the real aspect ratio
- * (1290 × 490 for the logo with its slogan, 515 × 515 for the app icon).
- *
- * - "principal": logo + "TU TIENDA ONLINE, MÁS FÁCIL." on its own dark-green background (rounded plate).
- * - "isotipo": the official app icon (rounded square) — works on dark and light surfaces.
+ * Brand lockup for dark surfaces: the official cart isotype (owner artwork with transparency,
+ * brand-originals/isotipo-carrito-transparente.png — never recoloured or stretched) next to the
+ * wordmark set in the display typeface with the logo's own colours: white "Tiend", violet "IA",
+ * lime "Exprés" plate. The wordmark is ≥ 19.2 px bold, so the violet meets large-text contrast.
  */
-const RATIO = { principal: 490 / 1290, isotipo: 1 }
-
-type Props = {
-  variant?: 'principal' | 'isotipo'
-  width: number
-  className?: string
-  /** Decorative when the brand name is already written next to it. */
-  decorative?: boolean
-  priority?: boolean
-}
-
-export function Logo({ variant = 'principal', width, className, decorative, priority }: Props) {
-  const height = Math.round(width * RATIO[variant])
-  const common = {
-    width,
-    height,
-    className,
-    alt: decorative ? '' : 'Tienda IA Express',
-    decoding: 'async' as const,
-    loading: priority ? ('eager' as const) : ('lazy' as const),
-    fetchPriority: priority ? ('high' as const) : undefined,
-    draggable: false,
-  }
-  if (variant === 'isotipo') {
-    return <img src={iso192} srcSet={`${iso96} 96w, ${iso192} 192w`} sizes={`${width}px`} {...common} />
-  }
-  return <img src={logo720} srcSet={`${logo360} 360w, ${logo720} 720w, ${logo1200} 1200w`} sizes={`${width}px`} {...common} />
+export function Logo({ size = 'md', priority, className = '' }: { size?: 'md' | 'lg'; priority?: boolean; className?: string }) {
+  const large = size === 'lg'
+  const width = large ? 64 : 46
+  return (
+    <span className={`inline-flex items-center gap-2.5 ${className}`}>
+      <img
+        src={iso192}
+        srcSet={`${iso96} 96w, ${iso192} 192w`}
+        sizes={`${width}px`}
+        width={width}
+        height={Math.round(width * (132 / 192))}
+        alt=""
+        decoding="async"
+        loading={priority ? 'eager' : 'lazy'}
+        draggable={false}
+      />
+      <span className={`flex items-baseline gap-1.5 font-display font-extrabold italic leading-none tracking-[-0.04em] ${large ? 'text-[1.75rem]' : 'text-[1.2rem]'}`} aria-hidden="true">
+        <span className="text-ivory">Tiend<span className="text-violet">IA</span></span>
+        <span className={`rounded-md bg-lime text-forest ${large ? 'px-2 py-1 text-[1.2rem]' : 'px-1.5 py-[0.2rem] text-[0.82rem]'}`}>Exprés</span>
+      </span>
+    </span>
+  )
 }

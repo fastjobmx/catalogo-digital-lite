@@ -29,9 +29,9 @@ test.describe('plans and prices', () => {
     await expect(card(page, 'Mayorista')).toContainText('Total del primer año: $2.337.800 COP')
     await chooseAnnual(page)
     await expect(page.getByRole('radio', { name: 'Pago anual' })).toBeChecked()
-    await expect(card(page, 'Emprendedor')).toContainText('Ahorrás $268.800 COP')
-    await expect(card(page, 'Negocio')).toContainText('Ahorrás $398.800 COP')
-    await expect(card(page, 'Mayorista')).toContainText('Ahorrás $638.800 COP')
+    await expect(card(page, 'Emprendedor')).toContainText('Ahorras $268.800 COP')
+    await expect(card(page, 'Negocio')).toContainText('Ahorras $398.800 COP')
+    await expect(card(page, 'Mayorista')).toContainText('Ahorras $638.800 COP')
     await expect(card(page, 'Mayorista')).toContainText('sin pago inicial adicional')
   })
 
@@ -109,7 +109,7 @@ test.describe('accessibility', () => {
     await page.getByRole('radio', { name: 'Pago mensual' }).focus()
     await page.keyboard.press('ArrowRight')
     await expect(page.getByRole('radio', { name: 'Pago anual' })).toBeChecked()
-    await expect(card(page, 'Negocio')).toContainText('Ahorrás $398.800 COP')
+    await expect(card(page, 'Negocio')).toContainText('Ahorras $398.800 COP')
 
     await page.getByRole('tab', { name: 'Inicio' }).focus()
     await page.keyboard.press('ArrowRight')
@@ -132,7 +132,7 @@ test.describe('accessibility', () => {
     const close = page.getByRole('button', { name: 'Cerrar menú' })
     await expect(close).toBeFocused()
     await page.keyboard.press('Tab')
-    await expect(page.getByRole('dialog', { name: 'Menú' }).getByRole('link', { name: 'Inicio' })).toBeFocused()
+    await expect(page.getByRole('dialog', { name: 'Menú' }).getByRole('link', { name: 'Funciones' })).toBeFocused()
     await page.keyboard.press('Shift+Tab')
     await expect(close).toBeFocused()
     await page.keyboard.press('Shift+Tab') // wraps to the last control of the menu, never behind it

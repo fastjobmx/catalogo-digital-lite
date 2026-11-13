@@ -1,60 +1,79 @@
-// "Negocios que ya tienen su tienda con TiendIA Exprés": real stores that authorized appearing
-// (src/content/stores.ts). Cards link to each store's public URL; no private data is shown.
+// "Tiendas reales": authorized stores (src/content/stores.ts) with their real captures, public
+// catalogue figures and original product photos. Every external link goes to a public store URL.
+import { useState, type KeyboardEvent } from 'react'
 import { showcaseStores } from '../content/stores'
-import { Badge, Button, SectionHeading } from '../components/ui/primitives'
-import { Icon } from '../components/ui/Icon'
+import { formatCOP } from '../content/media'
+import { Button, BrowserFrame, SectionHeading } from '../components/ui/primitives'
+import { PhoneFrame } from '../components/ui/PhoneFrame'
 
 export function Stores() {
+  const [active, setActive] = useState(showcaseStores[0]?.slug)
+  // ARIA tabs pattern: arrows, Home and End move between tabs (roving tabindex).
+  const onKey = (e: KeyboardEvent<HTMLButtonElement>) => {
+    const at = showcaseStores.findIndex((s) => s.slug === active)
+    const next = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: showcaseStores.length - 1 }[e.key]
+    if (next === undefined) return
+    e.preventDefault()
+    const target = showcaseStores[(next + showcaseStores.length) % showcaseStores.length]
+    setActive(target.slug)
+    document.getElementById(`tienda-tab-${target.slug}`)?.focus()
+  }
   return (
-    <section id="tiendas" aria-labelledby="tiendas-title" className="bg-ivory py-24 md:py-36">
+    <section id="tiendas" aria-labelledby="tiendas-title" className="bg-ivory py-24 md:py-32">
       <div className="wrap">
-        <SectionHeading
-          id="tiendas-title"
-          size="md"
-          kicker={<Badge kind="real" label="Tiendas en funcionamiento" />}
-          title="Negocios que ya tienen su tienda con TiendIA Exprés"
-          intro="Explorá catálogos reales y descubrí cómo podría verse el tuyo."
-        />
-        <ul className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {showcaseStores.map((store) => (
-            <li key={store.slug} className="flex">
-              <article className="flex w-full flex-col overflow-hidden rounded-[2rem] bg-paper ring-1 ring-forest/8">
-                <div className={`relative aspect-[16/10] overflow-hidden ${store.image.phone ? 'bg-forest' : 'bg-forest/5'}`}>
-                  {store.image.phone ? (
-                    // Phone capture: shown inside the screen area so it is not stretched.
-                    <img src={store.image.src} alt={`Catálogo de ${store.name} en el celular`} width={store.image.width} height={store.image.height} loading="lazy" decoding="async" className="absolute left-1/2 top-6 w-[42%] -translate-x-1/2 rounded-t-[1.4rem] shadow-[0_30px_60px_-20px_rgba(0,0,0,.6)] ring-4 ring-forest-raised" />
-                  ) : (
-                    <img src={store.image.src} srcSet={store.image.srcSet} sizes="(min-width: 1024px) 30vw, (min-width: 640px) 46vw, 92vw" alt={`Portada de la tienda ${store.name}`} width={store.image.width} height={store.image.height} loading="lazy" decoding="async" className="size-full object-cover object-top" />
-                  )}
+        <div data-reveal>
+          <SectionHeading id="tiendas-title" eyebrow="Tiendas reales" title={<>Negocios que ya venden <span className="accent text-violet-ink">con su propia tienda.</span></>} intro="Explora catálogos reales, con sus fotos y sus precios, y descubre cómo podría verse el tuyo." />
+        </div>
+
+        <div className="mt-12 flex flex-wrap gap-2" role="tablist" aria-label="Tiendas">
+          {showcaseStores.map((store) => {
+            const selected = store.slug === active
+            return (
+              <button key={store.slug} type="button" role="tab" id={`tienda-tab-${store.slug}`} aria-selected={selected} aria-controls={`tienda-panel-${store.slug}`} tabIndex={selected ? 0 : -1} onClick={() => setActive(store.slug)} onKeyDown={onKey} className={`min-h-12 rounded-full px-5 font-display text-[0.98rem] font-bold tracking-tight transition-colors duration-300 ${selected ? 'bg-forest text-ivory' : 'bg-paper text-forest ring-1 ring-inset ring-forest/12 hover:ring-forest/40'}`}>
+                {store.name}
+              </button>
+            )
+          })}
+        </div>
+
+        {showcaseStores.map((store) => (
+          <div key={store.slug} role="tabpanel" id={`tienda-panel-${store.slug}`} aria-labelledby={`tienda-tab-${store.slug}`} hidden={store.slug !== active} className="mt-8">
+            <article className="grid grid-cols-1 gap-10 overflow-hidden rounded-[2rem] bg-paper p-6 ring-1 ring-forest/8 lift md:p-10 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] lg:gap-12">
+              <div className="relative pb-8 pr-6 sm:pr-14">
+                <BrowserFrame url={store.url.replace('https://', '')} className="shadow-[0_40px_80px_-40px_rgba(6,43,37,.6)]">
+                  <img src={store.desktop.src} srcSet={store.desktop.srcSet} sizes="(min-width: 1024px) 44vw, 86vw" alt={`Captura real de la tienda ${store.name} en el computador`} width={store.desktop.width} height={store.desktop.height} loading="lazy" decoding="async" className="aspect-[16/10] w-full object-cover object-top" />
+                </BrowserFrame>
+                <div className="absolute bottom-0 right-0">
+                  <PhoneFrame src={store.phone.src} alt={`Captura real de la tienda ${store.name} en el celular`} width="clamp(6.5rem, 17vw, 10.5rem)" />
                 </div>
-                <div className="flex flex-1 flex-col p-6 md:p-7">
-                  <h3 className="font-display text-2xl font-bold leading-tight">{store.name}</h3>
-                  <p className="mt-1 text-sm font-semibold text-ink-soft">
-                    {store.category}{store.template ? <> · Plantilla {store.template}</> : null}
-                  </p>
-                  <p className="mt-3 flex-1 text-[0.98rem] leading-relaxed text-ink-soft">{store.blurb}</p>
-                  <div className="mt-6">
-                    <Button href={store.url} variant="forest" icon="arrowUpRight" external aria-label={`Ver tienda ${store.name} (se abre en una pestaña nueva)`}>Ver tienda</Button>
-                  </div>
-                </div>
-              </article>
-            </li>
-          ))}
-          {/* Full-width call to action when the stores fill whole rows; otherwise it takes the free cell. */}
-          <li className={`flex ${showcaseStores.length % 3 === 0 ? 'lg:col-span-3' : ''} ${showcaseStores.length % 2 === 0 ? 'sm:col-span-2 lg:col-span-1' : ''}`}>
-            <article className={`on-dark flex w-full flex-col justify-between gap-8 rounded-[2rem] bg-forest p-7 text-ivory md:p-9 ${showcaseStores.length % 3 === 0 ? 'lg:flex-row lg:items-center' : ''}`}>
-              <div>
-                <span className="grid size-12 place-items-center rounded-2xl bg-lime text-forest"><Icon name="store" size={24} /></span>
-                <h3 className="mt-6 font-display text-2xl font-bold leading-tight md:text-3xl">Tu negocio puede ser el próximo.</h3>
-                <p className="mt-3 text-mist">Mirá cómo quedan tus productos con una vista previa gratis, o escribinos y armamos tu tienda con vos.</p>
               </div>
-              <div className="flex shrink-0 flex-col gap-2.5">
-                <Button href="#contacto" variant="lime" icon="arrowRight">Quiero mi tienda</Button>
-                <Button href="#planes" variant="outline-light">Conocer planes</Button>
+
+              <div className="flex min-w-0 flex-col">
+                <p className="eyebrow text-violet-ink">{store.category}</p>
+                <h3 className="display mt-3 text-[clamp(1.9rem,3.2vw,2.6rem)]">{store.name}</h3>
+                <p className="mt-3 text-[1.05rem] leading-relaxed text-ink-soft">{store.blurb}</p>
+                <dl className="mt-6 flex flex-wrap gap-x-8 gap-y-3 border-y border-forest/10 py-5">
+                  <div><dt className="text-[0.8rem] text-ink-soft">Productos publicados</dt><dd className="font-display text-2xl font-extrabold tracking-tight">{store.productCount}</dd></div>
+                  <div><dt className="text-[0.8rem] text-ink-soft">Categorías</dt><dd className="font-display text-2xl font-extrabold tracking-tight">{store.categoryCount}</dd></div>
+                  {store.template ? <div><dt className="text-[0.8rem] text-ink-soft">Plantilla</dt><dd className="font-display text-2xl font-extrabold tracking-tight">{store.template}</dd></div> : null}
+                </dl>
+                <ul className="mt-6 grid grid-cols-3 gap-3" aria-label={`Productos de ${store.name}`}>
+                  {store.products.slice(0, 3).map((product) => (
+                    <li key={product.name}>
+                      <img src={product.src} alt={`${product.name}, foto original del catálogo de ${store.name}`} width={product.width} height={product.height} loading="lazy" decoding="async" className="aspect-[4/5] w-full rounded-2xl bg-ivory object-cover ring-1 ring-forest/8" />
+                      <p className="mt-2 line-clamp-2 text-[0.8rem] font-semibold leading-tight">{product.name}</p>
+                      <p className="text-[0.8rem] text-ink-soft">{formatCOP(product.price)}</p>
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-3 lg:mt-auto lg:pt-8">
+                  <Button href={store.url} variant="forest" icon="arrowUpRight" external aria-label={`Ver tienda ${store.name} (se abre en una pestaña nueva)`}>Ver tienda</Button>
+                  <p className="text-[0.8rem] text-ink-soft">Los productos y precios pueden cambiar en la tienda.</p>
+                </div>
               </div>
             </article>
-          </li>
-        </ul>
+          </div>
+        ))}
       </div>
     </section>
   )
