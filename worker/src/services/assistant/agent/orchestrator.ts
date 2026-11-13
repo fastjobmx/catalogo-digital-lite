@@ -20,7 +20,7 @@ import { handleCommerceText, runCommerceIntent } from '../commerce/engine'
 import type { CommerceIntent } from '../commerce/intent'
 import { fold } from '../commerce/language'
 import { parseCommerce } from '../commerce/parse'
-import { loadCatalog, matchProducts, resolveProduct, type CatalogProduct } from '../commerce/resolve'
+import { loadCatalog, matchProducts, resolveProduct, variantLabel, type CatalogProduct } from '../commerce/resolve'
 import { parseVariants } from '../operations'
 import { makeStep, planTurn, type Step, type ToolName } from './planner'
 import { askConfirmation, DENIED, filterCatalog, intentFromStep, LIST_LIMIT, renderChoice, renderList, renderProduct, renderSnapshot, shortPreview, storeSnapshot, toolOfIntent, TOOLS } from './tools'
@@ -404,7 +404,8 @@ async function runSteps(ctx: AssistantContext, text: string, steps: Step[], turn
       case 'deshacer': {
         const undo = await undoIntent(ctx)
         if (typeof undo === 'string') out.push(undo)
-        else { if (!TOOLS[toolOfIntent(undo)].allowed(ctx)) out.push(DENIED.write); else return runWrites(ctx, text, [undo], turn, pending, focus, `${out.length ? `${out.join('\n\n')}\n\n` : ''}Deshago el último cambio. `) }
+        else if (!TOOLS[toolOfIntent(undo.intent)].allowed(ctx)) out.push(DENIED.write)
+        else return runWrites(ctx, text, [undo.intent], turn, pending, focus, `${out.length ? `${out.join('\n\n')}\n\n` : ''}Deshago el último cambio. ${undo.note}`)
         break
       }
       case 'aclarar': case 'conversar':
@@ -538,22 +539,51 @@ async function applyBatch(ctx: AssistantContext, batch: NonNullable<AgentState['
   await reply(ctx, `${head}\n${lines.join('\n')}`)
 }
 
-/** The inverse of the last change applied from this conversation in the last minutes, as a normal proposal. */
-async function undoIntent(ctx: AssistantContext): Promise<CommerceIntent | string> {
+/**
+ * The inverse of the last change applied from this conversation in the last minutes, as a normal proposal.
+ * It never overwrites what happened afterwards: stock is reverted by the difference the change made (a sale
+ * registered in between is kept), and it is refused when that would go below zero or when the price was
+ * changed again by someone else.
+ */
+async function undoIntent(ctx: AssistantContext): Promise<{ intent: CommerceIntent; note: string } | string> {
   const last = await ctx.db.prepare(
-    `SELECT action, params_json, before_json FROM telegram_operations
+    `SELECT action, params_json, before_json, after_json FROM telegram_operations
      WHERE chat_id = ? AND store_id = ? AND status = 'applied' AND completed_at >= datetime('now', '${UNDO_WINDOW}')
      ORDER BY completed_at DESC, rowid DESC LIMIT 1`,
-  ).bind(String(ctx.chatId), ctx.store.id).first<{ action: string; params_json: string; before_json: string }>()
+  ).bind(String(ctx.chatId), ctx.store.id).first<{ action: string; params_json: string; before_json: string; after_json: string }>()
   if (!last) return 'No encuentro un cambio reciente para deshacer (solo puedo con los de los últimos 10 minutos).'
   const params = JSON.parse(last.params_json) as Record<string, any>
   const before = JSON.parse(last.before_json) as Record<string, any>
-  if (last.action === 'update_price') return { kind: 'price', mode: 'set', amount: Number(before.price), percent: false, product: String(params.sku) }
+  const after = JSON.parse(last.after_json) as Record<string, any>
+  const product = (await loadCatalog(ctx)).find((item) => item.sku === String(params.sku))
+  if (!product) return 'Ese producto ya no está en el catálogo; no hay nada que deshacer.'
+  if (last.action === 'update_price') {
+    if (product.price !== Number(after.price)) {
+      return `El precio de <b>${plainText(product.name)}</b> volvió a cambiar después (hoy está en ${formatMoney(product.price, ctx.store.currency)}), así que no lo toco. Si quieres otro valor, dímelo.`
+    }
+    return { intent: { kind: 'price', mode: 'set', amount: Number(before.price), percent: false, product: product.sku }, note: '' }
+  }
   if (last.action === 'update_variant_stocks' && !(params.create as unknown[]).length) {
     const old = parseVariants(before.variants)
-    const lines = (params.changes as Array<{ variantId: number }>).map((change) => old.find((variant) => variant.id === change.variantId)).filter(Boolean)
-      .map((variant) => ({ quantity: Number(variant!.stock), size: variant!.size && variant!.size !== 'Única' ? variant!.size : null, color: variant!.color && variant!.color !== 'Único' ? variant!.color : null }))
-    if (lines.length) return { kind: 'stock', mode: 'set', product: String(params.sku), total: null, lines, color: null, size: null }
+    const lines: Array<{ quantity: number; size: string | null; color: string | null }> = []
+    let moved = false
+    for (const change of params.changes as Array<{ variantId: number; stock: number }>) {
+      const was = old.find((variant) => variant.id === change.variantId)
+      const now = product.variants.find((variant) => variant.id === change.variantId)
+      if (!was || !now) return 'Esa talla ya no existe en el producto; no puedo deshacer el cambio.'
+      const target = now.stock - (change.stock - Number(was.stock))
+      if (now.stock !== change.stock) moved = true
+      if (target < 0) {
+        return `No puedo deshacerlo: desde ese cambio salieron unidades de <b>${plainText(product.name)}</b> (${plainText(variantLabel(now))} hoy tiene ${now.stock}) y quedaría en negativo. Dime cuántas hay realmente y lo ajusto.`
+      }
+      lines.push({ quantity: target, size: now.size && now.size !== 'Única' ? now.size : null, color: now.color && now.color !== 'Único' ? now.color : null })
+    }
+    if (lines.length) {
+      return {
+        intent: { kind: 'stock', mode: 'set', product: product.sku, total: null, lines, color: null, size: null },
+        note: moved ? 'El inventario se movió después de ese cambio: revierto solo lo que ese cambio sumó o restó. ' : '',
+      }
+    }
   }
   return 'Ese último cambio no lo puedo deshacer desde aquí. Puedes corregirlo pidiéndome el valor correcto o desde el panel.'
 }

@@ -263,3 +263,53 @@ export const CONVERSATIONS: BankCase[] = [
     turns: [{ say: 'pedidos pendientes', expect: { unchanged: true, pending: null, replies: ['[Pp]edido'] } }],
   },
 ]
+
+/**
+ * Conversaciones de reserva: escritas DESPUÉS de cerrar el desarrollo del paso 1 y ejecutadas sin ajustar la capa
+ * a ellas. Los mensajes son reales (escritos o dictados por un comerciante en el entorno de pruebas, con muletillas
+ * y errores de dictado), con los nombres de producto cambiados por los de la tienda ficticia. Solo modelo real.
+ */
+export const HOLDOUT: BankCase[] = [
+  { id: 'r-cuantos-productos', title: '«¿cuántos productos tengo?»', critical: false,
+    turns: [{ say: '¿cuántos productos tengo?', expect: { unchanged: true, pending: null, replies: ['Sandalias Guess|\\b5\\b'] } }] },
+  { id: 'r-dictado-lista', title: 'Dictado con muletillas: «Entonces dame eh qué productos tengo.»', critical: false,
+    turns: [{ say: 'Entonces dame eh qué productos tengo.', expect: { unchanged: true, pending: null, replies: ['Sandalias Guess|Tenis Blancos'] } }] },
+  { id: 'r-llego-un-par', title: '«Llegó un par más talla 39 de las sandalias.»', critical: true,
+    turns: [
+      { say: 'Llegó un par más talla 39 de las sandalias.', expect: { unchanged: true, pending: 'update_variant_stocks', replies: ['Sandalias Guess', '2\\D{1,30}3'] } },
+      { say: 'sí', expect: { stock: { 'SAN-1#39': 3, 'SAN-1#38': 1 }, pending: null } },
+    ] },
+  { id: 'r-tres-pares', title: '«llegaron tres pares más talla 38 de los tenis blancos clásicos»', critical: true,
+    turns: [
+      { say: 'llegaron tres pares más talla 38 de los tenis blancos clásicos', expect: { unchanged: true, pending: 'update_variant_stocks', replies: ['Cl[aá]sicos', '4\\D{1,30}7'] } },
+      { say: 'confirmo', expect: { stock: { 'TBC-02#38': 7, 'TBA-01#38': 8 }, pending: null } },
+    ] },
+  { id: 'r-precio-185', title: '«cambia el precio de SAN-1 a 185»: monto ambiguo', critical: true,
+    turns: [
+      { say: 'cambia el precio de SAN-1 a 185', expect: { unchanged: true, pending: null, replies: ['185\\.000'] } },
+      { say: '185 mil', expect: { unchanged: true, pending: 'update_price', replies: ['185\\.000'] } },
+      { say: 'sí', expect: { price: { 'SAN-1': 185000 }, pending: null } },
+    ] },
+  { id: 'r-cancelar-todo', title: '«Cancelar todo» con un cambio pendiente', critical: true,
+    turns: [
+      { say: 'agrega 5 a la 38 de las sandalias', expect: { unchanged: true, pending: 'update_variant_stocks' } },
+      { say: 'Cancelar todo', expect: { unchanged: true, pending: null } },
+    ] },
+  { id: 'r-hola-como-estas', title: '«hola como estas»', critical: false,
+    turns: [{ say: 'hola como estas', expect: { unchanged: true, pending: null, replies: ['.'], maxMessages: 1 } }] },
+  { id: 'r-crearme-otro', title: 'Dictado: «Puedes crearme otro, otro producto, que serían unas zapatillas Adidas eh Gold Track.»', critical: true,
+    turns: [
+      { say: 'Puedes crearme otro, otro producto, que serían unas zapatillas Adidas eh Gold Track.', expect: { unchanged: true, pending: 'create_product', replies: ['Adidas'] } },
+      { say: 'cancelar', expect: { unchanged: true, pending: null } },
+    ] },
+  { id: 'r-color-tallas', title: '«Negro tallas 38 y 39 todas con 5u» sobre el producto en conversación', critical: true,
+    turns: [
+      { say: 'cuántos hay de las sandalias', expect: { unchanged: true, replies: ['Sandalias Guess'] } },
+      { say: 'Negro tallas 38 y 39 todas con 5u', expect: { unchanged: true, replies: ['Sandalias Guess'] } },
+    ] },
+  { id: 'r-tallas-dos-puntos', title: '«38:10, 39:5» sobre el producto en conversación', critical: true,
+    turns: [
+      { say: 'cuántos hay de las sandalias', expect: { unchanged: true, replies: ['Sandalias Guess'] } },
+      { say: '38:10, 39:5', expect: { unchanged: true, replies: ['Sandalias Guess|38'] , never: ['No encontr'] } },
+    ] },
+]

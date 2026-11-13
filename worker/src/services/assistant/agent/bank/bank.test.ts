@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import { callbackUpdate, createHarness, createStoreUser, seedCatalog, seedStore, textUpdate, type Harness } from '../../../../testing/harness'
 import { processTelegramUpdate } from '../../../telegram'
-import { CONVERSATIONS, type BankCase, type Check } from './conversations'
+import { CONVERSATIONS, HOLDOUT, type BankCase, type Check } from './conversations'
 
 const OWNER = 9901
 const OPERATOR = 9902
@@ -18,7 +18,7 @@ const realFetch = globalThis.fetch
 type Engine = 'anterior' | 'nueva'
 type Button = { text: string; callback_data?: string }
 type TurnLog = { input: string; replies: string[]; ms: number; failures: string[]; uxFailures: string[]; plans: string[] }
-type CaseResult = { id: string; title: string; critical: boolean; engine: Engine; pass: boolean; ux: boolean; turns: TurnLog[]; modelCalls: number; costMicros: number }
+type CaseResult = { set: 'banco' | 'reserva'; id: string; title: string; critical: boolean; engine: Engine; pass: boolean; ux: boolean; turns: TurnLog[]; modelCalls: number; costMicros: number }
 
 const results: CaseResult[] = []
 const strip = (html: string) => html.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
@@ -140,7 +140,7 @@ async function runCase(bank: BankCase, engine: Engine): Promise<CaseResult> {
   const costMicros = Number(h.db.query<{ cost: number }>('SELECT COALESCE(SUM(estimated_cost_micros), 0) AS cost FROM ai_usage_events')[0]!.cost)
   vi.unstubAllGlobals()
   return {
-    id: bank.id, title: bank.title, critical: bank.critical, engine, modelCalls, costMicros, turns,
+    set: HOLDOUT.includes(bank) ? 'reserva' : 'banco', id: bank.id, title: bank.title, critical: bank.critical, engine, modelCalls, costMicros, turns,
     pass: turns.every((turn) => !turn.failures.length), ux: turns.every((turn) => !turn.uxFailures.length),
   }
 }
@@ -163,7 +163,7 @@ describe.skipIf(REAL)('banco de conversaciones · capa conversacional (modelo si
 
 describe.skipIf(!REAL)('banco de conversaciones · modelo real, motor anterior y capa nueva', () => {
   for (const engine of ['anterior', 'nueva'] as const) {
-    it.each(CONVERSATIONS.map((bank) => [bank.id, bank] as const))(`${engine} · %s`, async (_id, bank) => {
+    it.each([...CONVERSATIONS, ...HOLDOUT].map((bank) => [bank.id, bank] as const))(`${engine} · %s`, async (_id, bank) => {
       results.push(await runCase(bank, engine))
     }, 120_000)
   }
@@ -173,5 +173,5 @@ afterAll(() => {
   const out = process.env.BANK_OUT
   if (!out || !results.length) return
   mkdirSync(out, { recursive: true })
-  writeFileSync(join(out, `banco-${REAL ? 'real' : 'simulado'}.json`), JSON.stringify(results, null, 1))
+  writeFileSync(join(out, `banco-${REAL ? 'real' : 'simulado'}${process.env.BANK_RUN ? `-${process.env.BANK_RUN}` : ''}.json`), JSON.stringify(results, null, 1))
 })
