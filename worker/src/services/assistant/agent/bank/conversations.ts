@@ -122,7 +122,7 @@ export const CONVERSATIONS: BankCase[] = [
     turns: [
       {
         say: 'ponle 90 mil a las sandalias y súmale 2 a la gorra negra',
-        model: [{ tool: 'cambiar_precio', producto: 'sandalias', modo: 'fijar', monto: 90000 }, { tool: 'ajustar_inventario', producto: 'gorra negra', modo: 'sumar', cantidad: 2 }],
+        model: [{ tool: 'cambiar_precio', producto: 'sandalias', modo: 'fijar', monto: 90000 }, { tool: 'ajustar_inventario', producto: 'gorra negra', modo: 'sumar', lineas: [{ cantidad: 2 }] }],
         expect: { unchanged: true, pending: 'batch', replies: ['90\\.000', 'Gorra Negra'], ux: ['^Son 2 cambios', '¿Confirmo todos\\?$'], maxMessages: 1 },
       },
       { say: 'sí', expect: { price: { 'SAN-1': 90000 }, stock: { 'GOR-3#Única': 5 }, pending: null, replies: ['2 cambios'], maxMessages: 1 } },
@@ -132,7 +132,7 @@ export const CONVERSATIONS: BankCase[] = [
     id: 'cambio-de-tema', title: 'Otra petición con un cambio pendiente: no se pierde nada en silencio', critical: true,
     turns: [
       { say: 'agrega 5 a la 38 de las sandalias', expect: { unchanged: true, pending: 'update_variant_stocks' } },
-      { say: 'mejor súbele 5 mil a la gorra negra', expect: { unchanged: true, pending: 'update_variant_stocks', ux: ['Tienes pendiente', '¿La sigo o la cancelo\\?'], maxMessages: 1 } },
+      { say: 'mejor súbele 5 mil a la gorra negra', model: [{ tool: 'cambiar_precio', producto: 'gorra negra', modo: 'subir', monto: 5000 }], expect: { unchanged: true, pending: 'update_variant_stocks', ux: ['Tienes pendiente', '¿La sigo o la cancelo\\?'], maxMessages: 1 } },
       { say: 'cancélala', model: [{ tool: 'cambiar_precio', producto: 'gorra negra', modo: 'subir', monto: 5000 }], expect: { unchanged: true, pending: 'update_price', replies: ['Gorra Negra', '35\\.000\\D+40\\.000'] } },
       { say: 'sí', expect: { price: { 'GOR-3': 40000 }, stock: { 'SAN-1#38': 1 }, pending: null } },
     ],

@@ -22,7 +22,7 @@ import { fold } from '../commerce/language'
 import { parseCommerce } from '../commerce/parse'
 import { loadCatalog, matchProducts, resolveProduct, type CatalogProduct } from '../commerce/resolve'
 import { parseVariants } from '../operations'
-import { planTurn, stepSchema, type Step, type ToolName } from './planner'
+import { makeStep, planTurn, type Step, type ToolName } from './planner'
 import { askConfirmation, DENIED, filterCatalog, intentFromStep, LIST_LIMIT, renderChoice, renderList, renderProduct, renderSnapshot, shortPreview, storeSnapshot, toolOfIntent, TOOLS } from './tools'
 
 export type AgentResult = 'handled' | 'fallback' | 'other'
@@ -58,7 +58,7 @@ function withoutLead(text: string): string {
 
 type Captured = NonNullable<AssistantContext['capture']>
 /** A step written by the rules (same validated shape the model returns). */
-const step = (tool: ToolName, fields: Record<string, unknown> = {}): Step => stepSchema.parse({ tool, ...fields })
+const step = makeStep
 type Turn = { started: number; path: 'rule' | 'parser' | 'model' | 'fallback'; tools: ToolName[]; usage?: { promptTokens: number; outputTokens: number }; outcome: string }
 
 function quiet(ctx: AssistantContext, updateOffset = 0): AssistantContext & { capture: Captured } {
@@ -237,13 +237,26 @@ async function understand(ctx: AssistantContext, text: string, turn: Turn): Prom
       if (await legacyCommerce(ctx, text)) return 'handled'
       return 'fallback'
     }
+    // «productos agotados» names no product: it is a question about the catalogue, not an order to empty one.
+    if (parsed.kind === 'sold_out' && !parsed.product && !parsed.color && !parsed.size && !/(?:ya no|se acab|se agot|marc|pon|dej)/i.test(fold(trimmed))) {
+      return runSteps(ctx, text, [step('buscar_productos', { filtro: 'agotados' })], turn, pending)
+    }
     if (parsed.kind === 'stock_query') {
       const known = resolveProduct(await loadCatalog(ctx), parsed.product, {}, focusNow).kind !== 'none'
       parserAnswer = () => runSteps(ctx, text, [step('ver_producto', { producto: parsed.product })], turn, pending)
       if (known || !canModel) return parserAnswer()
     } else {
-      const looksExisting = parsed.kind === 'create_product' && !parsed.sku && matchProducts(await loadCatalog(ctx), parsed.name).length > 0
-      parserAnswer = () => runWrites(ctx, text, [parsed], turn, pending, focusNow)
+      const twins = parsed.kind === 'create_product' && !parsed.sku ? matchProducts(await loadCatalog(ctx), parsed.name) : []
+      const looksExisting = twins.length > 0
+      // «súbele el precio a las sandalias» reads as a new product for the parser. If the model cannot settle it,
+      // nothing is drafted: the merchant is asked what to change on the product that already exists.
+      parserAnswer = looksExisting
+        ? async () => {
+          if (twins.length === 1) await updateSessionState(ctx, { focusSku: twins[0]!.sku, lastSkus: [twins[0]!.sku] })
+          await reply(ctx, `Ya tienes <b>${plainText(twins[0]!.name)}</b>${twins.length > 1 ? ` y ${twins.length - 1} parecido${twins.length > 2 ? 's' : ''}` : ''} en la tienda. Dime qué le cambio (por ejemplo «súbele 5 mil» o «llegaron 3 de la 38»), o escribe «producto nuevo» si es otro.`)
+          return 'handled' as const
+        }
+        : () => runWrites(ctx, text, [parsed], turn, pending, focusNow)
       if (!looksExisting || !canModel) {
         const first = await runWrites(ctx, text, [parsed], turn, pending, focusNow, '', canModel && parsed.kind !== 'create_product')
         if (first !== 'retry') return first
@@ -312,6 +325,9 @@ async function runSteps(ctx: AssistantContext, text: string, steps: Step[], turn
   const out: string[] = []
   const writes: CommerceIntent[] = []
   let outOfScope = false
+  // Confirming or cancelling is the merchant's explicit answer: the model may propose it only as the whole reply,
+  // never bundled with other steps («mejor súbele…» does not cancel what is waiting; the merchant is asked).
+  if (steps.length > 1) steps = steps.filter((step) => step.tool !== 'confirmar' && step.tool !== 'cancelar')
   turn.tools.push(...steps.map((step) => step.tool))
 
   for (const step of steps) {
@@ -354,6 +370,11 @@ async function runSteps(ctx: AssistantContext, text: string, steps: Step[], turn
       continue
     }
     if (spec.kind === 'write') {
+      if (step.tool === 'marcar_agotado' && !step.producto && !step.talla && !step.color && !focus) {
+        catalog ||= await loadCatalog(ctx)
+        out.push(renderList(filterCatalog(catalog, { query: null, filter: 'agotados', color: null, size: null }), { query: null, filter: 'agotados' }, ctx.store.currency))
+        continue
+      }
       if (!spec.allowed(ctx)) { out.push(DENIED.write); continue }
       const intent = intentFromStep(step, text)
       if (!intent) { out.push(step.tool === 'cambiar_precio' ? '¿A qué precio lo dejo?' : step.tool === 'ajustar_inventario' ? '¿Cuántas unidades son?' : 'Me falta un dato para preparar ese cambio. ¿Me lo repites?'); continue }

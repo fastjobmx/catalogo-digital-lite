@@ -17,7 +17,7 @@ const REAL = process.env.BANK_REAL === '1' && Boolean(process.env.GEMINI_API_KEY
 const realFetch = globalThis.fetch
 type Engine = 'anterior' | 'nueva'
 type Button = { text: string; callback_data?: string }
-type TurnLog = { input: string; replies: string[]; ms: number; failures: string[]; uxFailures: string[] }
+type TurnLog = { input: string; replies: string[]; ms: number; failures: string[]; uxFailures: string[]; plans: string[] }
 type CaseResult = { id: string; title: string; critical: boolean; engine: Engine; pass: boolean; ux: boolean; turns: TurnLog[]; modelCalls: number; costMicros: number }
 
 const results: CaseResult[] = []
@@ -52,6 +52,7 @@ async function runCase(bank: BankCase, engine: Engine): Promise<CaseResult> {
   const sent: Array<{ text: string; markup?: { inline_keyboard?: Button[][] } }> = []
   let script: BankCase['turns'][number] | null = null
   let modelCalls = 0
+  let plans: string[] = []
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     let body: Record<string, any> = {}
@@ -60,7 +61,15 @@ async function runCase(bank: BankCase, engine: Engine): Promise<CaseResult> {
       modelCalls += 1
       if (script?.modelDown === 'error') return new Response('{"error":{"status":"UNAVAILABLE"}}', { status: 503 })
       if (script?.modelDown === 'timeout') return new Promise<Response>((_, reject) => init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))))
-      if (REAL) return realFetch(input, init)
+      if (REAL) {
+        const started = Date.now()
+        const response = await realFetch(input, init)
+        if (JSON.stringify(body.systemInstruction || '').includes('intérprete del Asistente TiendIA')) {
+          const copy = await response.clone().json().catch(() => null) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>; usageMetadata?: Record<string, number> } | null
+          plans.push(`${Date.now() - started} ms · ${JSON.stringify(copy?.usageMetadata || {})} · ${copy?.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('') || `HTTP ${response.status}`}`)
+        }
+        return response
+      }
       const planner = JSON.stringify(body.systemInstruction || '').includes('intérprete del Asistente TiendIA')
       if (planner && script?.model) return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({ pasos: script.model }) }] } }], usageMetadata: { promptTokenCount: 900, candidatesTokenCount: 60 } }))
       if (planner) return new Response('{"error":{"status":"INTERNAL"}}', { status: 500 })
@@ -87,6 +96,7 @@ async function runCase(bank: BankCase, engine: Engine): Promise<CaseResult> {
   let lastTap: string | null = null
   for (const turn of bank.turns) {
     script = turn
+    plans = []
     const before = fingerprint()
     const from = sent.length
     const user = turn.as === 'operator' ? OPERATOR : OWNER
@@ -102,7 +112,8 @@ async function runCase(bank: BankCase, engine: Engine): Promise<CaseResult> {
       if (lastTap) await processTelegramUpdate(callbackUpdate(user, lastTap) as never, h.env, h.db)
     }
     const ms = Date.now() - started
-    const replies = sent.slice(from).map((message) => strip(message.text))
+    // The «one moment» acknowledgement of a slow model is not an answer.
+    const replies = sent.slice(from).map((message) => strip(message.text)).filter((message) => message !== 'Dame un momento…')
     const joined = replies.join('\n')
     const check: Check = turn.expect
     const failures: string[] = []
@@ -124,7 +135,7 @@ async function runCase(bank: BankCase, engine: Engine): Promise<CaseResult> {
     // Isolation: the other store never changes, whatever was asked.
     const foreign = h.db.query<{ n: number }>('SELECT COUNT(*) AS n FROM products p JOIN product_variants v ON v.product_id = p.id WHERE p.store_id = ? AND (p.price <> 1000 OR v.stock <> 99)', otra)[0]!.n
     if (foreign) failures.push('cambió datos de otra tienda')
-    turns.push({ input, replies, ms, failures, uxFailures })
+    turns.push({ input, replies, ms, failures, uxFailures, plans })
   }
   const costMicros = Number(h.db.query<{ cost: number }>('SELECT COALESCE(SUM(estimated_cost_micros), 0) AS cost FROM ai_usage_events')[0]!.cost)
   vi.unstubAllGlobals()
