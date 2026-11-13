@@ -16,7 +16,7 @@ import { readSession, say, sayPhoto, updateSessionState, type AssistantContext }
 import { proposeStoreImage } from '../media'
 import { detectIntent } from '../intents'
 import { beginProductDraft, getPendingProductDraft, handleProductDraftCallback, promptProductDraft, receiveProductPhoto, saveProductDraft, type PendingProductDraft } from '../productDraft'
-import { colorOf, fold, parseMoney } from '../commerce/language'
+import { colorOf, fold, numberWordsToDigits, parseMoney, quantityOf, sizeOf } from '../commerce/language'
 import { parseCommerce, parseStockLines } from '../commerce/parse'
 import { loadCatalog, matchProducts, resolveProduct, type CatalogProduct } from '../commerce/resolve'
 import type { TelegramMessage } from '../telegramApi'
@@ -136,13 +136,54 @@ export type Description = { name: string | null; color: string | null; price: nu
 const LEAD = /^(?:(?:mira|listo|bueno|oye|ve|pues)[, ]+)*(?:(?:est[oa]s?|es[oa]s?|eso|esto|aquell[oa]s)\s+(?:son|es)|son|es|te\s+(?:mando|env[ií]o|paso)|ah[ií]\s+(?:van|te\s+van|est[aá]n)|van|llegaron|me\s+llegaron)\s+/i
 const MONEY_HINT = /\b(?:mil|millones?|mill[oó]n|palos?|lucas?|pesos)\b|\$\s*\d|\d{1,3}(?:[.,]\d{3})+/i
 
+type Line = { size: string | null; color: string | null; quantity: number }
+const UNIT = String.raw`(?:unidades|unidad|pares|par|piezas|pieza)`
+const SIZE = String.raw`(?:\d{1,2}(?:[.,]5)?|x{0,3}[sml]|unica)`
+const EACH = new RegExp(String.raw`\b([a-z]+|\d{1,4})\s+(?:${UNIT}\s+)?(?:de|por|para|en)\s+cada\s+(?:un[oa]|talla|numero)\b`)
+const FLAT = new RegExp(String.raw`\b([a-z]+|\d{1,4})\s+${UNIT}\b`)
+const SIZE_RANGE = /\b(?:tallas?|numeros?)\s+(?:de\s+la\s+|del?\s+)?(\d{2})\s*(?:a|al|hasta|-)\s*(?:la\s+|el\s+)?(\d{2})\b/
+const SIZE_LIST = new RegExp(String.raw`\b(?:tallas?|numeros?)\s+((?:${SIZE}\b(?:\s*(?:,|y|e)\s*|\s+)?)+)`)
+const SIZE_RUN = /(?:^|[\s,])((?:[23]\d|4\d)(?:\s*(?:,|y|e)?\s*(?:[23]\d|4\d)\b)+)(?!\s*(?:mil|k\b|lucas|pesos|[.,]\d{3}))/
+
+/**
+ * Sizes and quantities of a description. The engine's parser reads «3 de la 38», «del 38 al 42, cinco de cada una»,
+ * «38:3»; this adds the ways merchants say it when sizes go first and one quantity applies to all of them:
+ * «talla 38, dos unidades» · «tallas 38 y 39, cinco pares» · «38 39 40 dos de cada uno» · «10 unidades» (no sizes).
+ */
+export function stockLinesOf(text: string): Line[] {
+  const valid = (quantity: number) => Number.isInteger(quantity) && quantity >= 0 && quantity <= 100_000
+  const parsed = parseStockLines(text).lines.filter((line) => valid(line.quantity)).map((line) => ({ size: line.size ?? null, color: line.color ?? null, quantity: line.quantity }))
+  if (parsed.some((line) => line.size)) return parsed
+  const folded = numberWordsToDigits(text)
+  const each = folded.match(EACH)
+  const flat = each || folded.match(FLAT)
+  const quantity = flat ? quantityOf(flat[1]) : null
+  if (!flat || quantity === null || !valid(quantity)) return parsed
+  const before = folded.slice(0, flat.index)
+  const after = folded.slice(flat.index! + flat[0].length)
+  const sizes = sizesIn(before, true).length ? sizesIn(before, true) : sizesIn(after, false)
+  if (sizes.length) return sizes.map((size) => ({ size, color: null, quantity }))
+  // «gorras negras, 10 unidades»: a quantity with no sizes is the stock of a product without sizes.
+  return each || parsed.length ? parsed : [{ size: null, color: null, quantity }]
+}
+
+function sizesIn(segment: string, bareRuns: boolean): string[] {
+  const range = segment.match(SIZE_RANGE)
+  if (range && Number(range[2]) > Number(range[1]) && Number(range[2]) - Number(range[1]) <= 20) return Array.from({ length: Number(range[2]) - Number(range[1]) + 1 }, (_, index) => String(Number(range[1]) + index))
+  const labelled = segment.match(SIZE_LIST)
+  // Shoe sizes said in a row with no label («38 39 40»): at least two, and only before the quantity.
+  const run = labelled || !bareRuns ? null : segment.match(SIZE_RUN)
+  const list = labelled?.[1] ?? run?.[1]
+  if (!list) return []
+  return [...new Set(list.split(/\s*(?:,|\by\b|\be\b)\s*|\s+/).map((value) => sizeOf(value)).filter((value): value is string => Boolean(value)))]
+}
+
 /** Reads a merchant description with the deterministic parsers (the same the batches and the commerce engine use). */
 export function readDescription(text: string): Description {
   const trimmed = text.trim()
   const lead = LEAD.test(trimmed)
   const price = MONEY_HINT.test(trimmed) ? parseMoney(trimmed) : null
-  const lines = parseStockLines(trimmed).lines.filter((line) => Number.isInteger(line.quantity) && line.quantity >= 0 && line.quantity <= 100_000)
-    .map((line) => ({ size: line.size ?? null, color: line.color ?? null, quantity: line.quantity }))
+  const lines = stockLinesOf(trimmed)
   const rest = trimmed.replace(LEAD, '').replace(/^(?:un[oa]s?|l[oa]s|el|la)\s+/i, '')
   const head = rest.split(/[,.;:]|\s+(?=(?:del?\s+(?:la\s+)?\d|tallas?\b|a\s+\$?\s*\d|en\s+\$?\s*\d|por\s+\$?\s*\d|precio\b|cada\b|\d|cuestan?\b|valen?\b))/i)[0]!.trim()
   const words = head.split(/\s+/).filter(Boolean)
@@ -169,13 +210,19 @@ export function sizesPhrase(variants: Array<{ size?: string | null; stock?: numb
   return `${sized.map((variant) => `${variant.size}: ${variant.stock}`).join(' · ')} (${total} en total)`
 }
 
-/** A price far outside what the store sells is probably a transcription slip («dieciocho mil» for «ciento ochenta mil»). */
-export function suspiciousPrice(price: number, catalog: CatalogProduct[]): number | null {
-  const prices = catalog.map((product) => product.price).filter((value) => value > 0).sort((a, b) => a - b)
-  if (prices.length < 3) return null
-  const median = prices[Math.floor(prices.length / 2)]!
-  if (price * 5 <= prices[0]! && price * 10 >= prices[0]! / 2 && price * 10 <= median * 5) return price * 10
-  return null
+/**
+ * A price heard in a voice note that does not fit what the store sells is probably a transcription slip («dieciocho
+ * mil» for «ciento ochenta mil»): it is far below the comparable products and ten times more fits them. The comparison
+ * uses the products that share the name's first word when there are at least two, the whole catalogue otherwise.
+ */
+export function suspiciousPrice(price: number, catalog: CatalogProduct[], name?: string | null): number | null {
+  const first = name ? fold(name).split(/\s+/)[0]!.replace(/s$/, '') : ''
+  const alike = first.length > 2 ? catalog.filter((product) => fold(product.name).split(/\s+/).some((word) => word.replace(/s$/, '') === first)) : []
+  const prices = (alike.length >= 2 ? alike : catalog).map((product) => product.price).filter((value) => value > 0).sort((a, b) => a - b)
+  if (prices.length < 2) return null
+  const low = prices[0]!
+  const high = prices.at(-1)!
+  return price < low * 0.6 && price * 10 >= low * 0.5 && price * 10 <= high * 2 ? price * 10 : null
 }
 
 // ───────────────────────── Asociación: ¿a qué operación pertenece este mensaje? ─────────────────────────
@@ -232,7 +279,10 @@ export async function handleAgentDescription(ctx: AssistantContext, text: string
   if (!photos.length && !batch) return false
 
   if (photos.length) {
-    if (/^(?:no|nada|ninguno|cancel\w*|olv[ií]dal[oa]s?|descart\w*|b[oó]rral[ao]s|ya no)(?:\s+(?:las?\s+)?fotos?)?[.! ]*$/.test(lower) || /\b(?:descarta|borra|olvida)\s+(?:las?\s+|esas?\s+)?fotos?\b/.test(lower)) {
+    const explicit = /\b(?:descarta|borra|olvida|cancela|quita)\w*\s+(?:las?\s+|esas?\s+)?fotos?\b/.test(lower) || /^(?:descart\w*|b[oó]rral[ao]s)[.! ]*$/.test(lower)
+    const bare = /^(?:no|nada|ninguno|cancel\w*|olv[ií]dal[oa]s?|ya no)[.! ]*$/.test(lower)
+    // A bare «cancela» answers a pending change when there is one; the photos keep waiting.
+    if (explicit || (bare && !await getPendingOperation(ctx))) {
       await closePhotos(ctx, 'discarded')
       await saveMedia(ctx, null)
       await say(ctx, `Listo, descarté ${photosWord(photos.length)}. No se creó ni se publicó nada.`)
@@ -242,6 +292,15 @@ export async function handleAgentDescription(ctx: AssistantContext, text: string
     if (/^(?:cu[aá]ntas fotos|qu[eé] (?:fotos )?(?:tengo|hay) pendiente|estado de las fotos)/.test(lower)) {
       await say(ctx, `Tengo ${photosWord(photos.length)} esperando. Dime qué producto es (nombre, tallas, cantidades y precio) o escribe «descarta las fotos».`)
       await measure(ctx, started, 'lote_estado', 'status')
+      return true
+    }
+    if (/^(?:es|son)\s+(?:el|del|la|de la|los|de los)?\s*mism[oa]s?(?:\s+producto)?[.! ]*$/.test(lower) || /^son (?:de|del) (?:ese|esa|eso)(?: producto)?[.! ]*$/.test(lower)) {
+      const session = await readSession(ctx.db, ctx.telegramUserId)
+      const focus = session.state.focusSku
+      await closePhotos(ctx, 'discarded')
+      await saveMedia(ctx, null)
+      await say(ctx, `Entendido: no creo otro producto con ${photosWord(photos.length)}.${focus ? ` Si quieres agregárselas al que ya tienes, escribe «agrega fotos al ${escapeHtml(focus)}» y envíalas.` : ''}`)
+      await measure(ctx, started, 'detectar_duplicados', 'same')
       return true
     }
     const store = /\b(banner|portada)\b/.test(lower) ? 'banner' : /\b(logo|logotipo)\b/.test(lower) ? 'logo' : null
@@ -408,10 +467,15 @@ async function describePhotos(ctx: AssistantContext, text: string, input: { voic
   const catalog = input.catalog?.length ? input.catalog : await loadCatalog(ctx)
   // The name the merchant gave, or the one the model reads from the same words (never from the photos' text).
   let name = description.name
-  if (!name && looksLikeDescription(description) && ctx.env.GEMINI_API_KEY) {
-    const plan = await withAiBudget(ctx, 'interpretacion', () => planTurn(ctx, text, { focus: null, options: [], pending: null, recent: 'El comerciante acaba de enviar fotos de un producto nuevo y lo está describiendo.' }, 6000)).catch(() => null)
+  if ((!name || !description.lines.length) && looksLikeDescription(description) && ctx.env.GEMINI_API_KEY) {
+    const plan = await withAiBudget(ctx, 'interpretacion', () => planTurn(ctx, text, { focus: null, options: [], pending: null, recent: 'El comerciante acaba de enviar fotos de un producto nuevo y lo está describiendo: usa preparar_producto.' }, 6000)).catch(() => null)
     const step = plan && plan.ok ? plan.value.steps.find((item) => item.tool === 'preparar_producto') : null
-    if (step?.nombre) name = step.nombre
+    if (step?.nombre && !name) name = step.nombre
+    // Sizes and quantities the model read from the same sentence, only when the deterministic reading found none.
+    if (step && !description.lines.length) {
+      const read = step.lineas.filter((line) => line.talla).map((line) => ({ size: sizeOf(line.talla!) || line.talla!, color: line.color, quantity: line.cantidad }))
+      if (read.length) description.lines.push(...read)
+    }
   }
   if (!looksLikeDescription(description) && !name) return false
 
@@ -426,7 +490,7 @@ async function describePhotos(ctx: AssistantContext, text: string, input: { voic
     }
   }
   // A price that does not fit the store, heard in a voice note: that number is confirmed on its own.
-  const doubt = input.voice && description.price ? suspiciousPrice(description.price, catalog) : null
+  const doubt = input.voice && description.price ? suspiciousPrice(description.price, catalog, name) : null
   const color = description.color || description.lines.find((line) => line.color)?.color || null
   const fields = {
     ...(name ? { name } : {}), ...(description.price && !doubt ? { price: description.price } : {}), ...(color ? { color } : {}),
@@ -536,7 +600,7 @@ export async function handleAgentDraftText(ctx: AssistantContext, active: Pendin
     const price = MONEY_HINT.test(text) ? parseMoney(text) : (() => { const bare = text.match(/\b(\d{2,3})\b(?!\s*(?:pares|unidades|de cada))/); return bare ? Number(bare[1]) * 1000 : null })()
     if (price && price >= 1000 && price < 1_000_000_000) { next.fields.price = price; changes.push(`precio ${formatMoney(price, ctx.store.currency)}`) }
   }
-  const lines = parseStockLines(text).lines.filter((line) => Number.isInteger(line.quantity) && line.quantity >= 0 && line.quantity <= 100_000)
+  const lines = stockLinesOf(text)
   if (!photo && lines.length && lines.some((line) => line.size) && (awaiting !== 'variants')) {
     const color = next.defaultColor || next.variants.find((variant) => variant.color)?.color
     next.variants = lines.slice(0, 80).map((line) => ({ ...(line.size ? { size: String(line.size).slice(0, 24) } : {}), ...(line.color || color ? { color: String(line.color || color).slice(0, 48) } : {}), stock: line.quantity }))
