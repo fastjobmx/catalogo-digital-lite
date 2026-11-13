@@ -149,3 +149,30 @@ describe('fallo parcial a propósito en un cambio múltiple', () => {
     expect(stock('GOR-3', 'Única')).toBe(1)
   })
 })
+
+describe('lecturas que dependían del modelo ahora son deterministas (modelo caído o sin IA)', () => {
+  it('«deja la 39 de las sandalias en 10» es inventario, no un precio dudoso', async () => {
+    await say('deja la 39 de las sandalias en 10')
+    expect(pending().map((row) => row.action)).toEqual(['update_variant_stocks'])
+    expect(last()).not.toMatch(/\$10/)
+    expect(stock('SAN-1', '39')).toBe(2)
+    await say('no, déjalo así')
+    expect(pending()).toEqual([])
+    expect(stock('SAN-1', '39')).toBe(2)
+  })
+
+  it('«deja las sandalias en 90» sigue preguntando si es $90 o $90.000', async () => {
+    await say('deja las sandalias en 90')
+    expect(pending()).toEqual([])
+    expect(last()).toMatch(/90\.000/)
+    expect(price('SAN-1')).toBe(80000)
+  })
+
+  it('«productos agotados» es una consulta del catálogo, no una orden ni una pregunta de vuelta', async () => {
+    h.db.query('UPDATE product_variants SET stock = 0 WHERE product_id = (SELECT id FROM products WHERE sku = ?)', 'GOR-3')
+    await say('productos agotados')
+    expect(last()).toContain('Gorra Negra')
+    expect(last()).not.toMatch(/¿De qué producto/)
+    expect(pending()).toEqual([])
+  })
+})

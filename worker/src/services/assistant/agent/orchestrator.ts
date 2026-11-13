@@ -18,7 +18,7 @@ import { formatMoney } from '../tools'
 import { showStockMovements } from '../inventory'
 import { handleCommerceText, runCommerceIntent } from '../commerce/engine'
 import type { CommerceIntent } from '../commerce/intent'
-import { fold } from '../commerce/language'
+import { fold, sizeOf } from '../commerce/language'
 import { parseCommerce } from '../commerce/parse'
 import { loadCatalog, matchProducts, resolveProduct, variantLabel, type CatalogProduct } from '../commerce/resolve'
 import { parseVariants } from '../operations'
@@ -228,6 +228,8 @@ async function understand(ctx: AssistantContext, text: string, turn: Turn): Prom
   const quick = multi ? null : detectIntent(text, session.state.lastSkus)
   if (quick?.kind === 'greeting') return runSteps(ctx, text, [step('resumen_tienda', { texto: trimmed })], turn, pending)
   if (quick?.kind === 'action' && quick.action === 'get_out_of_stock') return runSteps(ctx, text, [step('buscar_productos', { filtro: 'agotados' })], turn, pending)
+  // «productos agotados», «agotados», «los que están sin stock»: a list of the catalogue, with or without the model.
+  if (!multi && /^(?:(?:ver|dame|muestrame|lista(?:me)?(?: de)?|cuales son)\s+)?(?:(?:los|mis)\s+)?(?:(?:productos?|articulos?|referencias?)\s+)?(?:que\s+estan\s+)?(?:agotad[oa]s|sin\s+(?:stock|existencias|inventario|unidades))[?.! ]*$/.test(fold(trimmed).replace(/^[¿¡]+/, ''))) return runSteps(ctx, text, [step('buscar_productos', { filtro: 'agotados' })], turn, pending)
   if (quick?.kind === 'action' && quick.action === 'get_low_stock') return runSteps(ctx, text, [step('buscar_productos', { filtro: 'pocas_unidades' })], turn, pending)
 
   // One clear instruction: the deterministic parser is exact with prices, sizes and quantities. When it ends in
@@ -235,7 +237,16 @@ async function understand(ctx: AssistantContext, text: string, turn: Turn): Prom
   // available, the model reads the message too; if the model fails, the parser's answer stands.
   const canModel = Boolean(ctx.env.GEMINI_API_KEY)
   const focusNow = session.state.focusSku || (session.state.lastSkus?.length === 1 ? session.state.lastSkus[0] : undefined)
-  const parsed = multi ? null : parseCommerce(withoutLead(trimmed))
+  let parsed = multi ? null : parseCommerce(withoutLead(trimmed))
+  // «deja la 39 de las sandalias en 10»: the parser reads «en 10» as a doubtful price. A size right after the verb
+  // and no word about money make it an inventory count, with or without the model (it used to depend on the model).
+  if (parsed?.kind === 'price_clarify') {
+    const sized = fold(withoutLead(trimmed)).match(/^(?:deja|dejame|pon|ponme|ponle|ajusta|actualiza)\w*\s+(?:la\s+|el\s+)?(?:talla\s+|numero\s+)?(\d{1,2}(?:[.,]5)?|x{0,3}[sml])\s+(?:(?:de|del)\s+(?:las?\s+|los?\s+|el\s+)?(.+?)\s+)?en\s+(\d{1,4})(?:\s*(?:unidades|unidad|pares|par|u))?[.! ]*$/)
+    const size = sized ? sizeOf(sized[1]) : null
+    if (sized && size && !/(?:precio|vale|valen|cuesta|cuestan|pesos|mil\b|\$)/.test(fold(trimmed))) {
+      parsed = { kind: 'stock', mode: 'set', product: sized[2]?.trim() || null, total: null, lines: [{ quantity: Number(sized[3]), size, color: null }], color: null, size: null }
+    }
+  }
   let parserAnswer: (() => Promise<AgentResult>) | null = null
   if (parsed) {
     turn.path = 'parser'
@@ -245,7 +256,7 @@ async function understand(ctx: AssistantContext, text: string, turn: Turn): Prom
       return 'fallback'
     }
     // «productos agotados» names no product: it is a question about the catalogue, not an order to empty one.
-    if (parsed.kind === 'sold_out' && !parsed.product && !parsed.color && !parsed.size && !/(?:ya no|se acab|se agot|marc|pon|dej)/i.test(fold(trimmed))) {
+    if (parsed.kind === 'sold_out' && (!parsed.product || /^(?:(?:los|las|mis|todos los)\s+)?(?:productos?|cosas|articulos?|referencias?)$/.test(fold(parsed.product))) && !parsed.color && !parsed.size && !/(?:ya no|se acab|se agot|marc|pon|dej)/i.test(fold(trimmed))) {
       return runSteps(ctx, text, [step('buscar_productos', { filtro: 'agotados' })], turn, pending)
     }
     if (parsed.kind === 'stock_query') {
