@@ -1,6 +1,6 @@
 # Asistente TiendIA · capa conversacional · Paso 3: pedidos y reportes dentro de la conversación
 
-Estado al 2026-11-13: **en STAGING** (Worker `__VERSION__`), rama `feat/asistente-conversacional`, sin push, sin
+Estado al 2026-11-13: **en STAGING** (Worker `51c54243-a191-4b13-80e9-f05bfe4669c6`), rama `feat/asistente-conversacional`, sin push, sin
 merge, producción y `main` intactos. Pedidos encendidos solo en las tiendas ficticias 1 y 94. Sin migraciones nuevas.
 Paso 4 (marketing y Fábrica de Publicidad) no empezado.
 
@@ -62,7 +62,49 @@ en Telegram y en WAHA). `ASSISTANT_TZ_OFFSET_HOURS` (por defecto −5) define qu
 
 ## Resultados
 
-__RESULTADOS__
+Banco de pedidos: **28 conversaciones** (`agent/bank/orders.conversations.ts`), 22 críticas, el mismo guion contra el
+flujo anterior (interruptores apagados) y la capa nueva (texto + multimedia + pedidos encendidos), por la ruta real del
+webhook de Telegram, base en memoria y tienda ficticia. Los pedidos de prueba se crean por la ruta real de la tienda
+(`/api/orders`). Cubre: resumen, pedidos de hoy, ventas por periodo, lo más vendido, lista → «el 1» → «confírmalo»,
+«el último» → «ya pagó», cancelación natural, despacho preguntando la transportadora y en una sola frase, entregado
+con y sin transportadora, transición inválida, cancelar, «cancela» que es del catálogo, «sí» tardío, otra tienda,
+rol sin permiso, webhook reenviado, texto malicioso dentro del pedido, modelo caído, frase libre, modelo que propone
+un cambio no pedido, inventario y precios que no son pedidos, por enviar, código inexistente, contexto y pregunta
+que no es orden. Además: 9 pruebas unitarias de la lectura (`agent/orders.test.ts`) y 2 por WAHA (`whatsapp/waha.test.ts`).
+
+| Corrida | Flujo anterior | Capa nueva | Críticos (nueva) | Experiencia (nueva) |
+|---|---|---|---|---|
+| Modelo simulado (suite automática) | 5/28 | **28/28** | 22/22 | 28/28 |
+| Real, primera tanda (3 corridas) | 6, 6, 6 | 28, **27**, 28 | 22, 21, 22 | 28, 28, 28 |
+| Real, después del arreglo (3 corridas) | 6, 6, 6 | **28, 28, 28** | 22, 22, 22 | 28, 28, 28 |
+
+**El fallo de la primera tanda fue un defecto real de la capa nueva**, no del modelo: los códigos de pedido son
+hexadecimales y a veces no traen ningún dígito (`DDCCAFBC`); la capa exigía un dígito y no reconoció el pedido
+(preguntó «¿de cuál pedido me hablas?» y no cambió nada). Apareció por azar en una corrida porque los códigos se
+generan al crear el pedido. Corregido en `ef7a746`, con prueba fija para códigos solo de letras y solo de dígitos.
+
+**Ningún escenario donde el flujo anterior acierte y la capa nueva falle**, en ninguna corrida. De los fallos del
+flujo anterior, parte son de forma y no de fondo: sí responde «cómo van los pedidos» (con su resumen de 30 días) y sí
+cambia estados con botones; lo que no hace es entender las consultas libres, el contexto ni la confirmación escrita.
+
+Latencia y costo (3 corridas reales después del arreglo, 180 mensajes por flujo):
+
+| Medida | Flujo anterior | Capa nueva |
+|---|---|---|
+| Latencia, todos los mensajes p50 / p95 | 2 ms / 11,9 s | 2 ms / **7 ms** |
+| Mensajes que usan IA | 25 % (p50 9,0 s · p95 15,0 s) | **0 %** |
+| Costo por mensaje, promediado sobre todos | US$ 0,00059 | US$ 0 |
+| Costo por mensaje que usa IA | US$ 0,00236 | no hubo |
+
+- La capa nueva resolvió **todo el banco con reglas, sin llamar al modelo**: por eso responde en milisegundos y sin
+  costo. El flujo anterior manda al modelo lo que no entiende (uno de cada cuatro mensajes) y aun así no acierta.
+- Consecuencia que hay que decir: **la lectura por modelo de esta capa casi no se ejercitó con el modelo real** (un
+  mensaje en seis corridas, ~7 s y US$ 0,0023). Sus dos escenarios («frase libre» y «el modelo propone un cambio no
+  pedido») se prueban con el modelo simulado; con el real, las reglas resolvieron esas frases antes.
+- Latencias medidas en el equipo local, no dentro de Cloudflare.
+
+Suite completa: `npx vitest run` → **788 pasan**, 211 omitidas (solo corren con modelo real). Sin regresiones en
+pedidos, guías, Telegram, WhatsApp Meta, WAHA, lotes, Fábrica de Publicidad ni Estudio.
 
 ## Conversaciones antes / después (mismo guion)
 
@@ -76,7 +118,15 @@ __RESULTADOS__
 
 ## Lo que NO se pudo comprobar
 
-__NO_COMPROBADO__
+- **Ningún mensaje real por Telegram, Meta o WAHA.** Staging está desplegado y sano, con las variables conservadas,
+  pero nadie escribió. No simulé webhooks con los secretos.
+- **Staging no tiene ningún pedido** (la tabla está vacía en las tiendas 1 y 94): para probar a mano hay que crear
+  primero un pedido desde la tienda ficticia. No creé pedidos en staging.
+- **La lectura por modelo con el modelo real** (ver arriba): prácticamente sin ejercitar.
+- **Notas de voz sobre pedidos**: la capa recibe la transcripción igual que el texto, pero no hay prueba con audio.
+- **Reportes con volumen real**: probados con 6–7 pedidos por tienda. «Lo más vendido» lee hasta 500 pedidos del periodo.
+- Cambio de día y de semana: «hoy», «ayer» y «últimos N días» están probados; «esta semana», «este mes» y «mes
+  pasado» solo tienen prueba de lectura de la frase, no de las cifras.
 
 ## Riesgos y decisiones
 

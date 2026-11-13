@@ -180,4 +180,4 @@ de la 38 de …» → «hágale» · «bájale diez mil a …» → «la 2» · 
 ## Pendiente (siguientes pasos, cada uno con aprobación)
 
 2. Fotos y voz en el mismo contexto (lotes de WAHA, cola y recuperación intactos; foto + audio = una operación).
-3. Pedidos y reportes. 4. Marketing y Fábrica de Publicidad.
+3. Pedidos y reportes: en staging (`docs/ASISTENTE_CONVERSACIONAL_PASO3.md`). 4. Marketing y Fábrica de Publicidad.
