@@ -16,11 +16,12 @@ function seo(siteUrl: string, allowIndexing: boolean, noindexHosts: string[]): P
   const scriptHash = createHash('sha256').update(MOTION_SCRIPT).digest('base64')
   const csp = [
     "default-src 'self'",
-    `script-src 'self' 'sha256-${scriptHash}'`,
+    // Cloudflare Web Analytics (injected by Pages): the beacon script and the endpoint it reports to.
+    `script-src 'self' 'sha256-${scriptHash}' https://static.cloudflareinsights.com`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self'",
-    "connect-src 'self'",
+    "connect-src 'self' https://cloudflareinsights.com",
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
