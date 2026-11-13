@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-11-13T01:50:31.856Z",
+  "capturedAt": "2026-11-13T16:35:17.908Z",
   "stores": {
     "luz-magica": {
       "name": "Luz Mágica",
@@ -108,6 +108,33 @@
           "height": 972
         }
       ]
+    },
+    "pilot-equipment": {
+      "name": "Pilot Equipment",
+      "slogan": null,
+      "businessType": "TankBags",
+      "productCount": 4,
+      "categoryCount": 3,
+      "products": [
+        {
+          "sku": "Tankbag-0001",
+          "name": "Tankbag Pilot Equipment ABS Carbon – Acople Rápido Tanklock",
+          "price": 250000,
+          "compareAtPrice": null,
+          "category": "Tankbags Tanklock",
+          "image": "pilot-equipment--tankbag-0001.webp",
+          "width": 640,
+          "height": 522
+        }
+      ]
+    },
+    "imperio-nova": {
+      "name": "Imperio Nova",
+      "slogan": "El estilo se lleva puesto · Jeans Premium, Polos y Palazzos",
+      "businessType": "Ropa",
+      "productCount": 7,
+      "categoryCount": 4,
+      "products": []
     }
   }
 }

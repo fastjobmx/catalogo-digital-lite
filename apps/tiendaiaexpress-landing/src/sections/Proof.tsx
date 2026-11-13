@@ -19,9 +19,10 @@ export function Proof() {
           <h2 id="comercios-title" className="mt-3 font-display text-[1.35rem] font-extrabold leading-snug tracking-tight md:text-2xl">Comercios reales ya venden con su tienda en TiendIA Exprés.</h2>
           <p className="mt-2 text-[0.88rem] text-ink-soft">Cifras de sus tiendas públicas al {date}.</p>
         </div>
-        <ul className="grid gap-3 sm:grid-cols-3">
-          {showcaseStores.map((store) => (
-            <li key={store.slug}>
+        <ul className="grid gap-3 sm:grid-cols-6">
+          {showcaseStores.map((store, i) => (
+            // Three per row; a last row of two shares the full width (5 stores → 3 + 2).
+            <li key={store.slug} className={i >= 3 && showcaseStores.length - 3 === 2 ? 'sm:col-span-3' : 'sm:col-span-2'}>
               <a href="#tiendas" className="hover-lift group flex h-full flex-col gap-1 rounded-2xl bg-porcelain p-5 ring-1 ring-night/8 md:p-6">
                 <span className="font-display text-xl font-extrabold tracking-tight">{store.name}</span>
                 <span className="text-[0.88rem] text-ink-soft">{store.category}</span>

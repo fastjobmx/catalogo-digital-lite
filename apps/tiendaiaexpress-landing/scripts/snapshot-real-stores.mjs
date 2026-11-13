@@ -14,6 +14,10 @@ const APP = (process.env.VITE_APP_URL || 'https://app.tiendiaexpres.com').replac
 const PICKS = {
   'luz-magica': ['LM-005', 'LM-007', 'LM-117', 'LM-105', 'LM-139', 'LM-054'],
   'muy-parcero': ['ZAP-NEG-3012', 'CAM-NEG-7116', 'PLA-BLA-6934'],
+  // Only the tankbag: the backpack shows a third-party logo and the tail bag a licence plate.
+  'pilot-equipment': ['Tankbag-0001'],
+  // No product photos: every jean photo carries third-party brand marks; captures only.
+  'imperio-nova': [],
 }
 const OUT = new URL('./.stores/real/', import.meta.url)
 await mkdir(OUT, { recursive: true })

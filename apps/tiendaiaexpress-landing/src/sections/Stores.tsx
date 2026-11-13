@@ -59,7 +59,7 @@ export function Stores() {
                   <div><dt className="text-[0.8rem] text-ink-soft">Categorías</dt><dd className="font-display text-2xl font-extrabold tracking-tight">{store.categoryCount}</dd></div>
                   {store.template ? <div><dt className="text-[0.8rem] text-ink-soft">Plantilla</dt><dd className="font-display text-2xl font-extrabold tracking-tight">{store.template}</dd></div> : null}
                 </dl>
-                <ul className="mt-6 grid grid-cols-3 gap-3" aria-label={`Productos de ${store.name}`}>
+                {store.products.length > 0 && <ul className="mt-6 grid grid-cols-3 gap-3" aria-label={`Productos de ${store.name}`}>
                   {store.products.slice(0, 3).map((product) => (
                     <li key={product.name}>
                       <img src={product.src} alt={`${product.name}, foto original de la tienda ${store.name}`} width={product.width} height={product.height} loading="lazy" decoding="async" className="aspect-[4/5] w-full rounded-2xl bg-porcelain object-cover ring-1 ring-night/8" />
@@ -67,7 +67,7 @@ export function Stores() {
                       <p className="text-[0.8rem] text-ink-soft">{formatCOP(product.price)}</p>
                     </li>
                   ))}
-                </ul>
+                </ul>}
                 <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-3 lg:mt-auto lg:pt-8">
                   <Button href={store.url} variant="night" icon="arrowUpRight" external aria-label={`Ver tienda ${store.name} (se abre en una pestaña nueva)`}>Ver tienda</Button>
                   <p className="text-[0.8rem] text-ink-soft">Los productos y precios pueden cambiar en la tienda.</p>
