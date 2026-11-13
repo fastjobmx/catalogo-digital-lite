@@ -226,6 +226,18 @@ export const CONVERSATIONS: BankCase[] = [
     ],
   },
   {
+    id: 'incompleta-sin-modelo', title: 'Solicitud incompleta con el modelo caído: pregunta y respuesta por reglas', critical: true,
+    turns: [
+      { say: 'súbele el precio a las sandalias', modelDown: 'error', expect: { unchanged: true, pending: null, replies: ['¿Cuánto le subo', '80\.000'], maxMessages: 1 } },
+      { say: 'cinco mil', modelDown: 'error', expect: { unchanged: true, pending: 'update_price', replies: ['85\.000'] } },
+      { say: 'sí', modelDown: 'error', expect: { price: { 'SAN-1': 85000 }, pending: null } },
+    ],
+  },
+  {
+    id: 'pocas-unidades-sin-modelo', title: '«Qué se me está acabando» con el modelo caído', critical: false,
+    turns: [{ say: 'qué se me está acabando?', modelDown: 'error', expect: { unchanged: true, pending: null, replies: ['Gorra Negra', 'Sandalias Guess'], never: ['Botas'], maxMessages: 1 } }],
+  },
+  {
     id: 'modelo-caido', title: 'Caída del modelo: responde el motor anterior y lo exacto sigue funcionando', critical: true,
     turns: [
       { say: 'oye y de los air qué me queda?', modelDown: 'error', expect: { unchanged: true, pending: null, replies: ['.'] } },

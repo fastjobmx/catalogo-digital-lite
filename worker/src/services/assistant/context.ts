@@ -75,6 +75,8 @@ export type AgentState = {
   deferred?: string
   deferredOp?: string
   deferredIntents?: Array<import('./commerce/intent').CommerceIntent>
+  /** «súbele el precio a las sandalias»: the amount was asked; the next message answers it. */
+  bump?: { mode: 'increase' | 'decrease'; sku: string; at: number }
   /** Step 2: questions of the media layer and a description kept for a photo batch that is still being organised. */
   media?: import('./agent/media').MediaState
   /** Step 3: an order change waiting for «sí», a missing datum and the last numbered list of orders. */

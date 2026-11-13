@@ -294,10 +294,37 @@ async function understand(ctx: AssistantContext, text: string, turn: Turn): Prom
 
   if (UNDO.test(trimmed)) return runSteps(ctx, text, [step('deshacer')], turn, pending)
 
+  // «súbele el precio a las sandalias» → «¿cuánto?» → «cinco mil»: question and answer are read by the rules, so the
+  // exchange does not depend on the model being reachable twice in a row.
+  if (agent.bump) {
+    const bump = agent.bump
+    await saveAgent(ctx, { bump: undefined })
+    const said = fold(trimmed).replace(/^(?:en\s+|de\s+a\s+|unos?\s+|como\s+|el\s+)+/, '').replace(/[.!]+$/, '')
+    const percent = said.match(/^(\d{1,2})\s*(?:%|por\s*ciento)$/)
+    const money = percent ? null : /\b(?:mil|millon(?:es)?|lucas?|palos?)\b|\d[.,]\d{3}|^\$?\s*\d{4,}$/.test(said) && said.split(/\s+/).length <= 5 ? parseMoney(said) : null
+    if (Date.now() - bump.at < BATCH_TTL_MS && !pending && (percent || (money && money >= 1000))) {
+      turn.path = 'parser'
+      return runWrites(ctx, text, [{ kind: 'price', mode: bump.mode, amount: percent ? Number(percent[1]) : money!, percent: Boolean(percent), product: bump.sku }], turn, pending, bump.sku)
+    }
+  }
+  const openBump = fold(withoutLead(trimmed)).replace(/[.!?]+$/, '').match(/^(sub|baj)[a-z]*\s+(?:el\s+)?precio\s+(?:a|al|de|del)\s+(?:(?:las?|los?|el)\s+)?(.+)$/)
+  if (openBump && !pending && !/\d|\bmil\b/.test(openBump[2]!)) {
+    const found = resolveProduct(await loadCatalog(ctx), openBump[2]!, {}, null)
+    if (found.kind === 'one') {
+      turn.path = 'parser'; turn.tools.push('aclarar')
+      await saveAgent(ctx, { bump: { mode: openBump[1] === 'sub' ? 'increase' : 'decrease', sku: found.product.sku, at: Date.now() } })
+      await updateSessionState(ctx, { focusSku: found.product.sku, lastSkus: [found.product.sku] })
+      await reply(ctx, `¿Cuánto le ${openBump[1] === 'sub' ? 'subo' : 'bajo'} al precio de <b>${plainText(found.product.name)}</b>? Hoy está en ${formatMoney(found.product.price, ctx.store.currency)}. Dime el valor («5 mil») o el porcentaje («10%»).`)
+      return 'handled'
+    }
+  }
+
   const multi = looksMulti(text)
   const quick = multi ? null : detectIntent(text, session.state.lastSkus)
   if (quick?.kind === 'greeting') return runSteps(ctx, text, [step('resumen_tienda', { texto: trimmed })], turn, pending)
   if (quick?.kind === 'action' && quick.action === 'get_out_of_stock') return runSteps(ctx, text, [step('buscar_productos', { filtro: 'agotados' })], turn, pending)
+  // «qué se me está acabando», «qué tengo con pocas unidades»: products running low (not the ones already out).
+  if (!multi && /\b(?:se\s+(?:me\s+)?esta(?:n)?\s+(?:acabando|agotando|terminando)|pocas\s+unidades|poco\s+(?:stock|inventario)|por\s+(?:agotarse|acabarse)|bajo\s+(?:stock|inventario)|casi\s+(?:agotad|sin))/.test(fold(trimmed))) return runSteps(ctx, text, [step('buscar_productos', { filtro: 'pocas_unidades' })], turn, pending)
   // «productos agotados», «agotados», «los que están sin stock»: a list of the catalogue, with or without the model.
   if (!multi && /^(?:(?:ver|dame|muestrame|lista(?:me)?(?: de)?|cuales son)\s+)?(?:(?:los|mis)\s+)?(?:(?:productos?|articulos?|referencias?)\s+)?(?:que\s+estan\s+)?(?:agotad[oa]s|sin\s+(?:stock|existencias|inventario|unidades))[?.! ]*$/.test(fold(trimmed).replace(/^[¿¡]+/, ''))) return runSteps(ctx, text, [step('buscar_productos', { filtro: 'agotados' })], turn, pending)
   if (quick?.kind === 'action' && quick.action === 'get_low_stock') return runSteps(ctx, text, [step('buscar_productos', { filtro: 'pocas_unidades' })], turn, pending)
