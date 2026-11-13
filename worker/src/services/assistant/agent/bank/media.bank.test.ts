@@ -60,6 +60,8 @@ async function runCase(bank: MediaCase, flow: Flow): Promise<CaseResult> {
   const sent: Array<{ text: string; markup?: { inline_keyboard?: Button[][] } }> = []
   let transcript = ''
   let modelDown = false
+  let channelDown = false
+  let vision: { name: string; description: string } | null = null
   let modelCalls = 0
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
@@ -73,7 +75,7 @@ async function runCase(bank: MediaCase, flow: Flow): Promise<CaseResult> {
       if (parts.some((part) => part.inlineData?.mimeType?.startsWith('audio/'))) return answer({ action: 'ask', params: {}, missing: [], summary: 'ok', needsConfirmation: false, transcript })
       if (modelDown) return new Response('{"error":{"status":"UNAVAILABLE"}}', { status: 503 })
       if (REAL) return realFetch(input, init)
-      if (parts.some((part) => part.inlineData?.mimeType?.startsWith('image/'))) return answer({ name: 'Tenis deportivos', description: 'Tenis deportivos cómodos para uso diario, con suela de goma.', category: 'Calzado', colors: ['Rojo'], features: [], visibleBrand: '', confidence: 'media', isProductPhoto: true })
+      if (parts.some((part) => part.inlineData?.mimeType?.startsWith('image/'))) return answer({ name: vision?.name || 'Tenis deportivos', description: vision?.description || 'Tenis deportivos cómodos para uso diario, con suela de goma.', category: 'Calzado', colors: ['Rojo'], features: [], visibleBrand: '', confidence: 'media', isProductPhoto: true })
       if (parts.some((part) => part.inlineData?.mimeType === 'application/pdf')) return answer({ answer: 'Documento de un proveedor.' })
       if (JSON.stringify(body.systemInstruction || '').includes('intérprete del Asistente TiendIA')) return new Response('{"error":{"status":"INTERNAL"}}', { status: 500 })
       return answer({ action: 'unknown', params: {}, missing: [], summary: '', needsConfirmation: false })
@@ -88,6 +90,7 @@ async function runCase(bank: MediaCase, flow: Flow): Promise<CaseResult> {
       const file = [...files.values()].find((item) => url.endsWith(item.path))
       return file ? new Response(file.bytes, { headers: { 'content-length': String(file.bytes.byteLength) } }) : new Response('', { status: 404 })
     }
+    if (/sendMessage|sendPhoto/.test(url) && channelDown) return new Response(JSON.stringify({ ok: false, error_code: 502, description: 'Bad Gateway' }), { status: 502 })
     if (/sendMessage|sendPhoto/.test(url)) sent.push({ text: String(body.text ?? body.caption ?? ''), markup: body.reply_markup })
     return new Response(JSON.stringify({ ok: true, result: { message_id: sent.length + 1 } }))
   }))
@@ -105,6 +108,8 @@ async function runCase(bank: MediaCase, flow: Flow): Promise<CaseResult> {
     const before = fingerprint()
     const from = sent.length
     modelDown = Boolean(turn.modelDown)
+    channelDown = Boolean(turn.channelDown)
+    vision = turn.vision || null
     const started = Date.now()
     let input = ''
     if (turn.photos) {
@@ -147,7 +152,7 @@ async function runCase(bank: MediaCase, flow: Flow): Promise<CaseResult> {
     const failures: string[] = []
     const uxFailures: string[] = []
     const row = pendingRow()
-    if (!replies.length && !(turn.photos && flow === 'nueva')) failures.push('sin respuesta')
+    if (!replies.length && !(turn.photos && flow === 'nueva') && !turn.channelDown) failures.push('sin respuesta')
     if (check.unchanged && fingerprint() !== before) failures.push('modificó el catálogo sin confirmación')
     if (check.pending !== undefined && (row?.action ?? null) !== check.pending) failures.push(`pendiente: esperaba ${check.pending}, hay ${row?.action ?? null}`)
     if (check.draft) {

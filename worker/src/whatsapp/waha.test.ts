@@ -30,6 +30,7 @@ let geminiCalls: number
 let groupingCalls: number
 let grouping: (photos: number, request: any) => unknown
 let sendStatus: number
+let transcript: string
 let counter = 0
 
 const sign = (raw: string, key = HMAC_KEY) => createHmac('sha512', key).update(raw).digest('hex')
@@ -99,6 +100,7 @@ beforeEach(async () => {
   geminiCalls = 0
   groupingCalls = 0
   sendStatus = 200
+  transcript = 'llegaron tres pares más talla 38 de las sandalias'
   grouping = (photos) => ({ photos: Array.from({ length: photos }, (_, index) => ({ photo: index + 1, group: 1, isProduct: true })), groups: [{ group: 1, continuesPrevious: false, name: 'Tenis blancos urbanos', category: 'Calzado', colors: ['Blanco'], visibleBrand: '', description: 'Tenis blancos de suela gruesa.' }] })
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
@@ -133,7 +135,7 @@ beforeEach(async () => {
       }
       const system = String(request.systemInstruction?.parts?.[0]?.text || '')
       if (request.contents?.[0]?.parts?.some((part: any) => part.inlineData?.mimeType === 'audio/ogg')) {
-        return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({ action: 'update_stock', params: { sku: 'SAN-1', size: '38', stock: 4 }, missing: [], summary: 'Sumar 3 a la 38', needsConfirmation: true, transcript: 'llegaron tres pares más talla 38 de las sandalias' }) }] } }], usageMetadata: { promptTokenCount: 400, candidatesTokenCount: 40 } }))
+        return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({ action: 'update_stock', params: { sku: 'SAN-1', size: '38', stock: 4 }, missing: [], summary: 'Sumar 3 a la 38', needsConfirmation: true, transcript }) }] } }], usageMetadata: { promptTokenCount: 400, candidatesTokenCount: 40 } }))
       }
       if (system.includes('Organizas fotografías')) {
         groupingCalls++
@@ -578,6 +580,129 @@ describe('lotes de fotos (WAHA)', () => {
     const plain = { version: 1, stage: 'collecting', fields: {}, variants: [], images: [], primaryImageIndex: 0 } as any
     expect(batchTest.applyMerchantText(plain, 'zapatos lindos 38')).toBe(false)
     expect(plain.fields.price).toBeUndefined()
+  })
+})
+
+describe('capa multimedia sobre los lotes (WAHA): la descripción por voz o texto se asocia al producto correcto', () => {
+  beforeEach(() => {
+    h.env.WAHA_PHOTO_BATCH_ENABLED = 'true'
+    h.env.GEMINI_API_KEY = 'gemini-de-pruebas'
+    h.env.ASSISTANT_MEDIA_STORE_IDS = String(tienda)
+    h.db.query('UPDATE stores SET ai_enabled = 1, ai_monthly_budget_micros = 50000000 WHERE id = ?', tienda)
+  })
+  const two = (photos: number) => ({
+    photos: Array.from({ length: photos }, (_, index) => ({ photo: index + 1, group: index < 3 ? 1 : 2, isProduct: true })),
+    groups: [
+      { group: 1, continuesPrevious: false, name: 'Tenis blancos urbanos', category: 'Calzado', colors: ['Blanco'], visibleBrand: '', description: 'Tenis blancos de suela gruesa.' },
+      { group: 2, continuesPrevious: false, name: 'Chanclas de playa', category: 'Calzado', colors: ['Negro'], visibleBrand: '', description: 'Chanclas negras.' },
+    ],
+  })
+  async function sendPhotos(count: number, prefix = 'M'): Promise<void> {
+    for (let index = 0; index < count; index++) {
+      files[`${prefix}${index}.png`] = await makePng(400 + index, 400)
+      await photo(`${prefix}${index}.png`)
+    }
+  }
+  async function voice(text: string, name = `VOZ${++counter}.oga`): Promise<void> {
+    transcript = text
+    const page = new Uint8Array(64)
+    page.set([0x4f, 0x67, 0x67, 0x53])
+    let rest = 48_000 * 6
+    for (let i = 0; i < 8; i++) { page[6 + i] = rest % 256; rest = Math.floor(rest / 256) }
+    files[name] = page
+    await post(msg({ lid: ANA_LID, phone: ANA_PHONE }, '', {
+      hasMedia: true, media: { url: `http://localhost:3000/api/files/${SESSION}/${name}`, mimetype: 'audio/ogg; codecs=opus', filename: null, error: null },
+    }, { audioMessage: { mimetype: 'audio/ogg; codecs=opus', PTT: true, seconds: 6 } }))
+  }
+  const captions = () => h.db.query<{ caption: string | null }>('SELECT caption FROM whatsapp_photo_items ORDER BY position, id').map((row) => row.caption)
+  const catalog = () => JSON.stringify(h.db.query("SELECT p.store_id, p.sku, p.price, (SELECT group_concat(v.size || ':' || v.stock) FROM product_variants v WHERE v.product_id = p.id) AS v FROM products p ORDER BY p.id"))
+  const draft = () => { const row = h.db.query<{ params_json: string }>("SELECT params_json FROM telegram_operations WHERE status = 'pending' AND action = 'create_product'")[0]; return row ? JSON.parse(row.params_json) : null }
+
+  it('un producto en el lote + nota de voz: repite monto, tallas y cantidades, y al confirmar el borrador ya los trae', async () => {
+    await link()
+    const before = catalog()
+    await sendPhotos(3)
+    await say('listo')
+    expect(last()).toContain('1 posible producto')
+    sent.length = 0
+    await voice('Estos son tenis rojos, del 38 al 42, cinco de cada talla, a ciento ochenta mil')
+    const reply = texts().join('\n')
+    expect(reply).toContain('Entendí')
+    expect(reply).toMatch(/tallas 38 a 42, 5 de cada una \(25 en total\)/)
+    expect(reply).toMatch(/180\.000/)
+    expect(reply).toContain('las 3 fotos')
+    expect(captions().filter(Boolean)).toHaveLength(1)
+    expect(catalog()).toBe(before)
+    await say('sí')
+    expect(draft()).toMatchObject({ fields: { price: 180000 }, batch: { group: 0, total: 1 } })
+    expect(draft().variants.map((variant: any) => `${variant.size}:${variant.stock}`).join(',')).toBe('38:5,39:5,40:5,41:5,42:5')
+    expect(draft().images).toHaveLength(3)
+    expect(catalog()).toBe(before)
+  })
+
+  it('nota de voz con dos productos abiertos: pregunta con opciones cortas y anota solo en el elegido', async () => {
+    await link()
+    grouping = two
+    await sendPhotos(5)
+    await say('listo')
+    expect(last()).toContain('2 posibles productos')
+    sent.length = 0
+    await voice('son del 38 al 40, dos de cada talla, a 150 mil')
+    expect(last()).toMatch(/¿A cuál producto del lote te refieres\?\n1\) Tenis blancos urbanos\n2\) Chanclas de playa/)
+    expect(captions().filter(Boolean)).toHaveLength(0)
+    await say('el 2')
+    expect(last()).toContain('Chanclas de playa')
+    expect(last()).toMatch(/150\.000/)
+    // Only the first photo of the second product carries the description.
+    expect(captions().map(Boolean)).toEqual([false, false, false, true, false])
+  })
+
+  it('si la descripción nombra el producto, va a ese sin preguntar', async () => {
+    await link()
+    grouping = two
+    await sendPhotos(5)
+    await say('listo')
+    sent.length = 0
+    await say('las chanclas del 36 al 38, dos de cada talla, a 40 mil')
+    expect(last()).toContain('producto 2')
+    expect(last()).not.toContain('¿A cuál')
+    expect(captions().map(Boolean)).toEqual([false, false, false, true, false])
+  })
+
+  it('la descripción llega mientras las fotos se organizan: se guarda y se aplica con el resumen', async () => {
+    await link()
+    await sendPhotos(3)
+    expect(sent).toHaveLength(0)
+    await say('son tenis rojos, del 38 al 40, dos de cada talla, a 150 mil')
+    await say('listo')
+    await say('sí')
+    expect(draft()).toMatchObject({ fields: { price: 150000 } })
+    expect(draft().variants.map((variant: any) => `${variant.size}:${variant.stock}`).join(',')).toBe('38:2,39:2,40:2')
+    expect(texts().join('\n')).not.toMatch(/¿Qué precio deseas colocar\?/)
+  })
+
+  it('el lote es de una tienda y de un chat: otro comerciante no puede describir ni escribir el lote ajeno', async () => {
+    await link()
+    await sendPhotos(3)
+    await say('listo')
+    const intruso = await createStoreUser(h.db, { email: 'intruso@pruebas.test', storeId: otra, role: 'owner', telegramUserId: '7009' })
+    h.env.ASSISTANT_MEDIA_STORE_IDS = '*'
+    await say(`VINCULAR ${await linkCode(intruso, 'intruso@pruebas.test', 'otra-wa')}`, INTRUSO_PHONE)
+    sent.length = 0
+    await say('son tenis rojos, del 38 al 40, dos de cada talla, a 1 mil', INTRUSO_PHONE)
+    expect(captions().filter(Boolean)).toHaveLength(0)
+    expect(texts().join('\n')).not.toMatch(/Tenis blancos urbanos|las 3 fotos/)
+  })
+
+  it('con el interruptor multimedia apagado el lote se comporta como antes (la descripción no se anota)', async () => {
+    h.env.ASSISTANT_MEDIA_STORE_IDS = ''
+    await link()
+    await sendPhotos(3)
+    await say('listo')
+    sent.length = 0
+    await voice('Estos son tenis rojos, del 38 al 42, cinco de cada talla, a ciento ochenta mil')
+    expect(captions().filter(Boolean)).toHaveLength(0)
+    expect(texts().join('\n')).not.toContain('Listo, entendí')
   })
 })
 

@@ -30,17 +30,28 @@ export function mediaEnabled(ctx: Pick<AssistantContext, 'env' | 'store'>): bool
   return raw === '*' || raw.split(',').map((value) => Number(value.trim())).includes(ctx.store.id)
 }
 
-/** Tools of this step, for the registry (documentation, permissions and the test bank). All wrap existing flows. */
+export type MediaToolSpec = {
+  description: string
+  kind: 'read' | 'write' | 'control'
+  /** What the merchant must confirm before anything reaches the catalogue. */
+  confirm: string | null
+  allowed: (ctx: Pick<AssistantContext, 'role'>) => boolean
+  /** The existing flow the tool wraps (nothing is reimplemented here). */
+  wraps: string
+}
+const adminOnly = (ctx: Pick<AssistantContext, 'role'>) => roleAllows(ctx.role, 'admin')
+
+/** Tools of this step, in the same registry style as agent/tools.ts. All wrap existing flows; none writes to the catalogue. */
 export const MEDIA_TOOLS = {
-  borrador_desde_fotos: 'Crea el borrador de un producto con las fotos en espera y lo que el comerciante dijo o escribió (motor: borrador de producto).',
-  borrador_ajustar: 'Corrige el borrador abierto: precio, tallas y cantidades, quitar una foto (nada se guarda en el catálogo).',
-  asociar_descripcion_a_lote: 'Agrega la descripción (voz o texto) al producto del lote de fotos al que se refiere (WAHA: texto de las fotos).',
-  lote_agrupar: 'Une o quita productos del resumen del lote (WAHA: «une 1 y 2», «quita 3»).',
-  detectar_duplicados: 'Fotos repetidas dentro del lote o ya recibidas, y productos existentes parecidos.',
-  lote_estado: 'Cuántas fotos esperan descripción y qué falta.',
-  lote_confirmar: 'Preparar las fichas del lote; cada producto se publica solo con su confirmación.',
-  lote_cancelar: 'Descartar las fotos en espera o el lote (no se publicó nada).',
-} as const
+  borrador_desde_fotos: { description: 'Crea el borrador de un producto con las fotos en espera y lo que el comerciante dijo o escribió.', kind: 'write', confirm: '«Guardar producto» en la vista previa', allowed: adminOnly, wraps: 'productDraft (beginProductDraft, receiveProductPhoto)' },
+  borrador_ajustar: { description: 'Corrige el borrador abierto: precio, tallas y cantidades, quitar una foto.', kind: 'write', confirm: '«Guardar producto» en la vista previa', allowed: adminOnly, wraps: 'productDraft (saveProductDraft)' },
+  asociar_descripcion_a_lote: { description: 'Agrega la descripción (voz o texto) al producto del lote de fotos al que se refiere.', kind: 'write', confirm: '«sí» al resumen del lote y luego cada vista previa', allowed: adminOnly, wraps: 'lotes de WAHA (texto de las fotos del grupo)' },
+  lote_agrupar: { description: 'Une o quita productos del resumen del lote («une 1 y 2», «quita 3»).', kind: 'write', confirm: '«sí» al resumen del lote', allowed: adminOnly, wraps: 'lotes de WAHA (handleBatchText)' },
+  detectar_duplicados: { description: 'Fotos repetidas dentro del lote o ya recibidas, y productos existentes parecidos.', kind: 'read', confirm: null, allowed: adminOnly, wraps: 'índice único de fotos, huella de WAHA y buscador del catálogo' },
+  lote_estado: { description: 'Cuántas fotos esperan descripción y qué falta.', kind: 'read', confirm: null, allowed: adminOnly, wraps: 'assistant_media_items / resumen del lote' },
+  lote_confirmar: { description: 'Preparar las fichas del lote; cada producto se publica solo con su confirmación.', kind: 'control', confirm: 'cada vista previa', allowed: adminOnly, wraps: 'lotes de WAHA (startReview)' },
+  lote_cancelar: { description: 'Descartar las fotos en espera o el lote (no se publicó nada).', kind: 'control', confirm: null, allowed: adminOnly, wraps: 'assistant_media_items / cancelBatch' },
+} as const satisfies Record<string, MediaToolSpec>
 
 type MediaAsk =
   | { kind: 'same_or_new'; sku: string; text: string; voice: boolean }
@@ -91,7 +102,7 @@ async function measure(ctx: AssistantContext, started: number, tool: keyof typeo
  * photos waiting for a description: one acknowledgement for the whole set, never one question per photo.
  */
 export async function handleAgentPhoto(ctx: AssistantContext, fileId: string, caption: string): Promise<boolean> {
-  if (!mediaEnabled(ctx) || !roleAllows(ctx.role, 'admin')) return false
+  if (!mediaEnabled(ctx) || !MEDIA_TOOLS.borrador_desde_fotos.allowed(ctx)) return false
   const started = Date.now()
   if (caption) {
     const intent = detectIntent(caption)
@@ -164,7 +175,7 @@ export function stockLinesOf(text: string): Line[] {
   const sizes = sizesIn(before, true).length ? sizesIn(before, true) : sizesIn(after, false)
   if (sizes.length) return sizes.map((size) => ({ size, color: null, quantity }))
   // «gorras negras, 10 unidades»: a quantity with no sizes is the stock of a product without sizes.
-  return each || parsed.length ? parsed : [{ size: null, color: null, quantity }]
+  return each || parsed.length || /\b(?:tallas?|numeros?)\b/.test(folded) ? parsed : [{ size: null, color: null, quantity }]
 }
 
 function sizesIn(segment: string, bareRuns: boolean): string[] {
@@ -277,6 +288,8 @@ export async function handleAgentDescription(ctx: AssistantContext, text: string
   const photos = await openPhotos(ctx)
   const batch = await openWahaBatch(ctx)
   if (!photos.length && !batch) return false
+  // Only who may publish products describes photos or a batch; anyone else keeps the usual answers.
+  if (!MEDIA_TOOLS.asociar_descripcion_a_lote.allowed(ctx)) return false
 
   if (photos.length) {
     const explicit = /\b(?:descarta|borra|olvida|cancela|quita)\w*\s+(?:las?\s+|esas?\s+)?fotos?\b/.test(lower) || /^(?:descart\w*|b[oó]rral[ao]s)[.! ]*$/.test(lower)
@@ -478,6 +491,9 @@ async function describePhotos(ctx: AssistantContext, text: string, input: { voic
     }
   }
   if (!looksLikeDescription(description) && !name) return false
+  // A size heard in a voice note that is not a real size («talla 83»): it is never kept, and it is asked by name.
+  const oddSize = input.voice ? (fold(text).match(/\b(?:tallas?|numero)\s+(\d{2,3})\b/) || []).slice(1).find((value) => !sizeOf(value)) : undefined
+  if (input.voice) description.lines = description.lines.filter((line) => !line.size || sizeOf(line.size))
 
   if (name && !input.forceNew) {
     const twins = matchProducts(catalog, name)
@@ -540,7 +556,7 @@ async function describePhotos(ctx: AssistantContext, text: string, input: { voic
     await say(ctx, head)
     await sayPhoto(ctx, last.photo, last.text, last.markup)
   } else {
-    await say(ctx, `${head}${last ? `\n\n${friendlyPrompt(last.text, draft)}` : ''}`, last?.markup)
+    await say(ctx, `${head}${oddSize ? `\nLa talla la escuché como «${escapeHtml(oddSize)}» y no me cuadra.` : ''}${last ? `\n\n${friendlyPrompt(last.text, draft)}` : ''}`, last?.markup)
   }
   return true
 }
