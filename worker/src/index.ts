@@ -79,6 +79,8 @@ export type Env = {
  ASSISTANT_MEDIA_WINDOW_SECONDS?: string
  ASSISTANT_MEDIA_MAX_PHOTOS?: string
  ASSISTANT_MEDIA_DAILY_PRODUCTS?: string
+ /** Milliseconds of photo analysis after which the merchant gets one «still working» notice (default 4000). */
+ ASSISTANT_MEDIA_PROGRESS_MS?: string
  TELEGRAM_VOICE_ENABLED?: string
  /** Quota of AI messages per plan: 'off' (default, counts nothing) | 'shadow' (counts and alerts, never blocks) | 'enforce'. */
  AI_MESSAGE_QUOTA_MODE?: string

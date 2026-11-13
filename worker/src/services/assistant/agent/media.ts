@@ -62,6 +62,8 @@ export type MediaState = { ask?: MediaAsk; reminded?: boolean; note?: { batchId:
 const window = (ctx: AssistantContext) => Math.min(6 * 3600, Math.max(60, Number(ctx.env.ASSISTANT_MEDIA_WINDOW_SECONDS) || 1800))
 const maxPhotos = (ctx: AssistantContext) => Math.min(10, Math.max(1, Number(ctx.env.ASSISTANT_MEDIA_MAX_PHOTOS) || 10))
 const dailySets = (ctx: AssistantContext) => Math.min(500, Math.max(1, Number(ctx.env.ASSISTANT_MEDIA_DAILY_PRODUCTS) || 60))
+/** Milliseconds of work after which the merchant is told it is still going (only then; fast answers say nothing extra). */
+const progressAfter = (ctx: AssistantContext) => Math.min(20_000, Math.max(20, Number(ctx.env.ASSISTANT_MEDIA_PROGRESS_MS) || 4000))
 const photosWord = (count: number) => (count === 1 ? 'la foto' : `las ${count} fotos`)
 
 async function readMedia(ctx: AssistantContext): Promise<MediaState> {
@@ -93,6 +95,13 @@ const quiet = (ctx: AssistantContext, offset = 0) => ({ ...ctx, capture: [] as N
 async function measure(ctx: AssistantContext, started: number, tool: keyof typeof MEDIA_TOOLS | 'foto_recibida', outcome: string): Promise<void> {
   await ctx.db.prepare(`INSERT INTO assistant_agent_turns (store_id, channel, path, tools, outcome, latency_ms) VALUES (?, ?, 'media', ?, ?, ?)`)
     .bind(ctx.store.id, ctx.channel ? (ctx.channel.provider === 'waha' ? 'waha' : 'whatsapp') : 'telegram', tool, outcome.slice(0, 40), Date.now() - started).run().catch(() => undefined)
+}
+
+/** Runs the slow part (downloading and looking at the photos); one short notice if it is taking long, none otherwise. */
+async function withProgress<T>(ctx: AssistantContext, notice: string, work: () => Promise<T>): Promise<T> {
+  let pending: Promise<unknown> | null = null
+  const timer = setTimeout(() => { pending = say(ctx, notice).catch(() => undefined) }, progressAfter(ctx))
+  try { return await work() } finally { clearTimeout(timer); if (pending) await pending }
 }
 
 // ───────────────────────── Fotos: se reciben en silencio y esperan su descripción ─────────────────────────
@@ -385,13 +394,23 @@ async function noteToBatch(ctx: AssistantContext, batch: BatchRow, groups: Group
   await say(ctx, `Listo, entendí: ${summaryOf(description, ctx.store.currency) || escapeHtml(text.slice(0, 120))}.\n${groups.length === 1 ? `¿Los dejo preparados con ${photosWord(photos)}? Responde <b>sí</b>.` : `Lo anoté para el producto ${target + 1} (${escapeHtml(groups[target]!.name || 'sin nombre')}). Responde <b>sí</b> para preparar las fichas.`}`)
 }
 
+/** What the batch will read: price and «talla:cantidad» in the plain form its own parser understands, whatever
+ * way the merchant said it. Without sizes the merchant's words go as they are. */
+function batchCaption(text: string): string {
+  const description = readDescription(text)
+  const sized = description.lines.filter((line) => line.size)
+  if (!sized.length) return text
+  return [description.price ? `$${description.price.toLocaleString('es-CO')}` : '', sized.map((line) => `${line.size}:${line.quantity}`).join(', ')].filter(Boolean).join('. ')
+}
+
 async function writeBatchCaption(ctx: AssistantContext, batchId: string, groups: Group[], text: string): Promise<void> {
+  const caption = batchCaption(text)
   for (const group of groups) {
     const first = group.items[0]
     if (first === undefined) continue
     // Scoped by batch and store: a batch of another store can never be written.
     await ctx.db.prepare(`UPDATE whatsapp_photo_items SET caption = trim(COALESCE(caption || '. ', '') || ?) WHERE id = ? AND batch_id = ? AND store_id = ?`)
-      .bind(text.slice(0, 400), first, batchId, ctx.store.id).run()
+      .bind(caption.slice(0, 400), first, batchId, ctx.store.id).run()
   }
 }
 
@@ -518,14 +537,20 @@ async function describePhotos(ctx: AssistantContext, text: string, input: { voic
   let active = await getPendingProductDraft(ctx)
   if (!active) { await say(ctx, sub.capture.at(-1)?.text || 'No pude preparar el producto. Las fotos siguen guardadas; intenta de nuevo.'); return true }
   let stored = 0
-  for (const [index, photo] of photos.entries()) {
-    const latest = await getPendingProductDraft(ctx)
-    if (!latest) break
-    const one = quiet(ctx, index + 1)
-    await receiveProductPhoto(one, latest, { photo: [{ file_id: photo.file_id }] } as unknown as TelegramMessage)
-    const after = await getPendingProductDraft(ctx)
-    if (after && after.draft.images.length > latest.draft.images.length) stored += 1
-  }
+  const next = quiet(ctx)
+  await withProgress(ctx, `Estoy revisando ${photosWord(photos.length)}; ya te muestro el resumen.`, async () => {
+    for (const [index, photo] of photos.entries()) {
+      const latest = await getPendingProductDraft(ctx)
+      if (!latest) break
+      const one = quiet(ctx, index + 1)
+      await receiveProductPhoto(one, latest, { photo: [{ file_id: photo.file_id }] } as unknown as TelegramMessage)
+      const after = await getPendingProductDraft(ctx)
+      if (after && after.draft.images.length > latest.draft.images.length) stored += 1
+    }
+    // The engine continues its own draft: it looks at the photos for what is still missing and asks the next thing.
+    const ready = stored ? await getPendingProductDraft(ctx) : null
+    if (ready) await handleProductDraftCallback(next, 'done', ready.operation.operation_id)
+  })
   active = await getPendingProductDraft(ctx)
   if (!active || !stored) {
     if (active) await handleProductDraftCallback(quiet(ctx), 'cancel', active.operation.operation_id)
@@ -536,9 +561,6 @@ async function describePhotos(ctx: AssistantContext, text: string, input: { voic
   await closePhotos(ctx, 'used', active.operation.operation_id)
   await saveMedia(ctx, null)
 
-  // The engine continues its own draft: it looks at the photos for what is still missing and asks the next thing.
-  const next = quiet(ctx)
-  await handleProductDraftCallback(next, 'done', active.operation.operation_id)
   active = (await getPendingProductDraft(ctx)) || active
   const draft = active.draft
   const sizes = sizesPhrase(draft.variants)

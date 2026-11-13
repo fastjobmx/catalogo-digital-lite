@@ -39,6 +39,8 @@ export type MediaTurn = {
   channelDown?: boolean
   /** What the vision model «reads» in the photos of this turn (text printed inside the image). */
   vision?: { name: string; description: string }
+  /** The vision model takes this many milliseconds to answer during this turn. */
+  slowVisionMs?: number
   /** Repite la entrega del mismo mensaje (reintento del webhook). */
   resend?: boolean
   expect: MediaCheck
@@ -54,7 +56,7 @@ export const MEDIA_CONVERSATIONS: MediaCase[] = [
     id: 'fotos-luego-audio', title: '5 fotos y luego un audio: una sola operación', critical: true,
     turns: [
       { photos: 5, expect: { unchanged: true, pending: null, waiting: 5, maxMessages: 1, ux: ['Recibí la foto'] } },
-      { voice: AUDIO, expect: { unchanged: true, pending: 'create_product', draft: FULL, waiting: 0, replies: ['180\\.000'], ux: ['tallas 38 a 42, 5 de cada una \\(25 en total\\)', 'las 5 fotos', 'Nada se publica'], maxMessages: 3 } },
+      { voice: AUDIO, expect: { unchanged: true, pending: 'create_product', draft: FULL, waiting: 0, replies: ['180\\.000'], never: ['Estoy revisando'], ux: ['tallas 38 a 42, 5 de cada una \\(25 en total\\)', 'las 5 fotos', 'Nada se publica'], maxMessages: 3 } },
     ],
   },
   {
@@ -256,6 +258,13 @@ export const MEDIA_CONVERSATIONS: MediaCase[] = [
     turns: [
       { photos: 1, expect: { unchanged: true, waiting: 1 } },
       { say: 'son correas rojas, 10 unidades, a 40 mil', expect: { unchanged: true, pending: 'create_product', draft: { images: 1, price: 40000, variants: 'undefined:10' }, replies: ['40\\.000', '10 unidades'] } },
+    ],
+  },
+  {
+    id: 'aviso-si-tarda', title: 'Si revisar las fotos tarda, un solo aviso de progreso; si no tarda, ninguno', critical: false,
+    turns: [
+      { photos: 3, expect: { unchanged: true, waiting: 3 } },
+      { say: 'son tenis rojos, del 38 al 40, dos de cada talla, a 150 mil', slowVisionMs: 400, expect: { unchanged: true, pending: 'create_product', draft: { images: 3, price: 150000 }, ux: ['Estoy revisando las 3 fotos'], maxMessages: 2 } },
     ],
   },
 ]

@@ -673,7 +673,7 @@ describe('capa multimedia sobre los lotes (WAHA): la descripción por voz o text
     await link()
     await sendPhotos(3)
     expect(sent).toHaveLength(0)
-    await say('son tenis rojos, del 38 al 40, dos de cada talla, a 150 mil')
+    await say('son tenis rojos 38 39 40 dos de cada uno a 150 mil')
     await say('listo')
     await say('sí')
     expect(draft()).toMatchObject({ fields: { price: 150000 } })

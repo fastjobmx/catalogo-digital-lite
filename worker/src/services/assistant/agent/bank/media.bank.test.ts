@@ -36,7 +36,7 @@ async function runCase(bank: MediaCase, flow: Flow): Promise<CaseResult> {
   const h: Harness = createHarness({
     TELEGRAM_BOT_TOKEN: 'bot-token', TELEGRAM_WEBHOOK_SECRET: SECRET, GEMINI_API_KEY: REAL ? process.env.GEMINI_API_KEY! : 'test-key',
     ...(process.env.GEMINI_MODEL ? { GEMINI_MODEL: process.env.GEMINI_MODEL } : {}),
-    ASSISTANT_AGENT_STORE_IDS: on, ASSISTANT_MEDIA_STORE_IDS: on, ASSISTANT_AGENT_TIMEOUT_MS: REAL ? '9000' : '2000',
+    ASSISTANT_AGENT_STORE_IDS: on, ASSISTANT_MEDIA_STORE_IDS: on, ASSISTANT_AGENT_TIMEOUT_MS: REAL ? '9000' : '2000', ...(REAL ? {} : { ASSISTANT_MEDIA_PROGRESS_MS: '150' }),
   })
   const tienda = await seedStore(h.db, { slug: 'calzado-demo', name: 'Calzado Demo', status: 'active' })
   const otra = await seedStore(h.db, { slug: 'otra-demo', name: 'Otra Demo', status: 'active' })
@@ -62,6 +62,7 @@ async function runCase(bank: MediaCase, flow: Flow): Promise<CaseResult> {
   let modelDown = false
   let channelDown = false
   let vision: { name: string; description: string } | null = null
+  let slowVisionMs = 0
   let modelCalls = 0
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
@@ -75,6 +76,7 @@ async function runCase(bank: MediaCase, flow: Flow): Promise<CaseResult> {
       if (parts.some((part) => part.inlineData?.mimeType?.startsWith('audio/'))) return answer({ action: 'ask', params: {}, missing: [], summary: 'ok', needsConfirmation: false, transcript })
       if (modelDown) return new Response('{"error":{"status":"UNAVAILABLE"}}', { status: 503 })
       if (REAL) return realFetch(input, init)
+      if (slowVisionMs && parts.some((part) => part.inlineData?.mimeType?.startsWith('image/'))) await new Promise((resolve) => setTimeout(resolve, slowVisionMs))
       if (parts.some((part) => part.inlineData?.mimeType?.startsWith('image/'))) return answer({ name: vision?.name || 'Tenis deportivos', description: vision?.description || 'Tenis deportivos cómodos para uso diario, con suela de goma.', category: 'Calzado', colors: ['Rojo'], features: [], visibleBrand: '', confidence: 'media', isProductPhoto: true })
       if (parts.some((part) => part.inlineData?.mimeType === 'application/pdf')) return answer({ answer: 'Documento de un proveedor.' })
       if (JSON.stringify(body.systemInstruction || '').includes('intérprete del Asistente TiendIA')) return new Response('{"error":{"status":"INTERNAL"}}', { status: 500 })
@@ -110,6 +112,7 @@ async function runCase(bank: MediaCase, flow: Flow): Promise<CaseResult> {
     modelDown = Boolean(turn.modelDown)
     channelDown = Boolean(turn.channelDown)
     vision = turn.vision || null
+    slowVisionMs = turn.slowVisionMs || 0
     const started = Date.now()
     let input = ''
     if (turn.photos) {
