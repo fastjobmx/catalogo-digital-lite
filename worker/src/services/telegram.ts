@@ -27,6 +27,7 @@ import { answerWithStoreFacts, draftProductDescription, interpretRequest } from 
 import { detectIntent } from './assistant/intents'
 import { handleTeamCallback, showTeam } from './assistant/team'
 import { CONSUMPTION_INTENT, showConsumption } from './assistant/consumption'
+import { handleAgentCallback, handleAgentControl, handleAgentText } from './assistant/agent/orchestrator'
 import { fingerprintText } from '../ai/messageQuota'
 import { sendPanelPasswordReset } from './assistant/panelAccess'
 import { acceptCampaignText, createCampaign, detectCouponDraft, detectMarketingIntent, handleMarketingCallback, proposeCoupon, showCampaigns, showCoupons, showFollowUps, unsubscribe } from './assistant/marketing'
@@ -189,6 +190,7 @@ async function showStorePicker(ctx: AssistantContext): Promise<void> {
 }
 
 async function handleCallback(ctx: AssistantContext, data: string): Promise<void> {
+  if (data.startsWith('ag:') && await handleAgentCallback(ctx, data)) return
   const key = data.trim()
   if (key === 'tb:new') { await startTelegramBatch(ctx); return }
   const select = key.match(/^s:select:(\d+)$/)
@@ -571,6 +573,8 @@ async function handleText(ctx: AssistantContext, text: string): Promise<void> {
   }
   // A shipping guide in progress takes its answers and corrections first.
   if (await handleGuideText(ctx, text)) return
+  // Conversational layer (per store, off by default): natural confirmations, «espera», «empecemos de nuevo».
+  if (await handleAgentControl(ctx, text)) return
   const pending = await getPendingOperation(ctx)
   if (pending?.action === 'register_shipment' && CONFIRM_WORDS.test(text)) { await handleGuideCallback(ctx, `gd:${ctx.store.id}:ok:${pending.operation_id}`); return }
   if (pending && CONFIRM_WORDS.test(text)) { await confirmOperation(ctx, pending); return }
@@ -638,7 +642,10 @@ async function handleText(ctx: AssistantContext, text: string): Promise<void> {
     return
   }
   // Products, stock and prices in the merchant's own words (names, sizes, colours, corrections).
-  if (await handleCommerceText(ctx, text)) return
+  // The conversational layer answers first when it is on for this store; 'fallback' and 'other' return here.
+  const agent = await handleAgentText(ctx, text)
+  if (agent === 'handled') return
+  if (agent !== 'other' && await handleCommerceText(ctx, text)) return
 
   const intent = detectIntent(text, session.state.lastSkus)
   if (intent) {

@@ -69,6 +69,10 @@ export type Env = {
  GEMINI_VIDEO_PRICE_OUTPUT_MICROS_PER_MTOK?: string
  /** Telegram assistant: 'false' turns off the natural-language commerce interpreter / voice notes (previous behaviour stays). */
  TELEGRAM_SMART_INTERPRETER_ENABLED?: string
+ /** Conversational layer (agent) per store: comma-separated store ids, or "*" for every store. Empty = off everywhere. */
+ ASSISTANT_AGENT_STORE_IDS?: string
+ /** Milliseconds the layer waits for the model before handing the message to the previous engine (default 9000). */
+ ASSISTANT_AGENT_TIMEOUT_MS?: string
  TELEGRAM_VOICE_ENABLED?: string
  /** Quota of AI messages per plan: 'off' (default, counts nothing) | 'shadow' (counts and alerts, never blocks) | 'enforce'. */
  AI_MESSAGE_QUOTA_MODE?: string

@@ -58,6 +58,20 @@ export interface AssistantContext {
   quotaNotice?: string
   /** Set only for channels other than Telegram. */
   channel?: AssistantChannel
+  /** Conversational layer: when present, say()/sayPhoto() keep the message here instead of sending it, so the
+   * layer can run the existing engine and answer once, in its own words. Never set by the transports. */
+  capture?: Array<{ text: string; markup?: Record<string, unknown>; photo?: string }>
+}
+
+/** State of the conversational layer (agent). Lives inside the session, so it expires and resets with it. */
+export type AgentState = {
+  /** SKUs of the last numbered list shown, in order: «la 2» points here. */
+  options?: string[]
+  /** Several changes summarised in one message, waiting for a single confirmation. */
+  batch?: { items: Array<{ intent: import('./commerce/intent').CommerceIntent; sku: string; line: string }>; at: number }
+  /** A new request arrived while a change was waiting: the merchant decides what happens to the pending one. */
+  deferred?: string
+  deferredOp?: string
 }
 
 export type SessionState = {
@@ -79,6 +93,7 @@ export type SessionState = {
   commerce?: CommerceState
   /** A new request received while a product draft was open, kept until the owner decides. */
   deferredText?: string
+  agent?: AgentState
   updatedAt?: number
 }
 
@@ -133,11 +148,13 @@ export async function loadAssistantStore(db: D1Database, storeId: number, fallba
 
 /** Sends a message with the environment banner and, for multi-store users, the store name. */
 export async function say(ctx: AssistantContext, text: string, replyMarkup?: Record<string, unknown>): Promise<TelegramSendMessageResponse> {
+  if (ctx.capture) { ctx.capture.push({ text, markup: replyMarkup }); return { ok: true } as TelegramSendMessageResponse }
   if (ctx.channel) return ctx.channel.send(`${banner(ctx, isMainMenu(replyMarkup))}${text}`, usableMarkup(replyMarkup))
   return sendTelegramMessage(ctx.botToken, ctx.chatId, `${banner(ctx, isMainMenu(replyMarkup))}${text}`, 'HTML', usableMarkup(replyMarkup))
 }
 
 export async function sayPhoto(ctx: AssistantContext, photo: string, caption: string, replyMarkup?: Record<string, unknown>): Promise<void> {
+  if (ctx.capture) { ctx.capture.push({ text: caption, markup: replyMarkup, photo }); return }
   if (ctx.channel) { await ctx.channel.sendPhoto(photo, `${banner(ctx)}${caption}`, usableMarkup(replyMarkup)); return }
   await sendTelegramPhoto(ctx.botToken, ctx.chatId, photo, `${banner(ctx)}${caption}`, usableMarkup(replyMarkup))
 }

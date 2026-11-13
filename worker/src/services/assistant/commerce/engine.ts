@@ -503,3 +503,5 @@ export async function storeSummary(ctx: AssistantContext): Promise<void> {
 }
 
 export { sizesOf }
+/** One validated intent through the existing checks, questions and confirmation flow (used by the conversational layer). */
+export { dispatch as runCommerceIntent }
