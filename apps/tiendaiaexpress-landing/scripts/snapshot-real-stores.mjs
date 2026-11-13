@@ -20,6 +20,8 @@ const PICKS = {
   'imperio-nova': [],
   // No product photos: its prices are still provisional (2026-11-13); captures only.
   'el-palacio-de-las-flores': [],
+  // No product photos: every garment carries third-party brand marks; captures only. Prices are provisional (2026-11-13).
+  'altogramaje-twin': [],
 }
 const OUT = new URL('./.stores/real/', import.meta.url)
 await mkdir(OUT, { recursive: true })

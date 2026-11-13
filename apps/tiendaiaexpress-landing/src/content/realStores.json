@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-11-13T21:33:37.756Z",
+  "capturedAt": "2026-11-13T23:33:48.413Z",
   "stores": {
     "luz-magica": {
       "name": "Luz Mágica",
@@ -142,6 +142,14 @@
       "businessType": "Floristería y detalles",
       "productCount": 66,
       "categoryCount": 9,
+      "products": []
+    },
+    "altogramaje-twin": {
+      "name": "AltoGramaje Twin",
+      "slogan": "",
+      "businessType": "Ropa y gorras de alto gramaje",
+      "productCount": 356,
+      "categoryCount": 7,
       "products": []
     }
   }
