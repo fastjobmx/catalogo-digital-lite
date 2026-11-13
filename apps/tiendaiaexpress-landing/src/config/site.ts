@@ -6,7 +6,7 @@ export const site = {
   /** Stylised name used by the logo artwork. */
   wordmark: 'TiendIA Exprés',
   slogan: 'Tu tienda online, más fácil.',
-  concept: 'Catálogo digital con pedidos por WhatsApp.',
+  concept: 'Tienda online con IA y pedidos por WhatsApp.',
   url: __SITE_URL__,
 
   /** Platform app (stores, panel, trial). Set with VITE_APP_URL when the official domain is live. */

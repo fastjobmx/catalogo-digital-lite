@@ -82,7 +82,8 @@ test.describe('real stores', () => {
     await page.goto('/#tiendas')
     const links = await page.locator('#tiendas a[href^="http"]').evaluateAll((as) => as.map((a) => a.getAttribute('href')!))
     expect(links).toContain(`${APP}/t/sneakerhub-premium`)
-    for (const href of links) expect(href.startsWith(`${APP}/t/`), href).toBe(true)
+    // Only public stores, plus the free trial invitation at the end of the section.
+    for (const href of links) expect(href.startsWith(`${APP}/t/`) || href === `${APP}/prueba`, href).toBe(true)
   })
 })
 
@@ -132,7 +133,7 @@ test.describe('accessibility', () => {
     const close = page.getByRole('button', { name: 'Cerrar menú' })
     await expect(close).toBeFocused()
     await page.keyboard.press('Tab')
-    await expect(page.getByRole('dialog', { name: 'Menú' }).getByRole('link', { name: 'Funciones' })).toBeFocused()
+    await expect(page.getByRole('dialog', { name: 'Menú' }).getByRole('link').first()).toBeFocused()
     await page.keyboard.press('Shift+Tab')
     await expect(close).toBeFocused()
     await page.keyboard.press('Shift+Tab') // wraps to the last control of the menu, never behind it

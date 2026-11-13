@@ -5,11 +5,13 @@ import { site } from '../config/site'
 import { annualSaving, cop, plans } from './plans'
 
 export const nav = [
+  { href: '#inicio', label: 'Inicio' },
   { href: '#funciones', label: 'Funciones' },
   { href: '#como-funciona', label: 'Cómo funciona' },
   { href: '#tiendas', label: 'Tiendas' },
   { href: '#planes', label: 'Planes' },
-  { href: '#preguntas', label: 'Preguntas frecuentes' },
+  { href: '#preguntas', label: 'Preguntas' },
+  { href: '#contacto', label: 'Contacto' },
 ]
 
 const [emprendedor, negocio, mayorista] = plans

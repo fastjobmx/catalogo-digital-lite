@@ -78,10 +78,10 @@ export function Contact() {
     window.setTimeout(() => setStatus(win ? 'opened' : 'blocked'), 500)
   }
 
-  const field = 'mt-2 block w-full rounded-2xl border-0 bg-forest-deep px-4 py-3.5 text-[1rem] text-ivory ring-1 ring-ivory/15 placeholder:text-mist/60 focus:outline-none focus:ring-2 focus:ring-lime'
+  const field = 'mt-2 block w-full rounded-2xl border-0 bg-night-deep px-4 py-3.5 text-[1rem] text-porcelain ring-1 ring-porcelain/15 placeholder:text-mist/60 focus:outline-none focus:ring-2 focus:ring-lime'
 
   return (
-    <section id="contacto" aria-labelledby="contacto-title" className="on-dark relative overflow-hidden bg-forest py-24 text-ivory md:py-32">
+    <section id="contacto" aria-labelledby="contacto-title" className="on-dark relative overflow-hidden bg-night py-24 text-porcelain md:py-32">
       <div className="wrap relative z-10 grid grid-cols-1 gap-14 lg:grid-cols-[minmax(0,1fr)_minmax(0,34rem)] lg:gap-20">
         <div>
           <Eyebrow onDark className="mb-5">Empieza hoy</Eyebrow>
@@ -94,13 +94,13 @@ export function Contact() {
           </div>
           <div className="mt-8 space-y-4">
             <a href={whatsappLink()} target="_blank" rel="noopener noreferrer" className="group flex w-fit items-center gap-4 rounded-full py-1 pr-2 text-lg font-semibold hover:text-lime">
-              <span className="grid size-12 place-items-center rounded-full bg-lime text-forest"><Icon name="whatsapp" size={22} /></span>
+              <span className="grid size-12 place-items-center rounded-full bg-lime text-night"><Icon name="whatsapp" size={22} /></span>
               {site.whatsapp.display}<span className="sr-only"> (WhatsApp, se abre en una pestaña nueva)</span>
             </a>
             <ul className="flex gap-2" aria-label="Redes sociales">
               {site.social.map((s) => (
                 <li key={s.key}>
-                  <a href={s.url} target="_blank" rel="noopener noreferrer" className="grid size-12 place-items-center rounded-full bg-ivory/8 text-ivory ring-1 ring-ivory/10 transition-colors hover:bg-lime hover:text-forest">
+                  <a href={s.url} target="_blank" rel="noopener noreferrer" className="grid size-12 place-items-center rounded-full bg-porcelain/8 text-porcelain ring-1 ring-porcelain/10 transition-colors hover:bg-lime hover:text-night">
                     <Icon name={s.key} size={20} /><span className="sr-only">{s.label} (se abre en una pestaña nueva)</span>
                   </a>
                 </li>
@@ -109,7 +109,7 @@ export function Contact() {
           </div>
         </div>
 
-        <form ref={form} onSubmit={submit} noValidate className="rounded-[2rem] bg-forest-raised p-6 ring-1 ring-ivory/10 md:p-9" aria-describedby="form-privacidad">
+        <form ref={form} onSubmit={submit} noValidate className="rounded-[2rem] bg-night-raised p-6 ring-1 ring-porcelain/10 md:p-9" aria-describedby="form-privacidad">
           <h3 className="font-display text-[1.5rem] font-extrabold tracking-tight">Solicita tu tienda</h3>
           <p className="mb-6 mt-1 text-[0.95rem] text-mist">Completa estos datos y continúa por WhatsApp.</p>
           <div className="grid gap-5 sm:grid-cols-2">
@@ -121,13 +121,13 @@ export function Contact() {
               <div key={key} className={key === 'ciudad' ? 'sm:col-span-2' : ''}>
                 <label htmlFor={`f-${key}`} className="text-sm font-semibold">{label}</label>
                 <input id={`f-${key}`} name={key} type={type} autoComplete={auto} required maxLength={300} value={fields[key]} onChange={set(key)} aria-invalid={Boolean(errors[key])} aria-describedby={errors[key] ? `e-${key}` : undefined} className={field} />
-                {errors[key] ? <p id={`e-${key}`} className="mt-1.5 text-sm font-semibold text-[#d6b4ff]">{errors[key]}</p> : null}
+                {errors[key] ? <p id={`e-${key}`} className="mt-1.5 text-sm font-semibold text-[#e7a6fb]">{errors[key]}</p> : null}
               </div>
             ))}
             <div className="sm:col-span-2">
               <label htmlFor="f-vende" className="text-sm font-semibold">¿Qué vendes?</label>
               <textarea id="f-vende" name="vende" rows={3} required maxLength={300} value={fields.vende} onChange={set('vende')} aria-invalid={Boolean(errors.vende)} aria-describedby={errors.vende ? 'e-vende' : 'h-vende'} className={`${field} resize-none`} />
-              {errors.vende ? <p id="e-vende" className="mt-1.5 text-sm font-semibold text-[#d6b4ff]">{errors.vende}</p> : <p id="h-vende" className="mt-1.5 text-sm text-mist">Por ejemplo: ropa deportiva, accesorios, comida casera.</p>}
+              {errors.vende ? <p id="e-vende" className="mt-1.5 text-sm font-semibold text-[#e7a6fb]">{errors.vende}</p> : <p id="h-vende" className="mt-1.5 text-sm text-mist">Por ejemplo: ropa deportiva, accesorios, comida casera.</p>}
             </div>
             {([
               ['plan', 'Plan de interés', ['Todavía no sé', ...plans.map((p) => p.name)]],
@@ -150,17 +150,17 @@ export function Contact() {
             <Icon name="shield" size={18} className="mt-0.5 shrink-0 text-lime" />
             Al continuar se abre WhatsApp con este mensaje. Todavía tienes que enviarlo: tus datos solo se comparten por WhatsApp cuando decidas enviarlo. Este sitio no guarda lo que escribes.
           </p>
-          <button type="submit" disabled={status === 'opening'} className="mt-6 inline-flex min-h-14 w-full items-center justify-center gap-2.5 rounded-full bg-lime px-7 font-display font-bold text-forest transition-transform active:scale-[0.98] disabled:opacity-70">
+          <button type="submit" disabled={status === 'opening'} className="mt-6 inline-flex min-h-14 w-full items-center justify-center gap-2.5 rounded-full bg-lime px-7 font-display font-bold text-night transition-transform active:scale-[0.98] disabled:opacity-70">
             <Icon name="whatsapp" size={20} />
             {status === 'opening' ? 'Abriendo WhatsApp…' : 'Preparar en WhatsApp'}
           </button>
 
           <div aria-live="polite" className="mt-4">
             {status === 'opened' || status === 'blocked' ? (
-              <div className="rounded-2xl bg-forest-deep p-4 text-sm ring-1 ring-lime/30">
-                <p className="font-semibold text-ivory">{status === 'opened' ? 'Abrimos WhatsApp con tu mensaje.' : 'Tu mensaje está listo.'} Recuerda tocar «Enviar» en WhatsApp para que nos llegue.</p>
+              <div className="rounded-2xl bg-night-deep p-4 text-sm ring-1 ring-lime/30">
+                <p className="font-semibold text-porcelain">{status === 'opened' ? 'Abrimos WhatsApp con tu mensaje.' : 'Tu mensaje está listo.'} Recuerda tocar «Enviar» en WhatsApp para que nos llegue.</p>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Button href={link} variant="ivory" external icon="arrowUpRight">Abrir WhatsApp</Button>
+                  <Button href={link} variant="porcelain" external icon="arrowUpRight">Abrir WhatsApp</Button>
                 </div>
               </div>
             ) : null}

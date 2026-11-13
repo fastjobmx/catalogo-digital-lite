@@ -24,8 +24,8 @@ export function Logo({ size = 'md', priority, className = '' }: { size?: 'md' | 
         draggable={false}
       />
       <span className={`flex items-baseline gap-1.5 font-display font-extrabold italic leading-none tracking-[-0.04em] ${large ? 'text-[1.75rem]' : 'text-[1.2rem]'}`} aria-hidden="true">
-        <span className="text-ivory">Tiend<span className="text-violet">IA</span></span>
-        <span className={`rounded-md bg-lime text-forest ${large ? 'px-2 py-1 text-[1.2rem]' : 'px-1.5 py-[0.2rem] text-[0.82rem]'}`}>Exprés</span>
+        <span className="text-porcelain">Tiend<span className="text-violet">IA</span></span>
+        <span className={`rounded-md bg-lime text-night ${large ? 'px-2 py-1 text-[1.2rem]' : 'px-1.5 py-[0.2rem] text-[0.82rem]'}`}>Exprés</span>
       </span>
     </span>
   )

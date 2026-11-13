@@ -67,7 +67,7 @@ const ENTRIES: Entry[] = [
     slug: 'sneakerhub-premium',
     name: 'SneakerHub Premium',
     category: 'Calzado y streetwear',
-    blurb: 'La tienda piloto de la plataforma: catálogo con tallas, carrito y pedidos por WhatsApp.',
+    blurb: 'La tienda piloto de la plataforma: tallas, carrito y pedidos por WhatsApp.',
     order: 3,
     authorized: true,
     authorizedBy: 'Tienda piloto propia de la plataforma, ya publicada como demostración.',

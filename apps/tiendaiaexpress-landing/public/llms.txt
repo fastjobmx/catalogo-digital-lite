@@ -1,0 +1,29 @@
+# TiendIA Exprés
+
+> Plataforma colombiana para crear una tienda online con inteligencia artificial y recibir los pedidos por WhatsApp. Pensada para negocios que venden por chat y redes sociales. Sin comisión por venta.
+
+## Qué es
+
+- Una tienda online propia, con dirección propia y plantilla con la marca del negocio.
+- Los clientes arman el carrito y envían el pedido completo por WhatsApp (productos, tallas y datos de entrega). El comercio confirma y acuerda el pago con su cliente.
+- Un asistente con inteligencia artificial en Telegram para administrar la tienda escribiendo: agregar productos, cambiar precios, cargar existencias y revisar pedidos. Pide confirmación antes de guardar cambios.
+- Estudio Creativo: imágenes, carruseles y videos cortos para redes sociales, generados con los productos, el nombre y el precio reales de la tienda.
+- Fichas de producto con IA desde una foto y mejoras de fotografía de producto con IA, según las cuotas del plan.
+- Panel web de administración, inventario por talla, cupones de descuento y pedidos con estados.
+
+## Planes
+
+Tres planes (Emprendedor, Negocio y Mayorista), con pago mensual más un pago inicial o con pago anual sin pago inicial. Precios en pesos colombianos y sin comisión por venta. Precios vigentes: https://tiendiaexpres.com/#planes
+
+## Prueba gratis
+
+Mini tienda de prueba sin correo ni contraseña, temporal y privada: https://app.tiendiaexpres.com/prueba
+
+## Enlaces
+
+- Sitio: https://tiendiaexpres.com/
+- Funciones: https://tiendiaexpres.com/#funciones
+- Cómo funciona: https://tiendiaexpres.com/#como-funciona
+- Tiendas reales: https://tiendiaexpres.com/#tiendas
+- Preguntas frecuentes: https://tiendiaexpres.com/#preguntas
+- Contacto por WhatsApp: https://wa.me/573506912734

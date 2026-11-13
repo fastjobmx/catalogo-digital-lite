@@ -47,20 +47,22 @@ for store, info in data['stores'].items():
     save(phone, REAL / f'{store}--movil-480.webp', 480, 72)
 (ROOT / 'src' / 'content' / 'realStores.json').write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n', encoding='utf8')
 
+# Estudio Creativo pieces in the violet palette (rendered with the platform's design engine, style
+# "Sneaker Impact", from real SneakerHub products): docs/capturas-fabrica-creativos/landing-paleta-violeta/.
+PAL = FAB / 'landing-paleta-violeta'
 PIECES = {
-    'oferta-vertical': ('imagen-oferta_aprobada-vertical.jpg', 720),
-    'carrusel-1': ('carrusel-coleccion-cuadrado-1.jpg', 600),
-    'carrusel-2': ('carrusel-coleccion-cuadrado-2.jpg', 600),
-    'historia-catalogo': ('imagen-invitacion_catalogo-historia.png', 540),
-    'ultimas-unidades': ('imagen-ultimas_unidades-whatsapp.png', 800),
+    'oferta-vertical': ('oferta-ruta-vertical.jpg', 720),
+    'oferta-ruta-heroe': ('oferta-ruta-heroe-vertical.jpg', 720),
+    'carrusel-1': ('carrusel-vanta-cuadrado.jpg', 600),
+    'carrusel-2': ('carrusel-astral-cuadrado.jpg', 600),
+    'historia-volta': ('historia-volta.jpg', 540),
+    'whatsapp-vanta': ('whatsapp-vanta.jpg', 800),
 }
 for name, (file, width) in PIECES.items():
-    save(Image.open(FAB / file).convert('RGB'), STUDIO / f'{name}.webp', width, 80)
-# Three frames of a generated short video (conventional mode): one file per frame.
-strip = Image.open(FAB / 'video-producto_nuevo-historia-cuadros.jpg').convert('RGB')
-frame = strip.width // 3
+    save(Image.open(PAL / file).convert('RGB'), STUDIO / f'{name}.webp', width, 84)
+# Three frames of a generated short catalogue video (conventional mode): one file per frame.
 for i in range(3):
-    save(strip.crop((i * frame, 0, (i + 1) * frame, strip.height)), STUDIO / f'video-cuadro-{i + 1}.webp', 360, 80)
+    save(Image.open(PAL / f'video-catalogo-cuadro-{i + 1}.jpg').convert('RGB'), STUDIO / f'video-cuadro-{i + 1}.webp', 360, 84)
 
 iso = Image.open(ORIG / 'isotipo-carrito-transparente.png').convert('RGBA')
 iso = iso.crop(iso.getbbox())

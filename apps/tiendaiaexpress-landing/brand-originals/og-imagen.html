@@ -1,0 +1,49 @@
+<!-- Fuente de public/og.png (1200x630). Para regenerarla: abrir este archivo en Chromium a 1200x630 y capturar la pantalla. -->
+<!doctype html><html><head><meta charset="utf-8"><style>
+@font-face{font-family:J;src:url(../node_modules/@fontsource-variable/plus-jakarta-sans/files/plus-jakarta-sans-latin-wght-normal.woff2) format('woff2');font-weight:200 800}
+@font-face{font-family:J;font-style:italic;src:url(../node_modules/@fontsource-variable/plus-jakarta-sans/files/plus-jakarta-sans-latin-wght-italic.woff2) format('woff2');font-weight:200 800}
+@font-face{font-family:M;src:url(../node_modules/@fontsource-variable/manrope/files/manrope-latin-wght-normal.woff2) format('woff2');font-weight:200 800}
+*{box-sizing:border-box;margin:0}
+body{width:1200px;height:630px;overflow:hidden;background:#0b0b13;font-family:M;color:#fafafd;position:relative}
+.g1{position:absolute;right:-120px;top:40px;width:760px;height:760px;border-radius:50%;background:radial-gradient(closest-side,rgba(197,42,241,.55),transparent)}
+.g2{position:absolute;left:-200px;top:-220px;width:640px;height:640px;border-radius:50%;background:radial-gradient(closest-side,rgba(18,220,231,.2),transparent)}
+.grid{position:absolute;inset:0;background-image:linear-gradient(to right,rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(to bottom,rgba(255,255,255,.05) 1px,transparent 1px);background-size:48px 48px;-webkit-mask-image:radial-gradient(ellipse 70% 70% at 70% 40%,#000 20%,transparent 75%)}
+.left{position:absolute;left:64px;top:96px;width:700px}
+.logo{display:flex;align-items:center;gap:14px}
+.logo img{width:78px}
+.wm{font-family:J;font-weight:800;font-style:italic;font-size:40px;letter-spacing:-.04em;display:flex;align-items:baseline;gap:8px}
+.wm b{color:#c52af1;font-weight:800}
+.pill{background:#d9ff14;color:#0b0b13;border-radius:8px;padding:4px 10px;font-size:27px}
+h1{font-family:J;font-weight:800;font-size:56px;line-height:1.04;letter-spacing:-.045em;margin-top:40px;white-space:nowrap}
+h1 em{color:#d9ff14;text-shadow:0 0 34px rgba(217,255,20,.35)}
+.sub{margin-top:20px;font-size:24px;color:#b9b9cc;line-height:1.35;max-width:560px}
+.chips{display:flex;gap:10px;margin-top:28px;flex-wrap:wrap}
+.chip{display:flex;align-items:center;gap:8px;border-radius:999px;background:rgba(255,255,255,.07);box-shadow:inset 0 0 0 1px rgba(255,255,255,.14);padding:9px 16px 9px 10px;font-size:19px;font-weight:700}
+.dot{width:22px;height:22px;border-radius:50%;background:#d9ff14;color:#0b0b13;display:grid;place-items:center;font-size:14px;font-weight:900}
+.stage{position:absolute;right:40px;top:40px;width:470px;height:560px}
+.ped{position:absolute;left:50%;bottom:22px;width:440px;height:88px;transform:translateX(-50%);border-radius:50%;background:radial-gradient(closest-side,rgba(18,220,231,.55),rgba(18,220,231,.1) 55%,transparent 72%),radial-gradient(closest-side,rgba(197,42,241,.6),transparent);box-shadow:0 0 0 2px rgba(18,220,231,.85),0 0 0 9px rgba(197,42,241,.4),0 0 46px 8px rgba(18,220,231,.35),0 0 90px 30px rgba(197,42,241,.35)}
+.phone{position:absolute;left:150px;top:4px;width:236px;height:500px;border-radius:38px;background:linear-gradient(145deg,#2c2c40,#0d0d16 45%,#22223a);padding:9px;transform:perspective(1400px) rotateY(-16deg) rotateZ(4deg);box-shadow:0 0 0 2px rgba(197,42,241,.95),0 0 0 5px rgba(18,220,231,.25),-18px -10px 50px -6px rgba(18,220,231,.35),0 0 40px 2px rgba(197,42,241,.55),0 50px 90px -30px #000}
+.phone div{width:100%;height:100%;border-radius:30px;overflow:hidden;background:#fafafd}
+.phone img{width:100%;height:100%;object-fit:cover;object-position:top}
+.mascot{position:absolute;left:-26px;bottom:54px;width:250px;filter:drop-shadow(0 30px 40px rgba(0,0,0,.6))}
+.order{position:absolute;right:-6px;top:236px;display:flex;align-items:center;gap:12px;background:rgba(255,255,255,.94);color:#0b0b13;border-radius:18px;padding:10px 18px 10px 10px;box-shadow:0 24px 50px -20px rgba(0,0,0,.55)}
+.wa{width:44px;height:44px;border-radius:50%;background:#25d366;display:grid;place-items:center}
+.order b{display:block;font-family:J;font-size:19px;font-weight:800}
+.order span{font-size:15px;color:#4a4a5e}
+.url{margin-top:26px;font-family:J;font-weight:700;font-size:21px;color:#12dce7;letter-spacing:.02em}
+</style></head><body>
+<div class="g2"></div><div class="g1"></div><div class="grid"></div>
+<div class="left">
+  <div class="logo"><img src="../src/assets/brand/isotipo-carrito-192.webp"><div class="wm"><span>Tiend<b>IA</b></span><span class="pill">Exprés</span></div></div>
+  <h1>Tu tienda online con IA<br><em>y pedidos por WhatsApp.</em></h1>
+  <p class="sub">Crea tu tienda, adminístrala con inteligencia artificial y haz publicidad para tus redes.</p>
+  <div class="chips"><span class="chip"><span class="dot">✓</span>Sin comisión por venta</span><span class="chip"><span class="dot">✓</span>Prueba gratis</span></div>
+<div class="url">tiendiaexpres.com</div>
+</div>
+<div class="stage">
+  <div class="ped"></div>
+  <div class="phone"><div><img src="../src/assets/sneakerhub/mobile-product.webp"></div></div>
+  <img class="mascot" src="../src/assets/brand/mascota-640.webp">
+  <div class="order"><span class="wa"><svg width="24" height="24" viewBox="0 0 24 24" fill="#fff"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm5.3 14.2c-.2.6-1.3 1.2-1.8 1.2-.5.1-1 .2-3.3-.7-2.8-1.1-4.6-4-4.7-4.2-.1-.2-1.1-1.5-1.1-2.9 0-1.4.7-2 1-2.3.3-.3.6-.3.8-.3h.6c.2 0 .4 0 .6.5l.8 2c.1.2.1.4 0 .5l-.3.5-.4.4c-.1.1-.3.3-.1.6.2.3.7 1.2 1.6 1.9 1.1.9 2 1.2 2.3 1.4.3.1.5.1.6-.1l.9-1c.2-.3.4-.2.6-.1l1.9.9c.3.1.5.2.5.3.1.2.1.8-.1 1.4Z"/></svg></span><span><b>¡Nuevo pedido!</b><span>Llegó por WhatsApp</span></span></div>
+</div>
+</body></html>

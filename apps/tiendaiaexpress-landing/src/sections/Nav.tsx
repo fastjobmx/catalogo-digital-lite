@@ -43,8 +43,8 @@ export function Nav() {
 
   return (
     <>
-      <a href="#contenido" className="sr-only-focusable fixed left-4 top-4 z-[70] rounded-full bg-lime px-5 py-3 font-semibold text-forest">Saltar al contenido</a>
-      <header className={`on-dark fixed inset-x-0 top-0 z-50 border-b transition-[background-color,border-color,box-shadow] duration-500 ${scrolled || open ? 'border-white/10 bg-forest/85 shadow-[0_18px_40px_-28px_rgba(0,0,0,.8)] backdrop-blur-xl' : 'border-transparent bg-forest/0'}`}>
+      <a href="#contenido" className="sr-only-focusable fixed left-4 top-4 z-[70] rounded-full bg-lime px-5 py-3 font-semibold text-night">Saltar al contenido</a>
+      <header className={`on-dark fixed inset-x-0 top-0 z-50 border-b transition-[background-color,border-color,box-shadow] duration-500 ${scrolled || open ? 'border-white/10 bg-night/85 shadow-[0_18px_40px_-28px_rgba(0,0,0,.8)] backdrop-blur-xl' : 'border-transparent bg-night/0'}`}>
         <div className="wrap flex h-16 items-center justify-between gap-4 lg:h-[4.5rem]">
           <a href="#inicio" className="shrink-0 rounded-lg" aria-label="TiendIA Exprés, ir al inicio">
             <Logo priority />
@@ -53,20 +53,20 @@ export function Nav() {
             <ul className="flex items-center">
               {nav.map((item) => (
                 <li key={item.href}>
-                  <a href={item.href} className="whitespace-nowrap rounded-full px-3 py-2 text-[0.92rem] font-semibold text-ivory/80 transition-colors hover:bg-white/8 hover:text-ivory xl:px-3.5">{item.label}</a>
+                  <a href={item.href} className="whitespace-nowrap rounded-full px-2.5 py-2 text-[0.9rem] font-semibold text-porcelain/80 transition-colors hover:bg-white/8 hover:text-porcelain xl:px-3.5">{item.label}</a>
                 </li>
               ))}
             </ul>
           </nav>
           <div className="flex items-center gap-1.5 sm:gap-2">
-            <a href={site.adminLoginUrl} target="_blank" rel="noopener noreferrer" className="hidden whitespace-nowrap rounded-full px-3.5 py-2 text-[0.92rem] font-semibold text-ivory/80 transition-colors hover:bg-white/8 hover:text-ivory md:inline-flex">
+            <a href={site.adminLoginUrl} target="_blank" rel="noopener noreferrer" className="hidden whitespace-nowrap rounded-full px-3.5 py-2 text-[0.92rem] font-semibold text-porcelain/80 transition-colors hover:bg-white/8 hover:text-porcelain md:inline-flex">
               Ingresar<span className="lg:hidden xl:inline">&nbsp;a mi tienda</span><span className="sr-only"> (se abre en una pestaña nueva)</span>
             </a>
-            <Button href={site.trialUrl} variant="lime" size="sm" external className="max-[439px]:hidden">Probar gratis</Button>
+            <Button href={site.trialUrl} variant="lime" size="sm" lead="store" external className="max-[439px]:hidden"><span className="hidden 2xl:inline">Crear mi tienda gratis</span><span className="2xl:hidden">Probar gratis</span></Button>
             <button
               ref={toggle}
               type="button"
-              className="grid size-11 place-items-center rounded-full text-ivory ring-1 ring-inset ring-white/20 transition-colors hover:bg-white/8 lg:hidden"
+              className="grid size-11 place-items-center rounded-full text-porcelain ring-1 ring-inset ring-white/20 transition-colors hover:bg-white/8 lg:hidden"
               aria-expanded={open}
               aria-controls="menu-movil"
               onClick={() => setOpen((v) => !v)}
@@ -84,7 +84,7 @@ export function Nav() {
         role="dialog"
         aria-modal="true"
         aria-label="Menú"
-        className={`on-dark fixed inset-0 z-40 flex flex-col bg-forest px-5 pb-8 pt-24 text-ivory transition-[opacity,visibility] duration-300 lg:hidden ${open ? 'visible opacity-100' : 'invisible opacity-0'}`}
+        className={`on-dark fixed inset-0 z-40 flex flex-col bg-night px-5 pb-8 pt-24 text-porcelain transition-[opacity,visibility] duration-300 lg:hidden ${open ? 'visible opacity-100' : 'invisible opacity-0'}`}
       >
         <nav aria-label="Menú móvil" className="flex-1 overflow-y-auto">
           <ul className="divide-y divide-white/10 border-y border-white/10">
@@ -92,7 +92,7 @@ export function Nav() {
               <li key={item.href} style={{ transitionDelay: open ? `${60 + i * 35}ms` : '0ms' }} className={`transition-[opacity,transform] duration-500 ${open ? 'translate-y-0 opacity-100' : 'translate-y-3 opacity-0'}`}>
                 <a href={item.href} onClick={close} className="flex items-center justify-between py-4 font-display text-[1.5rem] font-bold tracking-tight hover:text-lime">
                   {item.label}
-                  <Icon name="arrowRight" size={20} className="text-ivory/40" />
+                  <Icon name="arrowRight" size={20} className="text-porcelain/40" />
                 </a>
               </li>
             ))}
