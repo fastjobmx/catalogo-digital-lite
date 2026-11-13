@@ -77,6 +77,8 @@ export type AgentState = {
   deferredIntents?: Array<import('./commerce/intent').CommerceIntent>
   /** Step 2: questions of the media layer and a description kept for a photo batch that is still being organised. */
   media?: import('./agent/media').MediaState
+  /** Step 3: an order change waiting for «sí», a missing datum and the last numbered list of orders. */
+  orders?: import('./agent/orders').OrdersState
 }
 
 export type SessionState = {

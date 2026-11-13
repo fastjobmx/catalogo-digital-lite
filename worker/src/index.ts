@@ -81,6 +81,10 @@ export type Env = {
  ASSISTANT_MEDIA_DAILY_PRODUCTS?: string
  /** Milliseconds of photo analysis after which the merchant gets one «still working» notice (default 4000). */
  ASSISTANT_MEDIA_PROGRESS_MS?: string
+ /** Orders and reports inside the conversation (step 3), per store and independent of the other switches. Empty = previous flow. */
+ ASSISTANT_ORDERS_STORE_IDS?: string
+ /** Hours between UTC and the stores' day for «hoy», «ayer», «esta semana» (default -5, Colombia). */
+ ASSISTANT_TZ_OFFSET_HOURS?: string
  TELEGRAM_VOICE_ENABLED?: string
  /** Quota of AI messages per plan: 'off' (default, counts nothing) | 'shadow' (counts and alerts, never blocks) | 'enforce'. */
  AI_MESSAGE_QUOTA_MODE?: string

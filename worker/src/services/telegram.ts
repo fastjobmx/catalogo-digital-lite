@@ -28,6 +28,7 @@ import { detectIntent } from './assistant/intents'
 import { handleTeamCallback, showTeam } from './assistant/team'
 import { CONSUMPTION_INTENT, showConsumption } from './assistant/consumption'
 import { agentEnabled, handleAgentCallback, handleAgentControl, handleAgentText } from './assistant/agent/orchestrator'
+import { handleAgentOrders } from './assistant/agent/orders'
 import { handleAgentDescription, handleAgentDraftText, handleAgentMediaCallback, handleAgentPhoto, receiveDraftPhotoQuietly } from './assistant/agent/media'
 import { fingerprintText } from '../ai/messageQuota'
 import { sendPanelPasswordReset } from './assistant/panelAccess'
@@ -471,6 +472,7 @@ async function handleVoice(ctx: AssistantContext, message: TelegramMessage): Pro
   if (draft) { if (!await handleAgentDraftText(ctx, draft, transcript, { voice: true })) await acceptProductDraftText(ctx, draft, transcript); return }
   // Voice enters the same conversation as text: photos waiting, pending confirmations, the orchestrator.
   if (await handleAgentDescription(ctx, transcript, { voice: true })) return
+  if (await handleAgentOrders(ctx, transcript)) return
   if (agentEnabled(ctx)) {
     if (await handleAgentControl(ctx, transcript)) return
     if (await handleAgentText(ctx, transcript) === 'handled') return
@@ -589,6 +591,8 @@ async function handleText(ctx: AssistantContext, text: string): Promise<void> {
   if (await handleGuideText(ctx, text)) return
   // Media layer: a description (or an answer) for photos that are waiting belongs to that operation.
   if (await handleAgentDescription(ctx, text)) return
+  // Orders layer (per store, off by default): orders and reports in the merchant's words, changes with confirmation.
+  if (await handleAgentOrders(ctx, text)) return
   // Conversational layer (per store, off by default): natural confirmations, «espera», «empecemos de nuevo».
   if (await handleAgentControl(ctx, text)) return
   const pending = await getPendingOperation(ctx)

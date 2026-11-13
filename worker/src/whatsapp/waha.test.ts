@@ -706,6 +706,39 @@ describe('capa multimedia sobre los lotes (WAHA): la descripción por voz o text
   })
 })
 
+describe('pedidos y reportes por WhatsApp (WAHA) con la capa de pedidos encendida', () => {
+  beforeEach(() => { h.env.ASSISTANT_ORDERS_STORE_IDS = String(tienda) })
+  const seed = (store: number, code: string, status = 'pendiente') => h.db.query<{ id: number }>(`INSERT INTO orders (store_id, display_id, customer_name, customer_phone, items_json, subtotal, total, status) VALUES (?, ?, 'Laura Gómez', '+573001112233', '[{"name":"Sandalias Guess","sku":"SAN-1-38","size":"38","quantity":1,"price":80000,"lineSubtotal":80000}]', 80000, 80000, ?) RETURNING id`, store, `PED-20261113-${code}`, status)[0]!.id
+  const statusOf = (id: number) => h.db.query<{ status: string }>('SELECT status FROM orders WHERE id = ?', id)[0]!.status
+
+  it('resumen, cambio con «sí» escrito y sin datos del cliente en el chat', async () => {
+    await link()
+    const id = seed(tienda, 'AB12CD34')
+    const ajeno = seed(otra, 'ZX98YW76')
+    await say('cómo van los pedidos')
+    expect(last()).toContain('1 pendiente de confirmar')
+    await say('confirma el pedido AB12CD34')
+    expect(last()).toContain('Pendiente → *Confirmado*')
+    expect(statusOf(id)).toBe('pendiente')
+    await say('sí')
+    expect(statusOf(id)).toBe('confirmado')
+    await say('confirma el pedido ZX98YW76')
+    expect(last()).toContain('No encontré el pedido ZX98YW76')
+    await say('sí')
+    expect(statusOf(ajeno)).toBe('pendiente')
+    expect(texts().join('\n')).not.toMatch(/Laura|3001112233/)
+  })
+
+  it('con el interruptor apagado el pedido se gestiona como antes (pregunta del flujo anterior)', async () => {
+    h.env.ASSISTANT_ORDERS_STORE_IDS = ''
+    await link()
+    const id = seed(tienda, 'AB12CD34')
+    await say('confirma el pedido AB12CD34')
+    expect(last()).toContain('¿Cambio el pedido')
+    expect(statusOf(id)).toBe('pendiente')
+  })
+})
+
 async function makePng(width: number, height: number): Promise<Uint8Array> {
   const raw = new Uint8Array(height * (width * 4 + 1))
   const compressed = new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new CompressionStream('deflate'))).arrayBuffer())
