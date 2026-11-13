@@ -19,7 +19,9 @@ import {
   listOpenOrders, listOrdersByView, orderStatusCounts, parseOrderItems, type DeliveryMethod, type OrderRow, type OrderStatus, type OrderView,
 } from '../../orders'
 import { withAiBudget } from '../ai'
-import { fold } from '../commerce/language'
+import { colorOf, fold } from '../commerce/language'
+import { loadCatalog } from '../commerce/resolve'
+import { handleAgentText, looksMulti, splitTasks } from './orchestrator'
 import { parseCommerce } from '../commerce/parse'
 import { readSession, say, updateSessionState, type AssistantContext } from '../context'
 import { getPendingOperation } from '../operations'
@@ -463,6 +465,53 @@ async function askModel(ctx: AssistantContext, text: string, state: OrdersState)
   return { request, usage: outcome.value.usage }
 }
 
+// ───────────────────────── Mensajes mixtos: pedidos y catálogo en la misma frase ─────────────────────────
+
+const GENERIC = new Set(['pedido', 'pedidos', 'venta', 'ventas', 'producto', 'productos', 'tienda', 'para', 'nuevo', 'nueva', 'original', 'hombre', 'mujer', 'dama', 'caballero', 'unisex', 'talla', 'color', 'marca', 'envio', 'guia', 'semana', 'ayer'])
+const stem = (word: string) => word.replace(/(?:es|s)$/, '')
+
+/** The message names a product of this store («cuánto vendí de las sandalias»): it is a catalogue matter, and the
+ * totals of this layer would answer something the merchant did not ask. */
+async function namesProduct(ctx: AssistantContext, raw: string): Promise<boolean> {
+  const words = new Set(fold(raw).split(/[^a-z0-9-]+/).filter((word) => word.length >= 4).map(stem))
+  if (!words.size) return false
+  const catalog = await loadCatalog(ctx)
+  return catalog.some((product) => words.has(stem(fold(product.sku))) || fold(product.name).split(/[^a-z0-9]+/).some((token) => token.length >= 4 && !GENERIC.has(token) && !colorOf(token) && words.has(stem(token))))
+}
+const isTotals = (request: Request) => request.kind === 'report' || request.kind === 'top' || request.kind === 'summary' || request.kind === 'list'
+
+/**
+ * Several requests in one message. The parts about orders are answered here, in order; the catalogue and inventory
+ * parts go to the text layer with their own words. One change waits for confirmation at a time: after an order
+ * change is proposed, what is left is named back to the merchant instead of being dropped or half-applied.
+ * Returns null when no part is about orders (the whole message follows its usual path).
+ */
+async function handleMixed(ctx: AssistantContext, parts: string[], started: number): Promise<boolean | null> {
+  const state = await readOrders(ctx)
+  const context = { hasList: fresh(state.at) && Boolean(state.list?.length), hasFocus: fresh(state.at) }
+  const read: Array<{ part: string; request: Request | null }> = []
+  for (const part of parts) {
+    const request = readOrderRequest(part, context)
+    read.push({ part, request: request && isTotals(request) && await namesProduct(ctx, part) ? null : request })
+  }
+  if (!read.some((item) => item.request)) return null
+  if (await getPendingOperation(ctx)) return null
+  const rest: string[] = []
+  let proposed = false
+  for (const item of read) {
+    if (!item.request || proposed) { rest.push(item.part); continue }
+    const tool = await run(ctx, item.request, await readOrders(ctx), item.part)
+    const after = await readOrders(ctx)
+    if (item.request.kind === 'change' && (after.confirm || after.ask)) proposed = true
+    await measure(ctx, started, tool, `mixed_${item.request.kind}`)
+  }
+  if (!rest.length) return true
+  const left = escapeHtml(rest.join(' y '))
+  if (proposed) { await say(ctx, `Lo otro que me pediste («${left}») dímelo cuando terminemos con el pedido; no lo perdí de vista, pero va un cambio a la vez.`); return true }
+  if (await handleAgentText(ctx, rest.join(' y ')) !== 'handled') await say(ctx, `Lo de «${left}» dímelo en un mensaje aparte, por favor.`)
+  return true
+}
+
 // ───────────────────────── Entrada ─────────────────────────
 
 async function run(ctx: AssistantContext, request: Request, state: OrdersState, raw: string): Promise<OrderTool | 'aclarar'> {
@@ -535,8 +584,16 @@ export async function handleAgentOrders(ctx: AssistantContext, text: string): Pr
     }
   }
 
+  if (looksMulti(raw)) {
+    const parts = splitTasks(raw)
+    const mixed = parts.length > 1 ? await handleMixed(ctx, parts, started) : null
+    if (mixed !== null) return mixed
+    if (parts.length > 1) return false
+  }
   const context = { hasList: fresh(state.at) && Boolean(state.list?.length), hasFocus: fresh(state.at) }
   let request = readOrderRequest(raw, context)
+  // Totals of orders are not the answer to a question about one product.
+  if (request && isTotals(request) && await namesProduct(ctx, raw)) return false
   if (!request && context.hasFocus && /^(?:ver|verlo|muestramelo|muestrame(?:lo)?|el\s+detalle|detalle|abrelo)[.! ]*$/.test(lower)) request = { kind: 'show', ref: state.list?.length === 1 ? { position: 1 } : { focus: true } }
   let path = 'orders'
   let usage: GeminiJsonResult['usage'] | undefined

@@ -212,6 +212,20 @@ export const CONVERSATIONS: BankCase[] = [
     ],
   },
   {
+    id: 'dos-tareas-sin-modelo', title: 'Dos instrucciones con el modelo caído: las leen las reglas', critical: true,
+    turns: [
+      { say: 'cuántas sandalias me quedan y súbeles 5 mil', modelDown: 'error', expect: { unchanged: true, pending: 'update_price', replies: [...SANDALIAS_38_39, '80\\.000\\D+85\\.000'], never: ['No encontré'] } },
+      { say: 'listo', modelDown: 'error', expect: { price: { 'SAN-1': 85000 }, pending: null } },
+    ],
+  },
+  {
+    id: 'dos-cambios-sin-modelo', title: 'Dos cambios con el modelo caído: un resumen y una sola confirmación', critical: true,
+    turns: [
+      { say: 'llegaron 3 de la 38 de las sandalias, también bájale 10 mil', modelDown: 'error', expect: { unchanged: true, replies: ['70\\.000', '1\\D{1,30}4'], never: ['No encontré'] } },
+      { say: 'sí', modelDown: 'error', expect: { price: { 'SAN-1': 70000 }, stock: { 'SAN-1#38': 4 }, pending: null } },
+    ],
+  },
+  {
     id: 'modelo-caido', title: 'Caída del modelo: responde el motor anterior y lo exacto sigue funcionando', critical: true,
     turns: [
       { say: 'oye y de los air qué me queda?', modelDown: 'error', expect: { unchanged: true, pending: null, replies: ['.'] } },

@@ -18,7 +18,7 @@ import { formatMoney } from '../tools'
 import { showStockMovements } from '../inventory'
 import { handleCommerceText, runCommerceIntent } from '../commerce/engine'
 import type { CommerceIntent } from '../commerce/intent'
-import { fold, sizeOf } from '../commerce/language'
+import { fold, parseMoney, sizeOf } from '../commerce/language'
 import { parseCommerce } from '../commerce/parse'
 import { loadCatalog, matchProducts, resolveProduct, variantLabel, type CatalogProduct } from '../commerce/resolve'
 import { parseVariants } from '../operations'
@@ -51,6 +51,76 @@ export function looksMulti(text: string): boolean {
   return /[,;.]\s*(?:y\s+)?(?:tambien|ademas|de paso|luego)\b/.test(lower)
     || /\by\s+(?:tambien|ademas|de paso|cuant[oa]s?|que\s+(?:tallas|precio)|sub[ei]|baj[ae]|pon(?:le|me)?|agreg[ae]|cambi[ae]|muestr[ae]|dime|quit[ae]|dej[ae]|ocult[ae]|marc[ae]|sum[ae]|rest[ae]|anad[ae]|met[ae]|sac[ae]|descuent[ae]|actualiz[ae])/.test(lower)
     || (lower.match(/\?/g) || []).length > 1
+}
+
+const TASK_VERB = String.raw`(?:cuant[oa]s?|que\s+(?:tallas|precio)|sub[ei]|baj[ae]|pon(?:le|me)?|agreg[ae]|cambi[ae]|muestr[ae]|dime|quit[ae]|dej[ae]|ocult[ae]|marc[ae]|sum[ae]|rest[ae]|anad[ae]|met[ae]|sac[ae]|descuent[ae]|actualiz[ae]|confirm[ae]|cancel[ae]|despach[ae]|como\s+van)`
+const TASK_SPLIT = new RegExp(String.raw`\s*[,;.]\s*(?:y\s+)?(?=(?:tambien|ademas|de paso|luego)\b)|\s+y\s+(?=(?:tambien|ademas|de paso|${TASK_VERB}))|\?\s*(?:y\s+)?(?=\S)`, 'i')
+
+/** The separate requests of one message, cut at the same marks `looksMulti` recognises. Accents are kept. */
+export function splitTasks(text: string): string[] {
+  const parts: string[] = []
+  let rest = text.trim()
+  for (let guard = 0; guard < 6; guard += 1) {
+    const match = TASK_SPLIT.exec(fold(rest))
+    if (!match || match.index === 0) break
+    // `fold` only removes accents: positions in the folded text are positions in the original.
+    parts.push(rest.slice(0, match.index + (match[0].trimStart().startsWith('?') || /^\s*\?/.test(match[0]) ? match[0].indexOf('?') + 1 : 0)).trim())
+    rest = rest.slice(match.index + match[0].length).trim()
+  }
+  parts.push(rest)
+  return parts.map((part) => part.replace(/^[¿¡\s]+/, '').replace(/^(?:(?:y|tambien|también|ademas|además|de paso|luego)[, ]+)+/i, '').trim()).filter(Boolean)
+}
+
+/**
+ * «súbele 5 mil a las sandalias», «bájale el 10% a los tenis», «súbeles diez mil»: a price that goes up or down by
+ * an amount. The engine's parser reads the verb as the name of a new product; this reads it exactly, with or
+ * without the model. The amount must be unmistakable (thousands or a percentage); otherwise null.
+ */
+export function readPriceBump(text: string): Extract<CommerceIntent, { kind: 'price' }> | null {
+  const lower = fold(withoutLead(text)).replace(/[.!]+$/, '').trim()
+  const match = lower.match(/^(sub|baj)[a-z]*\s+(?:el\s+precio\s+)?(?:en\s+|de\s+a\s+|un\s+|el\s+)?(.+?)(?:\s+(?:a|al|de|del)\s+(?:(?:el\s+)?precio\s+(?:de|del)\s+)?(?:(?:las?|los?|el)\s+)?(.+))?$/)
+  if (!match) return null
+  const amountText = match[2]!
+  const percent = amountText.match(/^(\d{1,2})\s*(?:%|por\s*ciento)$/)
+  const money = percent ? null : /\b(?:mil|millon(?:es)?|lucas?|palos?)\b|\d[.,]\d{3}|^\$?\s*\d{4,}$/.test(amountText) ? parseMoney(amountText) : null
+  const amount = percent ? Number(percent[1]) : money
+  if (!amount || amount <= 0 || (!percent && amount < 1000)) return null
+  const product = match[3]?.trim() || null
+  if (product && /\b(?:mil|pesos|unidades|pares)\b|^\d/.test(product)) return null
+  return { kind: 'price', mode: match[1] === 'sub' ? 'increase' : 'decrease', amount, percent: Boolean(percent), product }
+}
+
+/**
+ * Several requests read with the rules only, for when the model cannot be reached. Every part must be something
+ * the deterministic parser reads with no doubt (a look at a product, a price, a stock change, sold out, show or
+ * hide); otherwise null, and the message follows the previous path. A part that names no product continues with
+ * the product of the part before («cuántas sandalias quedan y súbeles 5 mil»).
+ */
+export function rulesSteps(text: string): Step[] | null {
+  const parts = splitTasks(text)
+  if (parts.length < 2 || parts.length > 5) return null
+  const steps: Step[] = []
+  let product: string | null = null
+  for (const part of parts) {
+    const intent = readPriceBump(part) || parseCommerce(withoutLead(part))
+    if (!intent) return null
+    // «súbeles 5 mil»: the parser takes the verb with its pronoun for a product name; it names none.
+    const said = 'product' in intent && intent.product ? intent.product : null
+    const named = said && !/^(?:sub|baj|pon|sum|rest|dej|quit|agreg|cambi|marc|ocult|muestr|actualiz)\w*(?:les?|l[oa]s?|sel[oa]s?)$/.test(fold(said)) ? said : null
+    const producto = named || product
+    if (intent.kind === 'stock_query') steps.push(step('ver_producto', { producto }))
+    else if (intent.kind === 'price') steps.push(step('cambiar_precio', { producto, modo: intent.mode === 'increase' ? 'subir' : intent.mode === 'decrease' ? 'bajar' : 'fijar', monto: intent.amount, porcentaje: intent.percent }))
+    else if (intent.kind === 'stock' && intent.mode !== 'ask' && (intent.lines.length || intent.total)) {
+      steps.push(step('ajustar_inventario', {
+        producto, modo: intent.mode === 'add' ? 'sumar' : intent.mode === 'set' ? 'dejar' : 'restar', cada_talla: Boolean(intent.each),
+        lineas: intent.lines.length ? intent.lines.map((line) => ({ cantidad: line.quantity, talla: line.size, color: line.color })) : [{ cantidad: intent.total!, talla: intent.size, color: intent.color }],
+      }))
+    } else if (intent.kind === 'sold_out') steps.push(step('marcar_agotado', { producto, talla: intent.size, color: intent.color }))
+    else if (intent.kind === 'set_active') steps.push(step('mostrar_ocultar', { producto, visible: intent.active }))
+    else return null
+    if (named) product = named
+  }
+  return steps
 }
 
 /** «mejor…», «ahora…», «oye…»: discourse markers the deterministic parser would take for a product name. */
@@ -237,7 +307,7 @@ async function understand(ctx: AssistantContext, text: string, turn: Turn): Prom
   // available, the model reads the message too; if the model fails, the parser's answer stands.
   const canModel = Boolean(ctx.env.GEMINI_API_KEY)
   const focusNow = session.state.focusSku || (session.state.lastSkus?.length === 1 ? session.state.lastSkus[0] : undefined)
-  let parsed = multi ? null : parseCommerce(withoutLead(trimmed))
+  let parsed = multi ? null : readPriceBump(trimmed) || parseCommerce(withoutLead(trimmed))
   // «deja la 39 de las sandalias en 10»: the parser reads «en 10» as a doubtful price. A size right after the verb
   // and no word about money make it an inventory count, with or without the model (it used to depend on the model).
   if (parsed?.kind === 'price_clarify') {
@@ -305,6 +375,9 @@ async function understand(ctx: AssistantContext, text: string, turn: Turn): Prom
   const outcome = await withAiBudget(ctx, 'interpretacion', () => planTurn(ctx, text, context, timeout)).finally(() => clearTimeout(slow))
   if (!outcome.ok) {
     if (parserAnswer) { turn.path = 'parser'; turn.outcome = 'model_failed'; return parserAnswer() }
+    // Several requests and no model: the rules read each part on its own; nothing is guessed.
+    const byRules = multi ? rulesSteps(trimmed) : null
+    if (byRules) { turn.path = 'parser'; turn.outcome = 'model_failed'; return runSteps(ctx, text, byRules, turn, pending, catalog) }
     turn.path = 'fallback'; turn.outcome = 'model_failed'
     return quick ? 'other' : 'fallback'
   }

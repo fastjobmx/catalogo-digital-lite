@@ -131,7 +131,9 @@ export async function planTurn(ctx: AssistantContext, message: string, context: 
   const timed: typeof fetch = (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(Math.max(500, deadline - Date.now())) })
   const usage = { promptTokens: 0, outputTokens: 0 }
   // Choosing tools is a short classification: no extended reasoning, so the answer arrives fast. A cut or
-  // malformed answer is asked once more while there is time; transport errors are not retried.
+  // malformed answer is asked once more while there is time. A transport error is retried once only when it came
+  // back quickly (a refused or overloaded request), never after a slow one: the wait is not doubled.
+  const started = Date.now()
   for (let attempt = 0; ; attempt += 1) {
     try {
       const result = await callGeminiJson(ctx.env, timed, { system: SYSTEM, parts: [{ text: lines.join('\n') }], schema: SCHEMA, maxOutputTokens: 500, thinkingBudget: 0 })
@@ -143,7 +145,8 @@ export async function planTurn(ctx: AssistantContext, message: string, context: 
       const failure = error as { failure?: string; usage?: { promptTokens: number; outputTokens: number } }
       if (failure.failure === 'CONTRACT') throw error
       if (failure.usage) { usage.promptTokens += failure.usage.promptTokens; usage.outputTokens += failure.usage.outputTokens }
-      const retryable = failure.failure === 'TRUNCATED' || failure.failure === 'MALFORMED' || failure.failure === 'EMPTY'
+      const quickTransport = !failure.failure && Date.now() - started < 2500
+      const retryable = failure.failure === 'TRUNCATED' || failure.failure === 'MALFORMED' || failure.failure === 'EMPTY' || quickTransport
       if (!retryable || attempt > 0 || deadline - Date.now() < 3000) throw Object.assign(error as Error, { usage })
     }
   }

@@ -219,4 +219,31 @@ export const ORDERS_CONVERSATIONS: OrdersCase[] = [
     id: 'pregunta-no-es-orden', title: '«¿ya se envió el pedido …?» es una consulta, no un cambio', critical: true,
     turns: [{ say: '¿ya se envió el pedido {C}?', expect: { unchanged: true, replies: ['{C}', 'En preparación'], never: ['¿Confirmas', 'transportadora salió'] } }],
   },
+  {
+    id: 'mixto-pedidos-e-inventario', title: 'Una consulta de pedidos y una de inventario en el mismo mensaje: se responden las dos', critical: true,
+    turns: [{ say: 'cómo van los pedidos y cuántas quedan de las sandalias', expect: { unchanged: true, pending: null, replies: ['1 pendiente', 'Sandalias Guess', '38: 1'], never: ['No encontré', 'No pude entender'] } }],
+  },
+  {
+    id: 'mixto-precio-y-pedidos', title: 'Un cambio de precio y una consulta de pedidos: el precio se propone y los pedidos se responden', critical: true,
+    turns: [
+      { say: 'ponle 90 mil a las sandalias y dime cómo van los pedidos', expect: { unchanged: true, pending: 'update_price', replies: ['1 pendiente', '90\\.000'] } },
+      { say: 'sí', expect: { pending: null, order: { A: { status: 'pendiente' } }, replies: ['90\\.000'] } },
+    ],
+  },
+  {
+    id: 'mixto-cambio-de-pedido-y-precio', title: 'Un cambio de pedido y uno de catálogo: uno a la vez y el otro no se pierde', critical: true,
+    turns: [
+      { say: 'confirma el pedido {A} y súbele 5 mil a las sandalias', expect: { unchanged: true, pending: null, replies: ['Pendiente → Confirmado', '¿Confirmas\\?', 'súbele 5 mil a las sandalias'] } },
+      { say: 'sí', expect: { order: { A: { status: 'confirmado' } }, pending: null } },
+      { say: 'súbele 5 mil a las sandalias', expect: { unchanged: true, pending: 'update_price', replies: ['85\\.000'] } },
+    ],
+  },
+  {
+    id: 'ventas-de-un-producto', title: '«cuánto vendí de las sandalias»: no se responde con el total de la tienda', critical: true,
+    turns: [{ say: 'cuánto vendí de las sandalias esta semana', expect: { unchanged: true, never: ['ventas confirmadas por', '375\\.000', '160\\.000 COP en'] } }],
+  },
+  {
+    id: 'reposicion-con-la-palabra-pedido', title: 'Inventario que menciona un pedido al proveedor: es del catálogo', critical: true,
+    turns: [{ say: 'llegaron 3 de la 38 de las sandalias y bájale 10 mil', expect: { unchanged: true, never: ['pedido', '¿De cuál'] } }],
+  },
 ]

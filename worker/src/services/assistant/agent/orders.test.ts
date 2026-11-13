@@ -77,3 +77,26 @@ describe('consultas y periodos', () => {
     for (const text of ['ponle 90 mil a las sandalias', 'llegaron 3 de la 38 de las sandalias', 'vendí 2 de la 38 de los tenis blancos', 'hola', 'cuántos quedan de las sandalias', 'sí', 'el 2']) expect(readOrderRequest(text, none)).toBeNull()
   })
 })
+
+describe('varias tareas y subidas de precio leídas con reglas', () => {
+  it('parte el mensaje en sus tareas sin romper cantidades por talla', async () => {
+    const { splitTasks } = await import('./orchestrator')
+    expect(splitTasks('cuántas sandalias me quedan y súbeles 5 mil')).toEqual(['cuántas sandalias me quedan', 'súbeles 5 mil'])
+    expect(splitTasks('llegaron 3 de la 38 y 2 de la 39 de las sandalias')).toEqual(['llegaron 3 de la 38 y 2 de la 39 de las sandalias'])
+    expect(splitTasks('confirma el pedido AB12CD34 y súbele 5 mil a las sandalias')).toEqual(['confirma el pedido AB12CD34', 'súbele 5 mil a las sandalias'])
+    expect(splitTasks('¿cuántas sandalias quedan? ¿y cuánto valen las gorras?')).toEqual(['cuántas sandalias quedan?', 'cuánto valen las gorras?'])
+  })
+  it('«súbele…» y «bájale…» son un cambio de precio exacto, nunca un producto nuevo', async () => {
+    const { readPriceBump, rulesSteps } = await import('./orchestrator')
+    expect(readPriceBump('súbele 5 mil a las sandalias')).toEqual({ kind: 'price', mode: 'increase', amount: 5000, percent: false, product: 'sandalias' })
+    expect(readPriceBump('bájale el 10% a los tenis blancos')).toEqual({ kind: 'price', mode: 'decrease', amount: 10, percent: true, product: 'tenis blancos' })
+    expect(readPriceBump('súbeles diez mil')).toEqual({ kind: 'price', mode: 'increase', amount: 10000, percent: false, product: null })
+    expect(readPriceBump('bájale 10.000 al precio de las sandalias')).toMatchObject({ mode: 'decrease', amount: 10000, product: 'sandalias' })
+    // A bare small number is never assumed to be thousands.
+    expect(readPriceBump('súbele 5 a las sandalias')).toBeNull()
+    expect(readPriceBump('sube las sandalias')).toBeNull()
+    expect(rulesSteps('cuántas sandalias me quedan y súbeles 5 mil')?.map((step) => [step.tool, step.producto, step.monto])).toEqual([['ver_producto', 'sandalias', null], ['cambiar_precio', 'sandalias', 5000]])
+    // A part the rules do not read with certainty stops everything: nothing is half-understood.
+    expect(rulesSteps('súbele 5 mil a las sandalias y créame un producto nuevo')).toBeNull()
+  })
+})
