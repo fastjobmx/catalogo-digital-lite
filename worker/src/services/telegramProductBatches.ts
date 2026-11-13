@@ -426,6 +426,7 @@ export async function analyzeTelegramBatchNext(ctx: AssistantContext, batchId: s
   const categoriesResult = await ctx.db.prepare('SELECT name FROM categories WHERE store_id = ? AND is_active = 1 ORDER BY sort_order, name LIMIT 40').bind(ctx.store.id).all<{ name: string }>()
   const categoryNames = (categoriesResult.results || []).map((row) => row.name)
   let analyzed = 0
+  let paused: string | null = null
   await ctx.db.prepare(`UPDATE telegram_product_batches SET status = 'analyzing', updated_at = datetime('now') WHERE id = ? AND store_id = ? AND status IN ('needs_review','ready_to_publish','partially_published','analyzing')`)
     .bind(batch.id, ctx.store.id).run()
   await sendChatAction(ctx.botToken, ctx.chatId)
@@ -446,6 +447,8 @@ export async function analyzeTelegramBatchNext(ctx: AssistantContext, batchId: s
         const errors = itemErrors(item)
         await ctx.db.prepare(`UPDATE telegram_product_batch_items SET status = ?, warnings = ?, validation_errors = ?, updated_at = datetime('now') WHERE id = ? AND status = 'analyzing'`)
           .bind(errors.length ? 'needs_review' : 'ready_to_publish', JSON.stringify([note]), JSON.stringify(errors), item.id).run()
+        // AI limit reached: stop here. Photos and drafts stay in the lot; the rest can be completed by hand or later.
+        if (run.reason === 'budget_exhausted' || run.reason === 'platform_cap') { paused = run.message; break }
         continue
       }
       const suggestion = run.value
@@ -476,6 +479,7 @@ export async function analyzeTelegramBatchNext(ctx: AssistantContext, batchId: s
   await ctx.db.prepare('UPDATE telegram_product_batches SET status = ?, updated_at = datetime(\'now\') WHERE id = ? AND store_id = ? AND status = \'analyzing\'')
     .bind(finalStatus, batch.id, ctx.store.id).run()
   const markup = more ? { inline_keyboard: [[{ text: '✨ Analizar siguientes 3 fotos', callback_data: `tb:analyze:${batch.id}` }]] } : undefined
+  if (paused) await say(ctx, `⏸️ ${paused} Las fotos y los borradores del lote se conservan; puedes completarlos a mano o seguir cuando la IA vuelva a estar disponible.`)
   await say(ctx, `La IA procesó ${analyzed} foto(s). Los datos comerciales que faltan siguen pendientes y nunca se inventan. ${more ? 'Puedes pedir el siguiente grupo o corregir manualmente.' : 'Ya revisé todas las fotos que necesitaban sugerencias.'}`, markup)
   await showTelegramBatch(ctx, batch.id, 0)
 }

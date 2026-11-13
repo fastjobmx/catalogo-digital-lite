@@ -5,6 +5,7 @@ import type { Env } from '../index'
 import { classifyGeminiError, GeminiRequestError, UNTRUSTED_CONTENT_RULE } from './geminiClient'
 import type { InlineImage } from './productVision'
 import type { TokenUsage } from './usage'
+import { guardedGeminiFetch } from './spendGuard'
 
 export const STUDIO_PRESETS = {
   fondo_blanco: {
@@ -58,7 +59,7 @@ export async function editPhotoWithInstruction(
 ): Promise<{ image: InlineImage; usage: TokenUsage; model: string }> {
   const model = (modelOverride || '').replace(/[^a-zA-Z0-9._-]/g, '') || studioModel(env)
   if (!env.GEMINI_API_KEY || !model) throw new Error('Image model not configured')
-  const response = await fetcher(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+  const response = await guardedGeminiFetch(env, fetcher, `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY },
     body: JSON.stringify({
@@ -66,7 +67,7 @@ export async function editPhotoWithInstruction(
       contents: [{ role: 'user', parts: [{ text: instruction }, { inlineData: image }] }],
       generationConfig: { responseModalities: ['IMAGE'], temperature: 0.2 },
     }),
-  })
+  }, { model, kind: 'image' })
   if (!response.ok) throw await classifyGeminiError(response)
   const body = await response.json() as {
     candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { mimeType?: string; data?: string } }> }; finishReason?: string }>

@@ -6,6 +6,7 @@
  * Telegram is simulated and the database is an in-memory SQLite with a synthetic store: no real store, bot or inventory is touched.
  * Writes a summary (synthetic content only) to VOICE_DIR/resultado.json. */
 import { describe, expect, it, vi } from 'vitest'
+import { budgetedRealFetch, realTestKey } from './realAiBudget'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { callbackUpdate, createHarness, createStoreUser, seedCatalog, seedStore } from './harness'
@@ -14,22 +15,18 @@ import { processTelegramUpdate } from '../services/telegram'
 const enabled = process.env.RUN_REAL_AI === '1' && Boolean(process.env.VOICE_DIR) && Boolean(process.env.DEV_VARS)
 const run = enabled ? describe : describe.skip
 
-function devVar(name: string): string {
-  const line = readFileSync(process.env.DEV_VARS!, 'utf8').split(/\r?\n/).find((row) => row.startsWith(`${name}=`))
-  return (line || '').slice(name.length + 1).trim().replace(/^["']|["']$/g, '')
-}
-
 run('real voice notes (synthetic Spanish speech) through the Telegram handler', () => {
   it('interprets reference, sizes, quantities and a price in words, then a spoken correction', async () => {
     const dir = process.env.VOICE_DIR!
     const audio = [readFileSync(join(dir, 'nota1.ogg')), readFileSync(join(dir, 'nota2.ogg'))]
-    const h = createHarness({ TELEGRAM_BOT_TOKEN: 'bot-token', PUBLIC_STORE_BASE_URL: 'https://tiendas.test', GEMINI_API_KEY: devVar('GEMINI_API_KEY'), AI_MESSAGE_QUOTA_MODE: 'shadow' })
+    const h = createHarness({ TELEGRAM_BOT_TOKEN: 'bot-token', PUBLIC_STORE_BASE_URL: 'https://tiendas.test', GEMINI_API_KEY: realTestKey(process.env.DEV_VARS), AI_MESSAGE_QUOTA_MODE: 'shadow' })
     const store = await seedStore(h.db, { slug: 'voz-ficticia', name: 'Tienda Ficticia de Voz', status: 'active' })
     h.db.query('INSERT INTO store_onboarding_legacy_stores (store_id) VALUES (?)', store)
     await createStoreUser(h.db, { email: 'voz@ficticia.test', storeId: store, role: 'owner', telegramUserId: '9901' })
     await seedCatalog(h.db, store, { products: [{ sku: 'SAN-1', name: 'Sandalias Guess', price: 80000, variants: [{ size: '38', color: 'Negro', stock: 1 }] }] })
 
-    const realFetch = globalThis.fetch
+    // Presupuesto de pruebas: clave propia de pruebas y registro persistente del gasto (realAiBudget.ts).
+    const realFetch = budgetedRealFetch(globalThis.fetch, 'voice-real')
     const sent: string[] = []
     let downloads = 0
     const gemini: Array<{ status: number }> = []

@@ -70,9 +70,8 @@ export async function studioEdit(env: Env['Bindings'], storeId: number, actor: s
   if (!studioModel(env)) throw new AiCatalogError('AI_STUDIO_UNAVAILABLE', 'El Estudio IA no está disponible en esta plataforma', 409)
   if (!isStudioPreset(body.preset)) throw new AiCatalogError('INVALID_PRESET', 'Elige un estilo válido')
   const image = await storePhoto(env.ASSETS, storeId, body.imageUrl)
-  // The image model is priced differently from the text model: use its own output price when configured.
-  const pricing = { ...env, GEMINI_PRICE_OUTPUT_MICROS_PER_MTOK: env.GEMINI_IMAGE_PRICE_OUTPUT_MICROS_PER_MTOK || env.GEMINI_PRICE_OUTPUT_MICROS_PER_MTOK }
+  // The image model is priced from the official price table (pricing.ts) by its model name.
   const preset = body.preset
-  const run = gate(await runWithCredits(env.DB, pricing, { storeId, feature: 'estudio_imagen', key, actor }, () => editProductPhoto(env, fetch, image, preset)))
+  const run = gate(await runWithCredits(env.DB, env, { storeId, feature: 'estudio_imagen', key, actor }, () => editProductPhoto(env, fetch, image, preset)))
   return { image: run.value.image, preset, charged: run.charged }
 }

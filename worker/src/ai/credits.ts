@@ -5,6 +5,7 @@
  * Credits belong to the store, never to a user. Only the platform superadmin can add or adjust them. */
 import type { Env } from '../index'
 import { checkAiBudget, recordAiUsage, type TokenUsage } from './usage'
+import { isSpendBlocked, runWithSpend } from './spendGuard'
 
 export const RESERVATION_MINUTES = 15
 export const MAX_PENDING_REQUESTS = 3
@@ -110,7 +111,11 @@ export async function runWithCredits<T extends { usage?: TokenUsage; model?: str
   db: D1Database,
   env: Partial<Env['Bindings']>,
   /** `units` multiplica el precio de la función (p. ej. segundos de video). Por defecto 1. */
-  input: { storeId: number; feature: AiCreditFeature; key: string; actor: string; units?: number },
+  input: {
+    storeId: number; feature: AiCreditFeature; key: string; actor: string; units?: number
+    /** Stable key for the spend guard when `key` changes per attempt (queued jobs): bounds paid attempts per job. */
+    spendKey?: string
+  },
   call: () => Promise<T>,
 ): Promise<CreditRun<T>> {
   const blocked = (reason: CreditGateReason): CreditRun<T> => ({ ok: false, reason, message: CREDIT_GATE_MESSAGES[reason] })
@@ -135,11 +140,18 @@ export async function runWithCredits<T extends { usage?: TokenUsage; model?: str
     reservationId = reservation.reservationId
   }
   try {
-    const value = await call()
+    const spend = { db, env, scope: 'store' as const, storeId: input.storeId, feature: input.feature, opKey: `cr:${input.storeId}:${input.spendKey || input.key}` }
+    const value = await runWithSpend(spend, call)
     if (reservationId) await settleReservation(db, reservationId, 'consumo')
     await recordAiUsage(db, env, { storeId: input.storeId, feature: input.feature, model: value.model, usage: value.usage, status: 'ok' })
     return { ok: true, value, charged: credits }
   } catch (error) {
+    if (isSpendBlocked(error)) {
+      // Spend limit reached before calling the model: nothing was generated, so no credits are charged.
+      if (reservationId) await settleReservation(db, reservationId, 'liberacion', 'Límite de gasto de IA alcanzado')
+      await recordAiUsage(db, env, { storeId: input.storeId, feature: input.feature, status: 'blocked' })
+      return { ok: false, reason: error.reason.startsWith('global') ? 'platform_cap' : 'budget_exhausted', message: error.userMessage }
+    }
     if (reservationId) await settleReservation(db, reservationId, 'liberacion', 'La acción de IA falló')
     await recordAiUsage(db, env, { storeId: input.storeId, feature: input.feature, status: 'error' })
     return { ok: false, reason: 'error', message: 'La IA no pudo completar la acción. No se descontaron créditos.', error }

@@ -9,6 +9,7 @@ import { answerCallback, sendTelegramMessage, type TelegramUpdate } from '../ass
 import { escapeHtml } from '../assistant/tools'
 import { callGeminiJson, geminiFailureCode, geminiModel, UNTRUSTED_CONTENT_RULE } from '../../ai/geminiClient'
 import { formatUsd, geminiPrices } from '../../ai/usage'
+import { isSpendBlocked, runWithSpend } from '../../ai/spendGuard'
 import { getStoreBySlug, isValidSlug, PRIMARY_STORE_ID, publicStoreUrl, slugify } from '../../tenancy/stores'
 import { parseAdminIds } from './maintenance'
 import { provisionStore, suggestSlug, type ProvisionResult } from '../provisioning'
@@ -919,7 +920,7 @@ async function handleNaturalLanguage(ctx: MasterContext, text: string): Promise<
   let intent: MasterIntent | null = detectMasterIntent(text)
   if (!intent && ctx.env.GEMINI_API_KEY) {
     try {
-      const result = await callGeminiJson(ctx.env, fetch, {
+      const result = await runWithSpend({ db: ctx.db, env: ctx.env, scope: 'platform', storeId: null, feature: 'bot_maestro', opKey: `master:${ctx.updateId}:interpretar` }, () => callGeminiJson(ctx.env, fetch, {
         system: [
           'Interpretas órdenes del administrador de una plataforma de tiendas en línea. Devuelve una sola acción permitida.',
           'No inventes direcciones de tienda, correos ni montos: si faltan, usa action=ask y explica qué falta en question.',
@@ -936,7 +937,7 @@ async function handleNaturalLanguage(ctx: MasterContext, text: string): Promise<
           },
           required: ['action'],
         },
-      })
+      }))
       await ctx.db.prepare(`INSERT INTO platform_events (level, source, code, detail) VALUES ('info', 'master_bot', 'GEMINI_USAGE', ?)`)
         .bind(`tokens ${result.usage.promptTokens}+${result.usage.outputTokens}`).run()
       const parsed = masterShape.safeParse(result.data)
@@ -1011,7 +1012,7 @@ async function answerQuestion(ctx: MasterContext, question: string): Promise<voi
   }
   const commands = HELP.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
   try {
-    const result = await callGeminiJson(ctx.env, fetch, {
+    const result = await runWithSpend({ db: ctx.db, env: ctx.env, scope: 'platform', storeId: null, feature: 'bot_maestro', opKey: `master:${ctx.updateId}:preguntar` }, () => callGeminiJson(ctx.env, fetch, {
       system: [
         'Eres el asistente del administrador de una plataforma de tiendas en línea (Tienda IA Express). Respondes en español, con tono amable y en pocas líneas.',
         'Usa solo los DATOS DE LA PLATAFORMA y la lista de COMANDOS. Si la respuesta no está ahí, dilo y sugiere el comando o botón que sirve. No inventes tiendas, cifras, precios ni funciones.',
@@ -1021,13 +1022,14 @@ async function answerQuestion(ctx: MasterContext, question: string): Promise<voi
       parts: [{ text: `DATOS DE LA PLATAFORMA (JSON):\n${JSON.stringify(facts)}\n\nCOMANDOS:\n${commands}\n\nPREGUNTA DEL ADMINISTRADOR:\n${question.slice(0, 1000)}` }],
       maxOutputTokens: 1024,
       schema: { type: 'object', properties: { answer: { type: 'string' } }, required: ['answer'] },
-    })
+    }))
     await ctx.db.prepare(`INSERT INTO platform_events (level, source, code, detail) VALUES ('info', 'master_bot', 'GEMINI_USAGE', ?)`)
       .bind(`ask tokens ${result.usage.promptTokens}+${result.usage.outputTokens}`).run()
     const parsed = answerShape.safeParse(result.data)
     if (parsed.success) { await say(ctx, `✨ ${escapeHtml(parsed.data.answer.slice(0, 3000))}`, keyboard); return }
   } catch (error) {
     console.error('Master Gemini answer failed:', error instanceof Error ? error.message : 'unknown')
+    if (isSpendBlocked(error)) { await say(ctx, `⛔ ${error.userMessage} Los comandos y el menú siguen funcionando.`, keyboard); return }
     await ctx.db.prepare(`INSERT INTO platform_events (level, source, code, detail) VALUES ('warning', 'master_bot', ?, 'ask')`).bind(geminiFailureCode(error)).run().catch(() => undefined)
   }
   await say(ctx, 'No pude consultar la IA en este momento. Puedes usar el menú o escribir /ayuda.', keyboard)

@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { createHarness, createStoreUser, seedCatalog, seedStore, stubTelegram, textUpdate, type Harness } from '../testing/harness'
 import { createCatalogProduct, productLimit } from '../services/business'
 import { checkAiBudget, currentPeriod, estimateCostMicros } from './usage'
+import { costOf } from './pricing'
 import { COUNTED_FEATURES, getConsumption } from './messageQuota'
 
 let h: Harness
@@ -71,10 +72,11 @@ describe('product limit enforced by the backend', () => {
 })
 
 describe('cost budget versus message quota', () => {
-  it('a typical interaction costs about 420 micro-USD, so 500 messages are about US$0.21', () => {
-    // 900 prompt + 60 output tokens at the default prices (US$0.30 / US$2.50 per million tokens).
-    expect(estimateCostMicros({}, { promptTokens: 900, outputTokens: 60 })).toBe(420)
-    expect(500 * estimateCostMicros({}, { promptTokens: 900, outputTokens: 60 })).toBe(210_000)
+  it('a typical interaction costs about 900 micro-USD at the official 2026 price and twice that from 2027', () => {
+    // 900 prompt + 60 output tokens of gemini-3.8-flash: US$0.75 / 3.75 per million until 2026-12-31, US$1.50 / 7.50 after.
+    expect(estimateCostMicros({}, { promptTokens: 900, outputTokens: 60 })).toBe(900)
+    expect(500 * estimateCostMicros({}, { promptTokens: 900, outputTokens: 60 })).toBe(450_000)
+    expect(costOf({}, 'gemini-3.8-flash', { promptTokens: 900, outputTokens: 60 }, new Date('2027-01-01T00:00:00Z')).totalMicros).toBe(1_800)
   })
 
   it('existing plans (policy enforced) are still cut off when the budget is spent', async () => {
@@ -116,10 +118,12 @@ describe('cost budget versus message quota', () => {
     expect(50 * imageMicros).toBeGreaterThan(2_000_000)
     expect(150 * imageMicros).toBeGreaterThan(6_000_000)
     expect(400 * imageMicros).toBeGreaterThan(10_000_000)
-    // The new alert references cover the included photos plus the messages of the offer.
-    expect(50 * imageMicros + 500 * 420).toBeLessThan(planOf('emprendedor').ai_monthly_budget_micros as number)
-    expect(150 * imageMicros + 3000 * 420).toBeLessThan(planOf('negocio').ai_monthly_budget_micros as number)
-    expect(400 * imageMicros + 10000 * 420).toBeLessThan(planOf('mayorista').ai_monthly_budget_micros as number)
+    // At the official 2026 price (900 micro-USD per message) the alert references still cover Emprendedor and
+    // Mayorista, but no longer Negocio (150 photos + 3,000 messages > US$14). Changing a plan needs the owner's approval:
+    // this test records the gap instead of hiding it (see docs/BLINDAJE_ECONOMICO_IA.md).
+    expect(50 * imageMicros + 500 * 900).toBeLessThan(planOf('emprendedor').ai_monthly_budget_micros as number)
+    expect(150 * imageMicros + 3000 * 900).toBeGreaterThan(planOf('negocio').ai_monthly_budget_micros as number)
+    expect(400 * imageMicros + 10000 * 900).toBeLessThan(planOf('mayorista').ai_monthly_budget_micros as number)
   })
 })
 

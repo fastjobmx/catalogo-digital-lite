@@ -5,8 +5,9 @@
  *
  * Usa el Worker real (rutas, créditos, biblioteca) sobre SQLite y R2 en memoria: no toca producción.
  * Deja el antes/después y un informe de costos en docs/capturas-estudio-fotografico/. */
-import { describe, expect, it } from 'vitest'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { describe, expect, it, vi } from 'vitest'
+import { budgetedRealFetch, realTestKey } from './realAiBudget'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createHarness, createStoreUser, seedStore, superadminToken, userToken } from './harness'
@@ -34,16 +35,11 @@ const CASES: Array<{ id: string; condition: string; file: string; operation: str
   { id: '10-premium-editorial', condition: 'Fondo de calle → luz editorial (nivel C)', file: join(SEED, 'sneakerhub', 'VOLTA-21.jpg'), operation: 'editorial' },
 ]
 
-function localKey(): string {
-  const file = join(root, 'worker', '.dev.vars')
-  if (!existsSync(file)) return ''
-  return readFileSync(file, 'utf8').match(/^GEMINI_API_KEY\s*=\s*"?([^"\r\n]+)"?/m)?.[1] || ''
-}
-
 describe.runIf(process.env.RUN_REAL_AI === '1')('estudio fotográfico con el modelo real (manual)', () => {
   it('procesa fotos reales, guarda antes/después y mide el costo', async () => {
-    const key = localKey()
-    expect(key, 'Falta GEMINI_API_KEY en worker/.dev.vars').not.toBe('')
+    // Clave propia de pruebas y presupuesto persistente (realAiBudget.ts): ninguna llamada pasa del tope diario.
+    const key = realTestKey(join(root, 'worker', '.dev.vars'))
+    vi.stubGlobal('fetch', budgetedRealFetch(globalThis.fetch, 'photo-real'))
     mkdirSync(OUT, { recursive: true })
     const h = createHarness({ GEMINI_API_KEY: key, GEMINI_IMAGE_MODEL: MODEL, GEMINI_IMAGE_PRICE_OUTPUT_MICROS_PER_MTOK: IMAGE_OUTPUT_PRICE })
     const admin = await superadminToken()

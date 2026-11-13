@@ -5,6 +5,7 @@ import { BUDGET_MESSAGES, checkAiBudget, estimateCostMicros, recordAiUsage, type
 import { completeMessage, QUOTA_BLOCKED_MESSAGE, quotaAlertText, releaseMessage, reserveMessage } from '../../ai/messageQuota'
 import { conversationContext, say, type AssistantContext } from './context'
 import { suggestProductFromPhotos, type VisionSuggestion } from '../../ai/productVision'
+import { isSpendBlocked, newOperationKey, runWithSpend } from '../../ai/spendGuard'
 
 export type AiOutcome<T> = { ok: true; value: T } | { ok: false; message: string }
 
@@ -43,11 +44,14 @@ export async function withAiBudget<T extends { usage?: TokenUsage; model?: strin
       return { ok: false, message: QUOTA_BLOCKED_MESSAGE(reservation.limit, reservation.cycle.end) }
     }
   }
+  // Spend guard: every paid call inside `call` reserves and settles against the store, plan and platform limits.
+  // The same Telegram update shares one operation key, so duplicate deliveries cannot multiply paid attempts.
+  const spend = { db: ctx.db, env: ctx.env, scope: 'store' as const, storeId: ctx.store.id, feature, opKey: ctx.updateId > 0 ? `tg:${ctx.store.id}:${ctx.updateId}:${feature}` : newOperationKey(`as:${ctx.store.id}:${feature}`) }
   try {
-    const value = await call()
+    const value = await runWithSpend(spend, call)
     const recorded = await recordAiUsage(ctx.db, ctx.env, { storeId: ctx.store.id, feature, model: value.model, usage: value.usage, status: 'ok' })
     if (ref) {
-      const completed = await completeMessage(ctx.db, ctx.env, ref, { costMicros: estimateCostMicros(ctx.env, value.usage || { promptTokens: 0, outputTokens: 0 }), promptTokens: value.usage?.promptTokens || 0 })
+      const completed = await completeMessage(ctx.db, ctx.env, ref, { costMicros: estimateCostMicros(ctx.env, value.usage || { promptTokens: 0, outputTokens: 0 }, value.model), promptTokens: value.usage?.promptTokens || 0 })
         .catch((error) => { console.error('AI message counter failed:', error instanceof Error ? error.message : 'unknown'); return { alert: null } })
       if (completed.alert) ctx.quotaNotice = quotaAlertText(completed.alert)
     }
@@ -57,6 +61,11 @@ export async function withAiBudget<T extends { usage?: TokenUsage; model?: strin
     return { ok: true, value }
   } catch (error) {
     if (ref) await releaseMessage(ctx.db, ctx.env, ref).catch(() => undefined)
+    if (isSpendBlocked(error)) {
+      // Nothing was sent to the model: deterministic commands, catalog and orders keep working.
+      await recordAiUsage(ctx.db, ctx.env, { storeId: ctx.store.id, feature, status: 'blocked' })
+      return { ok: false, message: error.userMessage }
+    }
     await recordAiUsage(ctx.db, ctx.env, { storeId: ctx.store.id, feature, usage: usageFromError(error), status: 'error' })
     const category = error instanceof GeminiRequestError ? error.category : 'request'
     const code = geminiFailureCode(error)

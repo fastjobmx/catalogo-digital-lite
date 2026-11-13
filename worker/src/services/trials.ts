@@ -7,6 +7,7 @@
 import type { Env } from '../index'
 import { getTrialSettings, TRIAL_TEMPLATES, type TrialSettings, type TrialTemplate } from './trialSettings'
 import { editPhotoWithInstruction, studioModel, STUDIO_PRESETS } from '../ai/imageStudio'
+import { isSpendBlocked, runWithSpend } from '../ai/spendGuard'
 import { geminiFailureCode } from '../ai/geminiClient'
 
 const LIMITS = { photo: 60, save: 600, order: 20, ordersPerTrialDay: 200, enhance: 10 } as const // per IP and hour (create comes from settings)
@@ -198,7 +199,8 @@ export async function enhanceTrialPhoto(db: D1Database, env: Partial<Env['Bindin
   try {
     let binary = ''
     for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
-    const output = await editPhotoWithInstruction(env, fetcher, { mimeType: type, data: btoa(binary) }, STUDIO_PRESETS.fondo_blanco.instruction)
+    const output = await runWithSpend({ db, env, scope: 'trial', storeId: null, feature: 'prueba_mejora_foto', opKey: `trial:${trial.id}:${slot.used}` },
+      () => editPhotoWithInstruction(env, fetcher, { mimeType: type, data: btoa(binary) }, STUDIO_PRESETS.fondo_blanco.instruction))
     const raw = atob(output.image.data)
     const result = new Uint8Array(raw.length)
     for (let i = 0; i < raw.length; i++) result[i] = raw.charCodeAt(i)
@@ -211,6 +213,7 @@ export async function enhanceTrialPhoto(db: D1Database, env: Partial<Env['Bindin
     return { url: `/api/trial/${trial.id}/assets/${name}`, originalUrl: body.url as string, remaining: Math.max(0, settings.photoEnhancePerTrial - slot.used) }
   } catch (error) {
     await refund()
+    if (isSpendBlocked(error)) throw new TrialError('TRIALS_BUSY', error.userMessage, 503)
     await db.prepare(`INSERT INTO platform_events (store_id, level, source, code, detail) VALUES (NULL, 'warning', 'ai', 'TRIAL_PHOTO_ENHANCE_FAILED', ?)`).bind(geminiFailureCode(error)).run()
     throw new TrialError('ENHANCE_FAILED', 'La IA no pudo mejorar la foto. No se descontó ninguna mejora.', 502)
   }

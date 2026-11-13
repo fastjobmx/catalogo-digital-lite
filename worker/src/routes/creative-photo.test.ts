@@ -190,7 +190,8 @@ describe('niveles B y C · lotes con IA', () => {
     // Cada resultado queda pendiente de revisión, con modelo, costo y original asociados.
     const result = await json(await A(`/assets/${status.jobs[0].resultAssetId}`))
     expect(result).toMatchObject({ status: 'pendiente', level: 'B', operation: 'fondo_blanco', model: 'gemini-test-image', credits: 2, productId: ids.A1, width: 64, height: 64 })
-    expect(result.costMicros).toBe(Math.ceil((300 * 300_000 + 1290 * 60_000_000) / 1_000_000))
+    // Modelo fuera de la tabla oficial: se cobra con la tarifa más cara conocida (entrada US$ 2/M, imagen US$ 60/M), nunca menos.
+    expect(result.costMicros).toBe(Math.ceil((300 * 2_000_000 + 1290 * 60_000_000) / 1_000_000))
     expect(productImages(ids.A1)).toHaveLength(1) // nada cambia en el catálogo hasta aprobar
 
     // Reintento del que falló: ahora sale bien y se cobra una sola vez.

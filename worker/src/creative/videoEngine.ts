@@ -13,6 +13,7 @@ import type { Env } from '../index'
 import { creditSummary, runWithCredits, validIdempotencyKey } from '../ai/credits'
 import { classifyGeminiError, geminiFailureCode } from '../ai/geminiClient'
 import { estimateCostMicros } from '../ai/usage'
+import { guardedGeminiFetch } from '../ai/spendGuard'
 import { buildCatalog, routeTask, type ModelEntry } from './aiRouter'
 import { CreativeError } from './brandKit'
 import type { CreativeContext, CreativeJob } from './contracts'
@@ -74,7 +75,7 @@ export const geminiOmniProvider: VideoProvider = {
   }),
   async generate(env, fetcher, request) {
     if (!env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not configured')
-    const response = await fetcher('https://generativelanguage.googleapis.com/v1beta/interactions', {
+    const response = await guardedGeminiFetch(env, fetcher, 'https://generativelanguage.googleapis.com/v1beta/interactions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY },
       body: JSON.stringify({
@@ -83,7 +84,7 @@ export const geminiOmniProvider: VideoProvider = {
         response_format: { type: 'video', aspect_ratio: request.aspectRatio, resolution: request.resolution, duration: `${request.seconds}s` },
         store: false,
       }),
-    })
+    }, { model: request.model, kind: 'video' })
     if (!response.ok) throw await classifyGeminiError(response)
     const body = await response.json() as {
       status?: string

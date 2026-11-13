@@ -17,6 +17,10 @@ STORE_CURRENCY = "COP"
 STORE_COUNTRY = "CO"
 TELEGRAM_ENV_LABEL = "STAGING - CATALOGO FICTICIO"
 GEMINI_MODEL = "gemini-3.8-flash"
+# Gasto IA: staging bloquea al llegar a su propio presupuesto (US$ 0,50/día, US$ 5/mes por defecto) y usa la clave
+# de un proyecto de Google distinto al de producción (secreto GEMINI_API_KEY de este Worker).
+AI_SPEND_GUARD_MODE = "enforce"
+AI_BUDGET_ENVIRONMENT = "staging"
 
 [[d1_databases]]
 binding = "DB"

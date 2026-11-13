@@ -236,7 +236,7 @@ describe('photos, documents and AI', () => {
     await send(textUpdate(OWNER, 'dime qué cosas ya no tengo para vender'))
     const usage = h.db.query<{ requests: number; estimated_cost_micros: number; warned_at: string | null }>('SELECT requests, estimated_cost_micros, warned_at FROM ai_usage_monthly WHERE store_id = ?', moda)[0]!
     expect(usage.requests).toBe(1)
-    expect(usage.estimated_cost_micros).toBe(800)
+    expect(usage.estimated_cost_micros).toBe(1500) // official gemini-3.8-flash price (pricing.ts)
     expect(usage.warned_at).not.toBeNull()
     expect(telegram.messages().join('\n')).toContain('presupuesto mensual de IA')
     expect(telegram.messages().join('\n')).toContain('GORRA-01')

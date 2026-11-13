@@ -345,6 +345,8 @@ describe('video generativo con IA', () => {
   it('un fallo del proveedor o una respuesta sin video no descuenta créditos; el cron retoma los pendientes', async () => {
     await setCost('video_ia_segundo', 5)
     await recharge('tienda-a', 100)
+    // Un video cuesta más que el límite diario por defecto de una tienda básica: este caso prueba créditos, no ese límite.
+    h.db.query("INSERT INTO ai_spend_limits (scope, scope_ref, period, metric, limit_value) VALUES ('store', ?, 'day', 'micros', 5000000)", String(storeA))
     stubAi({ video: 'error' })
     const first = (await json(await create('video-ia-0010', { confirmCredits: 30 }))).job
     expect(await json(await run(first.id))).toMatchObject({ status: 'fallido', errorCode: 'GEMINI_SERVICE' })

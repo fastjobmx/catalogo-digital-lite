@@ -259,17 +259,16 @@ export async function runPhotoJob(env: EngineEnv, storeId: number, jobId: string
       const name = (category?.name || '').replace(/[^\p{L}\p{N} ]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 40)
       instruction = instruction.replace('{categoria}', name ? ` («${name}»)` : '')
     }
-    // El modelo de imagen tiene su propio precio de salida para el presupuesto mensual.
-    const pricing = { ...env, GEMINI_PRICE_OUTPUT_MICROS_PER_MTOK: env.GEMINI_IMAGE_PRICE_OUTPUT_MICROS_PER_MTOK || env.GEMINI_PRICE_OUTPUT_MICROS_PER_MTOK }
+    // El costo sale de la tabla oficial de precios (pricing.ts) según el modelo de imagen usado.
     const cost = await unitCost(env.DB, feature)
-    const run = await runWithCredits(env.DB, pricing, { storeId, feature, key: `job:${job.id}:${job.attempts}`, actor: job.requestedBy }, async () => {
+    const run = await runWithCredits(env.DB, env, { storeId, feature, key: `job:${job.id}:${job.attempts}`, spendKey: `job:${job.id}`, actor: job.requestedBy }, async () => {
       const output = await editPhotoWithInstruction(env, fetcher, { mimeType: source.contentType, data: toBase64(source.bytes) }, instruction, entry.model, FIDELITY_RULES)
       const bytes = fromBase64(output.image.data)
       if (!sniffImageType(bytes)) throw Object.assign(new Error('Invalid image output'), { failure: 'INVALID_OUTPUT', usage: output.usage })
       // Guardar dentro de la reserva: si falla el guardado, los créditos se devuelven.
       const asset = await library.saveResult(ctx, {
         sourceId: source.row.id, bytes, level: op.level, operation: String(job.input.operation), model: output.model,
-        credits: cost.credits, costMicros: estimateCostMicros(pricing, output.usage), jobId: job.id, origin: 'ia',
+        credits: cost.credits, costMicros: estimateCostMicros(env, output.usage, output.model), jobId: job.id, origin: 'ia',
       })
       return { usage: output.usage, model: output.model, asset }
     })

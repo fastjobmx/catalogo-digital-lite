@@ -1,13 +1,16 @@
 import type { Env } from '../index'
 import { watchAllowances } from './messageQuota'
 
-/** Conservative default estimates in USD micros per million tokens. They are
- * configurable per installation because provider prices change; reports always
- * label the resulting amounts as estimates. */
-export const DEFAULT_INPUT_MICROS_PER_MTOK = 300_000
-export const DEFAULT_OUTPUT_MICROS_PER_MTOK = 2_500_000
+import { costOf, type GeminiUsage } from './pricing'
+import { geminiModel } from './geminiClient'
 
-export type TokenUsage = { promptTokens: number; outputTokens: number }
+/** Legacy flat prices (USD micros per million tokens). Only used when an installation still sets
+ * GEMINI_PRICE_INPUT/OUTPUT_MICROS_PER_MTOK for a model that is not in the price table (e.g. the video engine).
+ * Every model in `pricing.ts` is priced from the table: official, versioned and dated. */
+export const DEFAULT_INPUT_MICROS_PER_MTOK = 750_000
+export const DEFAULT_OUTPUT_MICROS_PER_MTOK = 3_750_000
+
+export type TokenUsage = GeminiUsage
 
 export type AiBudgetStatus = {
   allowed: boolean
@@ -25,20 +28,27 @@ export function currentPeriod(date = new Date()): string {
 
 function price(value: string | undefined, fallback: number): number {
   const parsed = Number(value)
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
 }
 
-/** Estimated USD micros per million input/output tokens for this installation. */
+/** Current price of the text model of this installation (USD micros per million input/output tokens). */
 export function geminiPrices(env: Partial<Env['Bindings']>): { input: number; output: number } {
-  return {
-    input: price(env.GEMINI_PRICE_INPUT_MICROS_PER_MTOK, DEFAULT_INPUT_MICROS_PER_MTOK),
-    output: price(env.GEMINI_PRICE_OUTPUT_MICROS_PER_MTOK, DEFAULT_OUTPUT_MICROS_PER_MTOK),
-  }
+  const probe = costOf(env, geminiModel(env), { promptTokens: 1_000_000, outputTokens: 0 }).totalMicros
+  const out = costOf(env, geminiModel(env), { promptTokens: 0, outputTokens: 1_000_000 }).totalMicros
+  return { input: probe, output: out }
 }
 
-export function estimateCostMicros(env: Partial<Env['Bindings']>, usage: TokenUsage): number {
-  const { input, output } = geminiPrices(env)
-  return Math.ceil((Math.max(0, usage.promptTokens) * input + Math.max(0, usage.outputTokens) * output) / 1_000_000)
+/** Cost of one call. With the model, from the official price table; without it, the text model of the
+ * installation (or the legacy flat prices when an installation still sets them for an unlisted model). */
+export function estimateCostMicros(env: Partial<Env['Bindings']>, usage: TokenUsage, model?: string): number {
+  const legacy = env.GEMINI_PRICE_INPUT_MICROS_PER_MTOK || env.GEMINI_PRICE_OUTPUT_MICROS_PER_MTOK
+  if (!model && legacy) {
+    const input = price(env.GEMINI_PRICE_INPUT_MICROS_PER_MTOK, DEFAULT_INPUT_MICROS_PER_MTOK)
+    const output = price(env.GEMINI_PRICE_OUTPUT_MICROS_PER_MTOK, DEFAULT_OUTPUT_MICROS_PER_MTOK)
+    const out = Math.max(0, usage.outputTokens) + Math.max(0, usage.thoughtsTokens || 0)
+    return Math.ceil((Math.max(0, usage.promptTokens) * input + out * output) / 1_000_000)
+  }
+  return costOf(env, model || geminiModel(env), usage).totalMicros
 }
 
 export function formatUsd(micros: number): string {
@@ -80,7 +90,7 @@ export async function recordAiUsage(
 ): Promise<{ crossedWarning: boolean; status: AiBudgetStatus }> {
   const period = currentPeriod()
   const usage = input.usage || { promptTokens: 0, outputTokens: 0 }
-  const cost = input.status === 'blocked' ? 0 : estimateCostMicros(env, usage)
+  const cost = input.status === 'blocked' ? 0 : estimateCostMicros(env, usage, input.model || undefined)
   await db.batch([
     db.prepare(
       `INSERT INTO ai_usage_events (store_id, period, feature, model, status, prompt_tokens, output_tokens, estimated_cost_micros)

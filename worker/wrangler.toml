@@ -22,8 +22,10 @@ STORE_COUNTRY = "CO"
 # MASTER_BOT_TOKEN = ""               # bot maestro de la plataforma (secreto)
 # MASTER_WEBHOOK_SECRET = ""          # secreto del webhook del bot maestro
 # MASTER_ADMIN_TELEGRAM_IDS = ""      # IDs numéricos autorizados, separados por coma
-# GEMINI_PRICE_INPUT_MICROS_PER_MTOK = "300000"    # estimación de costo (USD micros / 1M tokens)
-# GEMINI_PRICE_OUTPUT_MICROS_PER_MTOK = "2500000"
+# Precios: tabla oficial versionada en src/ai/pricing.ts. Correcciones sin publicar código:
+# AI_PRICING_OVERRIDES = '{"gemini-3.8-flash":{"input":750000,"output":3750000}}'
+# Gasto IA: 'off' | 'shadow' | 'enforce' (por defecto enforce fuera de producción). Ver src/ai/spendGuard.ts.
+# AI_SPEND_GUARD_MODE = "enforce"
 # PLATFORM_AI_MONTHLY_CAP_MICROS = "" # tope global opcional de IA
 
 # Google Gemini AI (configurar en .env o secrets)

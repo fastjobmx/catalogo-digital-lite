@@ -1,5 +1,6 @@
 import type { Env } from '../index'
 import type { TokenUsage } from './usage'
+import { guardedGeminiFetch } from './spendGuard'
 
 export type GeminiFailureCategory = 'quota' | 'service' | 'api_key' | 'permission_or_billing' | 'model' | 'structured_schema' | 'request'
 
@@ -32,7 +33,8 @@ export async function callGeminiJson(
 ): Promise<GeminiJsonResult> {
   if (!env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not configured')
   const model = geminiModel(env)
-  const response = await fetcher(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+  // Every paid call goes through the spend guard: reserve → call → settle with the real cost.
+  const response = await guardedGeminiFetch(env, fetcher, `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY },
     body: JSON.stringify({
@@ -44,7 +46,7 @@ export async function callGeminiJson(
         responseFormat: { text: { mimeType: 'APPLICATION_JSON', schema: request.schema } },
       },
     }),
-  })
+  }, { model, kind: 'text' })
 
   if (!response.ok) throw await classifyGeminiError(response)
   const body = await response.json() as {
