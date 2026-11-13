@@ -1,14 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertCircle, ArrowLeft, Check, Clapperboard, Copy, Download, Film, Image as ImageIcon, Images, Loader2, Pencil, Sparkles, Trash2, Wand2 } from 'lucide-react'
+import { AlertCircle, ArrowLeft, Check, Clapperboard, Copy, Download, Film, Image as ImageIcon, Images, Loader2, Palette, Pencil, Sparkles, Trash2, Wand2 } from 'lucide-react'
 import { useAuth } from '../../../contexts/AuthContext'
 import {
   ApiRequestError, creativePhotoApi, creativePiecesApi, getProducts,
   type CreativeCatalogApi, type CreativeCopyApi, type CreativePieceApi, type CreativePlanApi, type PieceKind, type ProductApi, type VideoAiQuoteApi,
 } from '../../../services/api'
 import { resolveImageUrl } from '../../../lib/imageSources'
-import { drawPreview, ensureFont, exportImages, exportVideo, loadImages, type ImageMap } from '../../../lib/creative/render'
-import type { PlanSpec } from '../../../lib/creative/scene'
+import { drawPreview, ensureFont, exportImages, exportVideo, loadImages, prepareDesign, sceneFor, usesDesign, type ImageMap, type OutputType } from '../../../lib/creative/render'
+import type { DesignOptions, PlanSpec } from '../../../lib/creative/scene'
+import type { DesignContext } from '../../../lib/creative/design/compose'
+import { ensureFonts } from '../../../lib/creative/design/fonts'
+import { checkScene } from '../../../lib/creative/design/qa'
+import { DESIGN_STYLES, STYLE_KEYS, detectSector, stylesOf, styleFonts } from '../../../lib/creative/design/styles'
+import { DEFAULT_DESIGN, DesignPanel, QaPanel } from './DesignPanel'
+import { BatchPanel } from './BatchPanel'
 import { assetBlob } from './AssetImage'
 import { formatBytes } from './ResultReview'
 
@@ -68,9 +74,14 @@ export default function Factory() {
   const [format, setFormat] = useState('cuadrado')
   const [quality, setQuality] = useState<'estandar' | 'alta'>('estandar')
   const [seconds, setSeconds] = useState(6)
+  const [music, setMusic] = useState(true)
   const [draft, setDraft] = useState<{ headline: string; description: string; benefits: string; cta: string; hashtags: string } | null>(null)
   const [plan, setPlan] = useState<CreativePlanApi<PlanSpec> | null>(null)
-  const [media, setMedia] = useState<{ images: ImageMap; font: string } | null>(null)
+  const [media, setMedia] = useState<{ images: ImageMap; font: string; design: DesignContext | null; notes: string[] } | null>(null)
+  // Motor de diseño publicitario: estilo, composición y personalización. Sin él, la composición clásica.
+  const [useDesign, setUseDesign] = useState(true)
+  const [designOpts, setDesignOpts] = useState<DesignOptions>(DEFAULT_DESIGN)
+  const [output, setOutput] = useState<OutputType | 'auto'>('auto')
   const [slide, setSlide] = useState(0)
   const [replaces, setReplaces] = useState<string | null>(null)
   const [ai, setAi] = useState({ resolution: '720p', motion: 'acercamiento', seconds: 6 })
@@ -109,14 +120,32 @@ export default function Factory() {
   const chosenTemplate = templates.find((item) => item.key === template) ?? null
   const formats = useMemo(() => (catalog?.formats ?? []).filter((item) => (mode === 'video_ia' ? catalog!.videoAi.formats.includes(item.key) : kind !== 'video' || item.video)), [catalog, mode, kind])
   useEffect(() => { if (formats.length && !formats.some((item) => item.key === format)) setFormat(formats[0]!.key) }, [formats, format])
-  useEffect(() => { if (chosenTemplate && !chosenTemplate.seconds.includes(seconds)) setSeconds(chosenTemplate.seconds[0]!) }, [chosenTemplate, seconds])
+  // Los videos del motor de diseño aceptan cualquier duración entre 6 y 20 s; los clásicos, las de su plantilla.
+  useEffect(() => { if (chosenTemplate && !(useDesign && mode === 'video') && !chosenTemplate.seconds.includes(seconds)) setSeconds(chosenTemplate.seconds[0]!) }, [chosenTemplate, seconds, useDesign, mode])
+  useEffect(() => { if (useDesign && mode === 'video' && (seconds < 6 || seconds > 20)) setSeconds(10) }, [useDesign, mode, seconds])
   useEffect(() => { if (template && (!chosenTemplate || eligible[template]?.ok === false)) setTemplate('') }, [template, chosenTemplate, eligible])
 
   const toggle = (id: number) => { reset(); setDraft(null); setPicked((current) => current.includes(id) ? current.filter((item) => item !== id) : current.length >= MAX_PRODUCTS ? current : [...current, id]) }
   const shown = useMemo(() => { const q = search.trim().toLowerCase(); return products.filter((product) => !q || product.name.toLowerCase().includes(q)).slice(0, 60) }, [products, search])
   const copyInput = (): Partial<CreativeCopyApi> | null => draft ? { headline: draft.headline, description: draft.description, benefits: lines(draft.benefits), cta: draft.cta, hashtags: draft.hashtags.split(/\s+/).filter(Boolean) } : null
   const fillDraft = (copy: CreativeCopyApi) => setDraft({ headline: copy.headline, description: copy.description, benefits: copy.benefits.join('\n'), cta: copy.cta, hashtags: copy.hashtags.join(' ') })
-  const planInput = () => ({ kind, template, format, productIds: picked, quality, seconds: kind === 'video' ? seconds : null, copy: copyInput() })
+  const designed = useDesign && mode !== 'video_ia'
+  const planInput = () => ({ kind, template, format, productIds: picked, quality, seconds: kind === 'video' ? seconds : null, copy: copyInput(), ...(designed ? { design: designOpts } : {}) })
+  const priceLocked = template === 'oferta_aprobada'
+  // Sector sugerido por las categorías y nombres reales de los productos elegidos; se aplica al cambiar la selección.
+  const detected = useMemo(() => detectSector(products.filter((product) => picked.includes(product.id)).flatMap((product) => [product.categoryName ?? '', product.name])), [products, picked])
+  useEffect(() => {
+    if (!detected) return
+    setDesignOpts((current) => (current.sector === detected ? current : { ...current, sector: detected, style: stylesOf(detected)[0]!, layout: DESIGN_STYLES[stylesOf(detected)[0]!].layouts[0] }))
+  }, [detected])
+  useEffect(() => { if (priceLocked && !designOpts.showPrice) setDesignOpts((current) => ({ ...current, showPrice: true })) }, [priceLocked, designOpts.showPrice])
+  // La vista previa usa las opciones de diseño actuales sin volver a pedir el plan: el servidor las valida al guardar.
+  const live = useMemo(() => (plan ? (plan.spec.design ? { ...plan.spec, design: designOpts } : plan.spec) : null), [plan, designOpts])
+  const qa = useMemo(() => {
+    if (!live || !media?.design || !usesDesign(live)) return []
+    return Array.from({ length: live.slides }, (_, index) => checkScene(sceneFor(live, index, media.design), live, index, media.design!))
+  }, [live, media])
+  const qaBlocked = qa.some((report) => !report.ok)
 
   /** Pide el plan al servidor (datos verificados) y dibuja la vista previa. */
   const prepare = async () => {
@@ -126,7 +155,10 @@ export default function Factory() {
       const planned = await creativePiecesApi.plan<PlanSpec>(planInput(), token)
       const loaded = await loadImages(planned.spec, (id) => assetBlob(id, token))
       const font = await ensureFont(planned.spec.brand.font || 'Inter')
-      setPlan(planned); setMedia({ images: loaded.images, font }); setSlide(0)
+      // Análisis de la foto (fondo, encuadre, colores) y recorte local; tipografías de todos los estilos para las miniaturas.
+      const prepared = planned.spec.design ? await prepareDesign(planned.spec, loaded.images) : null
+      if (prepared) await ensureFonts(STYLE_KEYS.flatMap(styleFonts))
+      setPlan(planned); setMedia({ images: loaded.images, font, design: prepared?.design ?? null, notes: prepared?.notes ?? [] }); setSlide(0)
       if (!draft) fillDraft(planned.copy)
       if (loaded.missingLogo) setNotice('No se pudo leer el logo del Brand Kit: la pieza saldrá sin logo. Súbelo de nuevo en el Brand Kit si quieres incluirlo.')
       if (planned.reusable && !replaces) setNotice('Ya tienes una pieza con esta misma configuración. Puedes usarla en «Tus piezas» en lugar de crear otra.')
@@ -137,28 +169,31 @@ export default function Factory() {
   // Vista previa: imagen fija o animación en bucle del video.
   useEffect(() => {
     const target = canvas.current
-    if (!target || !plan || !media) return
-    const spec = plan.spec
+    if (!target || !live || !media) return
+    const spec = live
     const width = Math.min(480, spec.width)
-    target.width = width
-    target.height = Math.round(width * spec.height / spec.width)
-    if (spec.kind !== 'video') { drawPreview(target, spec, media.images, media.font, slide, null); return }
+    // Lienzo al doble de resolución para que la vista previa se vea nítida en pantallas densas.
+    target.width = width * 2
+    target.height = Math.round(width * 2 * spec.height / spec.width)
+    target.style.width = `${width}px`
+    if (spec.kind !== 'video') { drawPreview(target, spec, media.images, media.font, slide, null, media.design); return }
     let frame = 0
     const started = performance.now()
-    const tick = () => { drawPreview(target, spec, media.images, media.font, 0, ((performance.now() - started) / 1000) % ((spec.seconds || 6) + 1)); frame = requestAnimationFrame(tick) }
+    const tick = () => { drawPreview(target, spec, media.images, media.font, 0, ((performance.now() - started) / 1000) % ((spec.seconds || 6) + 1), media.design); frame = requestAnimationFrame(tick) }
     tick()
     return () => cancelAnimationFrame(frame)
-  }, [plan, media, slide])
+  }, [live, media, slide])
 
   const create = async () => {
-    if (!token || !plan || !media) return
+    if (!token || !plan || !media || !live) return
+    if (qaBlocked) { setError('El control de calidad encontró problemas: cambia de composición o de estilo antes de crear la pieza.'); return }
     setBusy('save'); setError(''); setProgress(0)
     if (!saveKey.current) saveKey.current = `pieza-${crypto.randomUUID()}`
     try {
-      const spec = plan.spec
+      const spec = live
       let files: Blob[]
       let durationMs: number | undefined
-      if (spec.kind === 'video') { const video = await exportVideo(spec, media.images, media.font, setProgress); files = [video.blob]; durationMs = video.durationMs } else files = await exportImages(spec, media.images, media.font)
+      if (spec.kind === 'video') { const video = await exportVideo(spec, media.images, media.font, setProgress, media.design, { music }); files = [video.blob]; durationMs = video.durationMs } else files = await exportImages(spec, media.images, media.font, media.design, output === 'auto' ? null : output)
       const saved = await creativePiecesApi.save({ ...planInput(), ...(replaces ? { replaces } : {}), ...(durationMs ? { durationMs } : {}) }, files, saveKey.current, token)
       setNotice(saved.reused ? 'Ya existía una pieza idéntica: no se creó otra.' : 'Pieza creada. Revísala abajo y apruébala cuando esté lista.')
       setReplaces(null); setPlan(null); setMedia(null); saveKey.current = ''
@@ -224,6 +259,7 @@ export default function Factory() {
     if (spec.quality) setQuality(spec.quality)
     if (spec.seconds) setSeconds(spec.seconds)
     if (piece.copy.headline !== undefined) fillDraft(piece.copy as CreativeCopyApi)
+    if (spec.design) { setUseDesign(true); setDesignOpts({ ...DEFAULT_DESIGN, ...spec.design }) } else setUseDesign(false)
     setReplaces(piece.id); reset(); window.scrollTo({ top: 0, behavior: 'smooth' })
   }
   const attach = async (piece: CreativePieceApi, value: string) => {
@@ -324,7 +360,23 @@ export default function Factory() {
       </Step>
 
       {mode !== 'video_ia' && (
-        <Step n={5} title="Texto" hint="El precio no se escribe aquí: se toma de tu catálogo y se dibuja exacto.">
+        <Step n={5} title="Diseño" hint="Estilo, composición y colores. Las miniaturas usan tu foto y tus datos reales.">
+          <div className="flex flex-wrap gap-2">
+            {([[true, 'Diseño publicitario', 'Estilos profesionales con variantes. Sin costo.'], [false, 'Clásico', 'La composición sencilla de siempre.']] as const).map(([value, title, hint]) => (
+              <button key={title} type="button" aria-pressed={useDesign === value} onClick={() => { setUseDesign(value); reset() }} className={`${choice(useDesign === value)} max-w-xs`}>
+                <span className="flex items-center gap-2 text-sm font-bold text-ink">{value && <Palette size={15} className="text-brand" />}{title}</span><span className="mt-1 block text-xs text-muted">{hint}</span>
+              </button>
+            ))}
+          </div>
+          {useDesign && (template === 'antes_despues' || !picked.length)
+            ? <p className="text-xs text-muted">Esta plantilla usa la composición clásica.</p>
+            : useDesign && <DesignPanel spec={live} images={media?.images ?? null} design={media?.design ?? null} notes={media?.notes ?? []} options={designOpts} onChange={setDesignOpts} output={output} onOutput={setOutput} kind={kind} seconds={seconds} onSeconds={(value) => { setSeconds(value); setPlan(null); setMedia(null) }} music={music} onMusic={setMusic} priceLocked={priceLocked} brandColors={plan?.spec.brand.colors ?? []} detected={detected} hasOffer={Boolean(plan?.spec.products.some((product) => product.compareAtText))} />}
+          {useDesign && !media?.design && picked.length > 0 && template !== 'antes_despues' && <p className="text-xs text-muted">Pulsa «Ver vista previa» para ver las miniaturas con tu producto.</p>}
+        </Step>
+      )}
+
+      {mode !== 'video_ia' && (
+        <Step n={6} title="Texto" hint="El precio no se escribe aquí: se toma de tu catálogo y se dibuja exacto.">
           {draft ? (
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="text-xs font-bold text-ink">Titular<input className="input-field mt-1 w-full" maxLength={60} value={draft.headline} onChange={(e) => { setDraft({ ...draft, headline: e.target.value }); setPlan(null) }} /></label>
@@ -352,7 +404,7 @@ export default function Factory() {
         </Step>
       )}
 
-      <Step n={mode === 'video_ia' ? 5 : 6} title="Calidad">
+      <Step n={mode === 'video_ia' ? 5 : 7} title="Calidad">
         {mode === 'video_ia' ? (
           <div className="flex flex-wrap gap-3">
             <label className="text-xs font-bold text-ink">Duración<select className="input-field mt-1 block" value={ai.seconds} onChange={(e) => { setAi({ ...ai, seconds: Number(e.target.value) }); setQuote(null) }}>{catalog?.videoAi.seconds.map((value) => <option key={value} value={value}>{value} segundos</option>)}</select></label>
@@ -365,14 +417,14 @@ export default function Factory() {
                 <span className="text-sm font-bold text-ink">{item.label}</span><span className="mt-1 block text-xs text-muted">{item.description}</span>
               </button>
             ))}
-            {kind === 'video' && chosenTemplate && (
+            {kind === 'video' && chosenTemplate && !(useDesign && mode === 'video') && (
               <label className="text-xs font-bold text-ink">Duración<select className="input-field mt-1 block" value={seconds} onChange={(e) => { setSeconds(Number(e.target.value)); reset() }}>{chosenTemplate.seconds.map((value) => <option key={value} value={value}>{value} segundos</option>)}</select></label>
             )}
           </div>
         )}
       </Step>
 
-      <Step n={mode === 'video_ia' ? 6 : 7} title="Costo">
+      <Step n={mode === 'video_ia' ? 6 : 8} title="Costo">
         {(() => {
           const cost = mode === 'video_ia' ? quote?.cost : plan?.cost ?? { composicionConvencional: 0, imagenGenerativa: 0, videoGenerativo: 0, total: 0 }
           if (!cost) return <button type="button" className="btn-ghost" disabled={picked.length !== 1 || busy !== ''} onClick={quoteAi}>{busy === 'quote' && <Loader2 size={15} className="animate-spin" />} Calcular costo</button>
@@ -388,7 +440,7 @@ export default function Factory() {
         })()}
       </Step>
 
-      <Step n={mode === 'video_ia' ? 7 : 8} title="Confirmación">
+      <Step n={mode === 'video_ia' ? 7 : 9} title="Confirmación">
         {mode === 'video_ia' ? (
           <button type="button" className="btn-brand" disabled={!quote || !quote.available || !quote.enough || busy !== ''} onClick={generateAi}>
             {busy === 'ai' ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />} {busy === 'ai' ? 'Generando (puede tardar un par de minutos)…' : quote ? `Generar video (${credits(quote.totalCredits).toLowerCase()})` : 'Calcula el costo primero'}
@@ -397,20 +449,23 @@ export default function Factory() {
           <div className="space-y-4">
             <div className="flex flex-wrap gap-2">
               <button type="button" className="btn-ghost" disabled={!ready || busy !== ''} onClick={prepare}>{busy === 'preview' && <Loader2 size={15} className="animate-spin" />} {plan ? 'Actualizar vista previa' : 'Ver vista previa'}</button>
-              <button type="button" className="btn-brand" disabled={!plan || !media || busy !== ''} onClick={create}>{busy === 'save' ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />} {busy === 'save' ? (kind === 'video' ? `Exportando video ${Math.round(progress * 100)}%` : 'Creando…') : 'Crear pieza (sin costo)'}</button>
+              <button type="button" className="btn-brand" disabled={!plan || !media || busy !== '' || qaBlocked} onClick={create}>{busy === 'save' ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />} {busy === 'save' ? (kind === 'video' ? `Exportando video ${Math.round(progress * 100)}%` : 'Creando…') : 'Crear pieza (sin costo)'}</button>
             </div>
             {plan && media && (
               <div className="space-y-2">
                 <canvas ref={canvas} className="max-w-full rounded-xl border border-line shadow-sm" aria-label="Vista previa de la pieza" />
+                <QaPanel reports={qa} />
                 {plan.spec.kind === 'carrusel' && plan.spec.slides > 1 && (
                   <div className="flex gap-1.5">{Array.from({ length: plan.spec.slides }, (_, index) => <button key={index} type="button" aria-pressed={slide === index} onClick={() => setSlide(index)} className={`h-8 w-8 rounded-lg text-xs font-bold ${slide === index ? 'bg-brand text-white' : 'bg-line/60 text-ink'}`}>{index + 1}</button>)}</div>
                 )}
-                <p className="text-xs text-muted">Tamaño final: {plan.spec.width} × {plan.spec.height} px{plan.spec.kind === 'video' ? ` · ${plan.spec.seconds} s · MP4` : plan.spec.quality === 'alta' ? ' · PNG' : ' · JPG'}. Se compone en tu equipo, sin IA.</p>
+                <p className="text-xs text-muted">Tamaño final: {plan.spec.width} × {plan.spec.height} px{plan.spec.kind === 'video' ? ` · ${plan.spec.seconds} s · MP4` : ` · ${(output === 'auto' ? (plan.spec.quality === 'alta' ? 'png' : 'jpeg') : output).replace('jpeg', 'jpg').toUpperCase()}`}. Se compone en tu equipo, sin IA.</p>
               </div>
             )}
           </div>
         )}
       </Step>
+
+      {catalog && token && <BatchPanel products={products} catalog={catalog} token={token} />}
 
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">

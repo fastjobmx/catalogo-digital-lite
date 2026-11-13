@@ -18,6 +18,7 @@ export const CREATIVE_FORMATS = {
   banner: { label: 'Banner horizontal', ratio: '16:9', width: 1920, height: 1080, video: true, use: 'Web, YouTube y pantallas' },
   whatsapp: { label: 'Imagen para WhatsApp', ratio: '4:3', width: 1200, height: 900, video: false, use: 'Se ve completa en el chat, sin recortes' },
   portada: { label: 'Portada comercial', ratio: '820:312', width: 1640, height: 624, video: false, use: 'Portada de página de Facebook' },
+  anuncio: { label: 'Anuncio horizontal', ratio: '1.91:1', width: 1200, height: 628, video: false, use: 'Anuncios y enlaces de Facebook' },
 } as const
 export type FormatKey = keyof typeof CREATIVE_FORMATS
 export const isFormat = (value: unknown): value is FormatKey => typeof value === 'string' && Object.hasOwn(CREATIVE_FORMATS, value)
@@ -56,6 +57,8 @@ export const isTemplate = (value: unknown): value is TemplateKey => typeof value
 
 export interface ProductFacts {
   id: number
+  /** Referencia del catálogo (SKU), tal como la escribió la tienda. */
+  sku: string
   name: string
   description: string
   category: string | null
@@ -93,11 +96,11 @@ export async function loadFacts(env: Env['Bindings'], ctx: CreativeContext, prod
   const products: ProductFacts[] = []
   for (const id of productIds) {
     const row = await db.prepare(
-      `SELECT p.id, p.name, p.description, p.price, p.compare_at_price AS compareAt, p.image_urls AS imageUrls, c.name AS category,
+      `SELECT p.id, p.sku, p.name, p.description, p.price, p.compare_at_price AS compareAt, p.image_urls AS imageUrls, c.name AS category,
               CAST(julianday('now') - julianday(p.created_at) AS INTEGER) AS days
        FROM products p LEFT JOIN categories c ON c.id = p.category_id
        WHERE p.id = ? AND p.store_id = ? AND p.is_active = 1 AND p.is_archived = 0`,
-    ).bind(id, ctx.storeId).first<{ id: number; name: string; description: string | null; price: number; compareAt: number | null; imageUrls: string; category: string | null; days: number }>()
+    ).bind(id, ctx.storeId).first<{ id: number; sku: string | null; name: string; description: string | null; price: number; compareAt: number | null; imageUrls: string; category: string | null; days: number }>()
     if (!row) throw new CreativeError('PRODUCT_NOT_FOUND', 'Uno de los productos no existe o no está activo en tu catálogo', 404)
     const { results: variants } = await db.prepare('SELECT price_override AS price, stock FROM product_variants WHERE product_id = ? AND is_active = 1').bind(id).all<{ price: number | null; stock: number }>()
     const prices = (variants || []).map((variant) => variant.price ?? row.price)
@@ -112,7 +115,7 @@ export async function loadFacts(env: Env['Bindings'], ctx: CreativeContext, prod
        ORDER BY r.updated_at DESC LIMIT 1`,
     ).bind(ctx.storeId, id).first<{ afterId: string; afterUrl: string | null; beforeId: string }>()
     products.push({
-      id: row.id, name: clean(row.name, 120), description: clean(row.description, 400), category: row.category ? clean(row.category, 60) : null,
+      id: row.id, sku: clean(row.sku, 40), name: clean(row.name, 120), description: clean(row.description, 400), category: row.category ? clean(row.category, 60) : null,
       price: min, priceFrom: min !== max, priceText: `${min !== max ? 'Desde ' : ''}${formatPrice(min, currency)}`,
       compareAtText: compareAt ? formatPrice(compareAt, currency) : null,
       discountPercent: compareAt ? Math.round(((compareAt - min) / compareAt) * 100) : null,

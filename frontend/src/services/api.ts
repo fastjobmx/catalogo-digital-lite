@@ -969,7 +969,7 @@ export interface CreativeCatalogApi {
   videoAi: VideoAiCatalogApi
   campaigns: Array<{ id: number; name: string; status: string }>
 }
-export interface CreativePlanInput { kind: PieceKind; template: string; format: string; productIds: number[]; quality?: string; seconds?: number | null; copy?: Partial<CreativeCopyApi> | null }
+export interface CreativePlanInput { kind: PieceKind; template: string; format: string; productIds: number[]; quality?: string; seconds?: number | null; copy?: Partial<CreativeCopyApi> | null; design?: { style: string; layout: string; seed: number; colors: string[] | null; showPrice: boolean; removeBg: boolean; showReference: boolean } | null }
 export interface CreativePlanApi<Spec = unknown> { spec: Spec; specHash: string; copy: CreativeCopyApi; defaultCopy: CreativeCopyApi; cost: CreativeCostApi; reusable: CreativePieceApi | null }
 export interface VideoAiInput { productId: number; imageUrl?: string; format: string; seconds: number; resolution: string; motion: string }
 export interface VideoAiQuoteApi { available: boolean; reason: string | null; seconds: number; resolution: string; creditsPerSecond: number | null; totalCredits: number; balance: number; enough: boolean; cost: CreativeCostApi }

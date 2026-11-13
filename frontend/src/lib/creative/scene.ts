@@ -7,22 +7,47 @@
 export interface PlanProduct {
   id: number; name: string; priceText: string; compareAtText: string | null; image: string | null
   beforeAfter: { beforeAssetId: string; afterAssetId: string; afterUrl: string | null } | null
+  /** Motor de diseño (spec versión 2): referencia (SKU), categoría, descuento y hasta 3 fotos reales. */
+  reference?: string | null; category?: string | null; discountPercent?: number | null; gallery?: string[]
 }
+/** Opciones del motor de diseño publicitario. Sin `design`, la pieza usa la composición clásica de la fase 3. */
+export interface DesignOptions { style: string; layout: string; seed: number; colors: string[] | null; showPrice: boolean; removeBg: boolean; showReference: boolean
+  /** Sector del comercio y objetivo de la pieza (dirección de arte). */ sector?: string; objective?: string
+  /** Plantilla de video (solo para videos). */ video?: string }
 export interface PlanSpec {
   kind: 'imagen' | 'carrusel' | 'video'; template: string; format: string; quality: 'estandar' | 'alta'; seconds: number | null
   width: number; height: number; slides: number; badge: string | null; products: PlanProduct[]
   brand: { name: string; slogan: string | null; logoUrl: string | null; colors: string[]; font: string | null }
   storeUrl: string | null
   copy: { headline: string; description: string; benefits: string[]; cta: string }
+  design?: DesignOptions | null
 }
 
-export type LayerRole = 'fondo' | 'foto' | 'logo' | 'etiqueta' | 'titular' | 'nombre' | 'precio' | 'precio_anterior' | 'descripcion' | 'cta' | 'url' | 'marca' | 'rotulo' | 'contador'
-interface Base { role: LayerRole; x: number; y: number; w: number; h: number; opacity: number; offsetY: number; /** Segundo en que aparece (video). */ at: number }
+export type LayerRole = 'fondo' | 'foto' | 'logo' | 'etiqueta' | 'titular' | 'nombre' | 'precio' | 'precio_anterior' | 'descripcion' | 'cta' | 'url' | 'marca' | 'rotulo' | 'contador' | 'decoracion' | 'referencia' | 'descuento' | 'categoria' | 'dato' | 'beneficio'
+interface Base { role: LayerRole; x: number; y: number; w: number; h: number; opacity: number; offsetY: number; /** Segundo en que aparece (video). */ at: number
+  /** Giro (grados) alrededor del centro de la capa. */ turn?: number; /** Escala y desplazamiento horizontal (animación). */ scale?: number; offsetX?: number
+  /** Recorte animado de izquierda a derecha (0..1) para revelar textos. */ wipe?: number }
+/** Tipografía de una capa de texto (motor de diseño). Sin ella se usa la fuente de la escena. */
+export interface TextStyle { family: string; italic?: boolean; letterSpacing?: number; lineHeight?: number }
+export type ShapeKind = 'circle' | 'ring' | 'ellipse' | 'poly' | 'burst' | 'dots' | 'lines' | 'grid' | 'noise' | 'rule' | 'sparkle' | 'blob' | 'arc' | 'speed' | 'halftone' | 'podium' | 'slant'
 export type Layer =
-  | (Base & { type: 'rect'; color: string; radius: number })
-  | (Base & { type: 'image'; src: string; fit: 'cover' | 'contain'; radius: number; zoom: number; /** Recorte horizontal visible (0..1) para la transición antes/después. */ reveal: number })
-  | (Base & { type: 'text'; text: string; size: number; weight: 400 | 600 | 700 | 800; color: string; align: 'left' | 'center'; maxLines: number; strike: boolean; /** true = una sola línea que se encoge para caber entera (cifras). */ shrink: boolean })
-  | (Base & { type: 'pill'; text: string; size: number; bg: string; color: string; align: 'left' | 'center' | 'right' })
+  | (Base & { type: 'rect'; color: string; radius: number; stroke?: number })
+  | (Base & {
+      type: 'image'; src: string; fit: 'cover' | 'contain'; radius: number; zoom: number; /** Recorte horizontal visible (0..1) para la transición antes/después. */ reveal: number
+      /** Zona de la foto original que se usa (px). Sin deformar: se encaja con `fit`. */ crop?: { x: number; y: number; w: number; h: number }
+      /** Color de fondo del marco (la foto se encaja sobre su propio color de fondo). */ matte?: string
+      shadow?: { blur: number; offsetY: number; color: string }; reflection?: number; mask?: 'rect' | 'circle' | 'arch'; blur?: number
+      /** Recuadro del producto dentro del lienzo, para el control de superposiciones. */ subject?: { x: number; y: number; w: number; h: number }
+      /** Marco tipo polaroid alrededor de la foto. */ border?: { width: number; color: string }
+      /** Contorno de adhesivo alrededor del producto recortado. */ outline?: { width: number; color: string }
+    })
+  | (Base & { type: 'text'; text: string; size: number; weight: 400 | 500 | 600 | 700 | 800; color: string; align: 'left' | 'center' | 'right'; maxLines: number; strike: boolean; /** true = una sola línea que se encoge para caber entera (cifras). */ shrink: boolean
+      font?: TextStyle; /** Líneas ya partidas por el motor (medidas con la fuente real). */ lines?: string[]; /** Color sobre el que se lee (control de contraste). */ on?: string
+      /** Solo contorno (letras huecas). */ stroke?: number; /** Barra de color detrás de cada línea (etiqueta urbana). */ bars?: string })
+  | (Base & { type: 'pill'; text: string; size: number; bg: string; color: string; align: 'left' | 'center' | 'right'; font?: TextStyle; weight?: 400 | 500 | 600 | 700 | 800; radius?: number; on?: string
+      /** Relleno sólido, solo contorno o enlace subrayado. */ variant?: 'solid' | 'outline' | 'link' })
+  | (Base & { type: 'gradient'; stops: Array<[number, string]>; angle: number; radial: boolean; radius: number; circle?: boolean })
+  | (Base & { type: 'shape'; shape: ShapeKind; color: string; stroke: number; rotation: number; seed: number; points?: number[]; size?: number })
 
 export interface Scene { width: number; height: number; font: string; layers: Layer[] }
 
@@ -198,13 +223,13 @@ export function videoSegments(spec: PlanSpec): number {
 }
 
 /** Estado exacto de las capas en el segundo `t`. Misma entrada, mismo cuadro: el video es reproducible. */
-export function frameAt(spec: PlanSpec, t: number): Layer[] {
+export function frameAt(spec: PlanSpec, t: number, build: (spec: PlanSpec, slide: number) => Scene = buildScene): Layer[] {
   const duration = spec.seconds || 6
   const segments = videoSegments(spec)
   const length = duration / segments
   const index = Math.min(segments - 1, Math.floor(t / length))
   const local = t - index * length
-  const draw = (slide: number, time: number, alpha: number): Layer[] => buildScene(spec, slide).layers.map((layer) => {
+  const draw = (slide: number, time: number, alpha: number): Layer[] => build(spec, slide).layers.map((layer) => {
     const next = { ...layer }
     if (next.type === 'image' && next.role === 'foto') {
       // Acercamiento lento y continuo (Ken Burns) sobre la foto real.
