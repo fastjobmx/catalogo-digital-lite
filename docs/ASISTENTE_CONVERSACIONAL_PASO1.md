@@ -65,6 +65,83 @@ completas antes/después: `docs/ASISTENTE_CONVERSACIONAL_CONVERSACIONES.md`.
 - Repetir: `BANK_REAL=1 GEMINI_API_KEY=… BANK_OUT=<carpeta> npx vitest run src/services/assistant/agent/bank` y
   `node scripts/agent-bank-report.mjs <carpeta>/banco-real.json --fallos`.
 
+## Cierre del paso 1 (2026-11-13): 5 corridas reales, reserva y pruebas de cierre
+
+Cinco corridas completas con el modelo real (`gemini-3.8-flash`), una tras otra, con el código del commit `c761d00`:
+el banco de 30 conversaciones más **10 conversaciones de reserva** que no se usaron para afinar la capa
+(`set: 'reserva'` en `agent/bank/conversations.ts`), contra los dos motores. Base en memoria, tienda ficticia.
+
+| Conjunto | Motor | Aciertos por corrida | Promedio | Peor caso | Críticos (peor corrida) |
+|---|---|---|---|---|---|
+| Banco (30) | Anterior | 15, 15, 16, 15, 15 | 15,2/30 | 15/30 | 15/24 |
+| Banco (30) | **Capa nueva** | 29, 29, 30, 30, 29 | **29,4/30** | **29/30** | 23/24 |
+| Reserva (10) | Anterior | 6, 6, 6, 6, 6 | 6,0/10 | 6/10 | 3/7 |
+| Reserva (10) | **Capa nueva** | 10, 10, 10, 10, 10 | **10,0/10** | **10/10** | 7/7 |
+
+**Latencia** (5 corridas; 315 mensajes del banco y 90 de la reserva por motor):
+
+| Conjunto · motor | Todos los mensajes p50 / p95 | Solo mensajes que usan IA p50 / p95 / máx |
+|---|---|---|
+| Banco · anterior | 3 ms / 6,5 s | 5,2 s / 11,7 s / 14,3 s |
+| Banco · capa nueva | 3 ms / 4,1 s | 2,7 s / **9,0 s** / 19,1 s |
+| Reserva · anterior | 3 ms / 13,3 s | 5,6 s / 16,3 s / 16,5 s |
+| Reserva · capa nueva | 5 ms / 3,6 s | 2,7 s / **9,0 s** / 21,9 s |
+
+El p95 con IA incluye el caso que simula un modelo colgado (plazo de 9 s + respuesta del motor anterior) y las
+respuestas que el modelo cortó y se pidieron de nuevo. El máximo (19–22 s) son esos reintentos.
+
+**Costo: sobre qué se promedia.** El banco mide el costo total de la corrida. Se informa de las dos formas:
+
+| Conjunto · motor | Mensajes con IA | Costo por mensaje, **promediado sobre todos los mensajes** | Costo por mensaje, **solo los que usan IA** |
+|---|---|---|---|
+| Banco · anterior | 17 % | US$ 0,00024 | US$ 0,00136 |
+| Banco · capa nueva | 21 % | US$ 0,00012 | US$ 0,00059 |
+| Reserva · anterior | 28 % | US$ 0,00058 | US$ 0,00208 |
+| Reserva · capa nueva | 39 % | US$ 0,00022 | US$ 0,00058 |
+
+La cifra de la primera entrega (US$ 0,00014 por mensaje) era el promedio **sobre todos los mensajes**, incluidos los
+que se resuelven sin IA (cuatro de cada cinco). Un mensaje que sí llega al modelo cuesta unos US$ 0,0006. «Usa IA»
+se cuenta por el plan del modelo registrado o por una latencia mayor a 400 ms (aproximación del agregador
+`scripts/agent-bank-runs.mjs`).
+
+**Fallos de la capa nueva (uno por corrida, tres conversaciones distintas, ninguno modificó el catálogo):**
+
+- `incompleta` (corrida 1): la llamada al modelo falló y la respuesta de respaldo no era una pregunta. Corregido
+  después de medir (`dd6a2a7`): ahora pregunta «¿Qué le cambio?».
+- `dato-ambiguo` (corrida 2, crítico): el modelo preguntó «¿180 pesos o 180 mil?» con sus palabras en vez de la
+  pregunta exacta con los dos valores y el precio actual. No aplicó nada. Corregido después de medir (`dd6a2a7`):
+  ante un monto sin «mil» queda siempre la pregunta exacta.
+- `lectura-y-cambio` (corrida 5, crítico): mensaje con dos tareas y la llamada al modelo falló por transporte; el
+  motor anterior respondió «No encontré el producto». No aplicó nada. **Sigue abierto**: dos tareas en un mensaje
+  dependen del modelo y un fallo de transporte no se reintenta (decisión del paso 1 para no duplicar la espera).
+
+Las dos correcciones posteriores tienen prueba con modelo simulado, pero **no se repitieron las 5 corridas reales
+después de ellas**.
+
+**Fallo de seguridad que destapó la reserva.** En la primera corrida de la reserva, ante «cambia el precio de SAN-1
+a 185» el modelo podía decidir por su cuenta que eran $185.000, y dar por confirmado un cambio cuando el comerciante
+solo repetía el monto o lo comentaba, sin decir que sí. Corregido en `7bc04ee`:
+el modelo nunca confirma por el comerciante (el propio mensaje debe decir que sí) y un monto sin «mil» siempre se
+pregunta. Prueba: las conversaciones de reserva `r-precio-185` y `r-cancelar-todo`, que pasan en las 5 corridas
+reales (y en la suite con modelo simulado).
+
+**Lecturas que ya no dependen del modelo** (`c761d00`, con prueba sin IA en `agent/closing.test.ts`): «deja la 39 de
+las sandalias en 10» es inventario (no un precio dudoso) y «productos agotados» es la lista de agotados.
+
+**Pruebas de cierre** (`agent/closing.test.ts`, 12 pruebas, sin IA):
+
+1. *Mensaje duplicado por reintento del webhook*: la misma petición entregada tres veces prepara un solo cambio y
+   responde una vez; la misma confirmación entregada tres veces aplica el cambio una sola vez.
+2. *«Deshaz eso» cuando el inventario cambió entretanto*: revierte solo la diferencia (con una venta de 1 par en
+   medio, de 5 baja a 0 en vez de volver a 1); si revertir dejaría el inventario en negativo se rechaza y no toca
+   nada; un precio que alguien volvió a cambiar no se pisa. Nunca escribe el valor anterior a ciegas.
+3. *Fallo parcial a propósito en un cambio múltiple*: si el segundo ya no es posible, el primero se aplica y el
+   informe dice exactamente cuál no; si ninguno es posible no se aplica nada; un «sí» repetido no vuelve a aplicar.
+
+Suite completa: `npx vitest run` → **748 pasan**, 155 omitidas (las que solo corren con modelo real).
+Repetir: `BANK_REAL=1 GEMINI_API_KEY=… BANK_OUT=<carpeta> BANK_RUN=<n> npx vitest run src/services/assistant/agent/bank/bank.test.ts`
+(una vez por corrida) y `node scripts/agent-bank-runs.mjs <carpeta> --fallos`.
+
 ## Lo que NO se pudo comprobar
 
 - **Ningún mensaje real por Telegram, Meta o WAHA con la capa encendida**: el banco corre sobre el manejador real del

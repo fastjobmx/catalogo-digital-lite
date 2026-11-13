@@ -56,7 +56,7 @@ export const MEDIA_CONVERSATIONS: MediaCase[] = [
     id: 'fotos-luego-audio', title: '5 fotos y luego un audio: una sola operación', critical: true,
     turns: [
       { photos: 5, expect: { unchanged: true, pending: null, waiting: 5, maxMessages: 1, ux: ['Recibí la foto'] } },
-      { voice: AUDIO, expect: { unchanged: true, pending: 'create_product', draft: FULL, waiting: 0, replies: ['180\\.000'], never: ['Estoy revisando'], ux: ['tallas 38 a 42, 5 de cada una \\(25 en total\\)', 'las 5 fotos', 'Nada se publica'], maxMessages: 3 } },
+      { voice: AUDIO, expect: { unchanged: true, pending: 'create_product', draft: FULL, waiting: 0, replies: ['180\\.000'], ux: ['tallas 38 a 42, 5 de cada una \\(25 en total\\)', 'las 5 fotos', 'Nada se publica'], maxMessages: 3 } },
     ],
   },
   {

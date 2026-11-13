@@ -1,6 +1,6 @@
 # Asistente TiendIA · capa conversacional · Paso 2: fotos y voz dentro de la conversación
 
-Estado al 2026-11-13: **en STAGING** (Worker `0256ce91-1344-4fb4-9b89-65a294f15527`, migración 0028 aplicada), rama
+Estado al 2026-11-13: **en STAGING** (Worker `46662eff-156b-4820-88fd-c91494e528b7`, migración 0028 aplicada), rama
 `feat/asistente-conversacional`, sin push, sin merge, producción y `main` intactos. Multimedia encendida solo en las
 tiendas ficticias 1 y 94. Paso 3 (pedidos y reportes) no empezado.
 
@@ -63,7 +63,57 @@ exactamente como antes (hay prueba).
 
 ## Resultados
 
-__RESULTADOS__
+Banco multimodal: **29 escenarios** (`agent/bank/media.conversations.ts`), el mismo guion contra el flujo anterior
+(interruptores apagados) y la capa nueva, por la ruta real del webhook de Telegram con base en memoria y tienda
+ficticia. 25 son críticos. Cubre: fotos + audio posterior, audio o texto antes de las fotos, pie de foto, falta un
+dato, producto existente (mismo / nuevo), reposición con fotos en espera, foto duplicada, webhook reenviado, precio y
+talla mal transcritos, corrección a mitad, descartar fotos, cancelar borrador, lote grande (14 fotos), modelo caído,
+canal caído, cambio de tema, lote de otra tienda, rol sin permiso, cambio pendiente + fotos, aviso de progreso, e
+instrucciones maliciosas en el pie de foto, **dentro de la foto**, en un PDF y en un CSV. Además, 6 pruebas sobre los
+lotes de WAHA (`whatsapp/waha.test.ts`): audio con un producto, **audio con dos productos abiertos**, descripción que
+nombra el producto, descripción mientras se organizan las fotos, lote de otra tienda y de otro chat, interruptor apagado.
+
+| Corrida | Flujo anterior | Capa nueva | Críticos (nueva) | Experiencia (nueva) |
+|---|---|---|---|---|
+| Modelo simulado (suite automática) | 8/29 | **29/29** | 25/25 | 29/29 |
+| Real 1 | 10/29 | 28/29** | 24/25** | 29/29 |
+| Real 2 | 10/29 | 28/29** | 24/25** | 29/29 |
+| Real 3 | 10/29 | 28/29** | 24/25** | 29/29 |
+| Real 4 | 10/29 | **29/29** | 25/25 | 29/29 |
+
+\** El único fallo de las corridas 1–3 fue una expectativa mal escrita del propio banco: prohibía el aviso «Estoy
+revisando las 5 fotos…» en un caso donde, con visión real, revisar tarda más de 4 s y el aviso es lo correcto. Se
+corrigió la expectativa y la corrida 4 es la limpia. El comportamiento del asistente fue el mismo en las cuatro.
+
+**«Real»** = visión y planificador reales (`gemini-3.8-flash`) sobre una foto real de producto del repositorio. La
+**transcripción de las notas de voz siempre es simulada** (no hay audios grabados): se prueba lo que pasa después de
+transcribir. La base de datos es en memoria.
+
+**Ningún escenario donde el flujo anterior acierte y la capa nueva falle**, en ninguna corrida. Los 10 que el
+anterior acierta son los que no dependen de asociar fotos con su descripción (audio o texto antes de las fotos,
+reposición, otra tienda, las inyecciones, rol sin permiso).
+
+Latencia y costo (4 corridas reales, 276 mensajes y 116 escenarios por flujo):
+
+| Medida | Flujo anterior | Capa nueva |
+|---|---|---|
+| Latencia por mensaje p50 / p95 / máx | 5 ms / 13,5 s / 18,9 s | 5 ms / 13,1 s / 26,1 s |
+| Tiempo hasta el primer acuse tras la primera foto p50 / p95 | 2 ms / 8 ms | 2 ms / 9,3 s |
+| Costo por lote, promedio sobre todos los escenarios / máximo | US$ 0,0022 / 0,0066 | US$ 0,0022 / 0,0044 |
+| Costo por lote, solo los que usan IA (92 de 116) | US$ 0,0028 | US$ 0,0027 |
+| Llamadas al modelo por escenario | 1,6 | 1,0 |
+
+- El costo incluye la visión (es casi todo el costo: una llamada que mira las fotos del producto). La capa nueva no
+  agrega llamadas: reusa la visión del borrador y lee nombre, tallas y precio con el intérprete determinista.
+- El p95 de ~13 s es el mensaje que crea el borrador: descargar las fotos y la visión del motor (igual en los dos
+  flujos). Por eso se agregó **un aviso de progreso solo si tarda** más de 4 s (`ASSISTANT_MEDIA_PROGRESS_MS`); si
+  responde antes, no se dice nada extra.
+- El primer acuse es inmediato (2 ms) cuando llegan fotos solas. El p95 de 9,3 s corresponde a la foto que trae la
+  descripción en el pie: ahí el primer mensaje ya es el resumen completo, con visión incluida.
+- Latencias medidas en el equipo local contra la API real, no dentro de Cloudflare.
+
+Suite completa: `npx vitest run` → **748 pasan**, 155 omitidas (solo corren con modelo real). Sin regresiones en
+las pruebas de Telegram, WhatsApp Meta, WAHA, lotes, documentos, Fábrica de Publicidad ni Estudio.
 
 ## Conversaciones antes / después (mismo guion, modelo simulado)
 
@@ -100,7 +150,17 @@ __RESULTADOS__
 
 ## Lo que NO se pudo comprobar (dicho sin adornos)
 
-__NO_COMPROBADO__
+- **Ningún mensaje real por Telegram, Meta o WAHA.** Staging está desplegado, sano (`/api/health` 200, webhook sin
+  secreto → 403) y con las variables conservadas, pero nadie escribió: la tabla de medición de staging tiene 1 turno
+  (de antes) y `assistant_media_items` está vacía. Enviar fotos y audios reales necesita un teléfono con el bot o el
+  número de staging; no lo simulé falsificando webhooks con los secretos.
+- **Ninguna nota de voz real**: la transcripción se simuló en todas las pruebas (banco y WAHA).
+- **WAHA real**: las 6 pruebas de lotes usan WAHA y Gemini simulados; no hubo entregas por WhatsApp.
+- **Costo y latencia dentro de Cloudflare** (staging): se medirán con `assistant_agent_turns` (ruta `media`) cuando
+  haya tráfico.
+- Botones «Es el mismo / Es uno nuevo» en WhatsApp: probado por texto, no por botón.
+- La caída del canal se probó en Telegram (respuesta rechazada con 502). En WAHA la recuperación del lote es la que
+  ya existía y sus pruebas siguen pasando; no se agregó un caso nuevo de caída con multimedia encendida.
 
 ## Riesgos y decisiones
 
