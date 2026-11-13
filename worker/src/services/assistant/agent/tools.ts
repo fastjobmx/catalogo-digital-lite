@@ -191,7 +191,9 @@ export function renderSnapshot(greeting: string, snapshot: { yesterday: number; 
       ? [snapshot.low ? `${plural(snapshot.low, 'producto tiene', 'productos tienen')} pocas unidades` : '', snapshot.out ? `${plural(snapshot.out, 'está agotado', 'están agotados')}` : ''].filter(Boolean).join(' y ')
       : 'el inventario está al día',
   ]
-  const sentence = `${parts[0]}, ${parts[1]} y ${parts[2]}.`
+  const stock = [snapshot.low ? `${plural(snapshot.low, 'producto tiene', 'productos tienen')} pocas unidades` : '', snapshot.out ? plural(snapshot.out, 'está agotado', 'están agotados') : ''].filter(Boolean)
+  const all = [parts[0]!, parts[1]!, ...(stock.length ? stock : [parts[2]!])]
+  const sentence = `${all.slice(0, -1).join(', ')} y ${all.at(-1)}.`
   const next = snapshot.pending || snapshot.low || snapshot.out ? ' ¿Qué miramos primero?' : ' ¿En qué te ayudo?'
   return `${greeting} ${sentence.charAt(0).toUpperCase()}${sentence.slice(1)}${next}`
 }
@@ -210,9 +212,11 @@ export function shortPreview(operation: Pick<PendingOperation, 'action' | 'befor
   }
   if (operation.action === 'update_variant_stocks') {
     const old = parseVariants(before.variants)
+    // The colour is said only when the product has more than one.
+    const oneColor = new Set(old.map((variant) => variant.color || '')).size <= 1
     const changes = (params.changes as Array<{ variantId: number; stock: number }>).map((change) => {
       const variant = old.find((item) => item.id === change.variantId)
-      return { label: variant ? variantLabel({ size: variant.size, color: variant.color ?? null, sku: variant.sku }) : 'única', from: variant?.stock ?? 0, to: change.stock }
+      return { label: variant ? variantLabel({ size: variant.size, color: oneColor ? null : variant.color ?? null, sku: variant.sku }) : 'única', from: variant?.stock ?? 0, to: change.stock }
     })
     const created = params.create as Array<{ size: string; color: string; stock: number }>
     if (changes.length === 1 && !created.length) {

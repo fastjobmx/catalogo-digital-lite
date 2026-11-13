@@ -14,17 +14,19 @@ import { cancelOperation, confirmOperation, CORRECTABLE_ACTIONS, getPendingOpera
 import { conversationContext, readSession, rememberTurn, say, showTyping, updateSessionState, type AgentState, type AssistantContext } from '../context'
 import { operationKeyboard } from '../menus'
 import { detectIntent } from '../intents'
+import { formatMoney } from '../tools'
 import { showStockMovements } from '../inventory'
 import { handleCommerceText, runCommerceIntent } from '../commerce/engine'
 import type { CommerceIntent } from '../commerce/intent'
 import { fold } from '../commerce/language'
 import { parseCommerce } from '../commerce/parse'
-import { loadCatalog, resolveProduct, type CatalogProduct } from '../commerce/resolve'
+import { loadCatalog, matchProducts, resolveProduct, type CatalogProduct } from '../commerce/resolve'
 import { parseVariants } from '../operations'
 import { planTurn, stepSchema, type Step, type ToolName } from './planner'
 import { askConfirmation, DENIED, filterCatalog, intentFromStep, LIST_LIMIT, renderChoice, renderList, renderProduct, renderSnapshot, shortPreview, storeSnapshot, toolOfIntent, TOOLS } from './tools'
 
 export type AgentResult = 'handled' | 'fallback' | 'other'
+type WriteResult = AgentResult | 'retry'
 
 export function agentEnabled(ctx: Pick<AssistantContext, 'env' | 'store'>): boolean {
   const raw = String(ctx.env.ASSISTANT_AGENT_STORE_IDS || '').trim()
@@ -32,8 +34,8 @@ export function agentEnabled(ctx: Pick<AssistantContext, 'env' | 'store'>): bool
   return raw === '*' || raw.split(',').map((value) => Number(value.trim())).includes(ctx.store.id)
 }
 
-const YES = /^(?:s[ií]+|sip|sisas|claro(?: que s[ií])?|dale|listo|h[aá]gale|h[aá]galo|hazlo|de una|ok(?:ay)?|confirm[oa]r?|conf[ií]rm[ae]l[oa]s?|correcto|as[ií] es|perfecto|apruebo|aprobado|de acuerdo|todo bien|vale|va)(?:\s+(?:pues|dale|por favor|porfa|confirmo|claro|se[ñn]or[a]?|todos?|todo))*[.! ]*$/i
-const NO = /^(?:no+|nop|nel|cancel[ao]r?|canc[eé]l[ae]l[oa]s?|mejor no|olv[ií]dalo|d[eé]jalo(?: as[ií])?|ya no|no gracias|no,? cancela)[.! ]*$/i
+const YES = /^(?:(?:ahora s[ií]|bueno|listo|ok|s[ií]|claro)[, ]+)*(?:s[ií]+|sip|sisas|claro(?: que s[ií])?|dale|listo|h[aá]gale|h[aá]galo|hazlo|de una|ok(?:ay)?|confirm[oa]r?|conf[ií]rm[ae]l[oa]s?|correcto|as[ií] es|perfecto|apruebo|aprobado|de acuerdo|todo bien|vale|va)(?:\s+(?:pues|dale|por favor|porfa|confirmo|claro|se[ñn]or[a]?|todos?|todo))*[.! ]*$/i
+const NO = /^(?:no+|nop|nel)(?:[,.]?\s+(?:gracias|cancela(?:lo|la)?|mejor no|d[eé]jalo(?: as[ií])?|as[ií] no|ya no))?[.! ]*$|^(?:cancel[ao]r?|canc[eé]l[ae]l[oa]s?|mejor no|olv[ií]dalo|d[eé]jalo(?: as[ií])?|ya no)[.! ]*$/i
 const WAIT = /^(?:espera|esp[eé]rame?|esp[eé]rate|un momento|momento|aguanta|todav[ií]a no)\b/i
 const KEEP = /^(?:s[ií]guela|sigue(?:la)?|contin[uú]a(?:la)?|term[ií]nala|la sigo|seguir|conf[ií]rmala)\b/i
 const RESET = /^(?:olvida (?:eso|todo|lo anterior)|olv[ií]dalo todo|empecemos de nuevo|empezar de nuevo|empecemos de cero|borr[oó]n y cuenta nueva|reinicia(?:r)?(?: la conversaci[oó]n)?)[.! ]*$/i
@@ -45,8 +47,13 @@ const UNDO_WINDOW = '-10 minutes'
 export function looksMulti(text: string): boolean {
   const lower = fold(text)
   return /[,;.]\s*(?:y\s+)?(?:tambien|ademas|de paso|luego)\b/.test(lower)
-    || /\by\s+(?:tambien|ademas|de paso|cuant[oa]s?|que\s+(?:tallas|precio)|sub[ei]|baj[ae]|pon(?:le|me)?|agreg[ae]|cambi[ae]|muestr[ae]|dime|quit[ae]|dej[ae]|ocult[ae]|marc[ae])/.test(lower)
+    || /\by\s+(?:tambien|ademas|de paso|cuant[oa]s?|que\s+(?:tallas|precio)|sub[ei]|baj[ae]|pon(?:le|me)?|agreg[ae]|cambi[ae]|muestr[ae]|dime|quit[ae]|dej[ae]|ocult[ae]|marc[ae]|sum[ae]|rest[ae]|anad[ae]|met[ae]|sac[ae]|descuent[ae]|actualiz[ae])/.test(lower)
     || (lower.match(/\?/g) || []).length > 1
+}
+
+/** «mejor…», «ahora…», «oye…»: discourse markers the deterministic parser would take for a product name. */
+function withoutLead(text: string): string {
+  return text.replace(/^(?:(?:mejor|m[aá]s bien|ahora(?: s[ií])?|entonces|oye|ey|ve|bueno|pues|listo|ah|y|porfa|por favor)[, ]+)+/i, '').trim() || text
 }
 
 type Captured = NonNullable<AssistantContext['capture']>
@@ -216,22 +223,39 @@ async function understand(ctx: AssistantContext, text: string, turn: Turn): Prom
   if (quick?.kind === 'action' && quick.action === 'get_out_of_stock') return runSteps(ctx, text, [step('buscar_productos', { filtro: 'agotados' })], turn, pending)
   if (quick?.kind === 'action' && quick.action === 'get_low_stock') return runSteps(ctx, text, [step('buscar_productos', { filtro: 'pocas_unidades' })], turn, pending)
 
-  // One clear instruction: the deterministic parser is exact with prices, sizes and quantities.
-  const parsed = multi ? null : parseCommerce(text)
+  // One clear instruction: the deterministic parser is exact with prices, sizes and quantities. When it ends in
+  // a doubt (unknown product, a question, a «new product» that looks like an existing one) and the model is
+  // available, the model reads the message too; if the model fails, the parser's answer stands.
+  const canModel = Boolean(ctx.env.GEMINI_API_KEY)
+  const focusNow = session.state.focusSku || (session.state.lastSkus?.length === 1 ? session.state.lastSkus[0] : undefined)
+  const parsed = multi ? null : parseCommerce(withoutLead(trimmed))
+  let parserAnswer: (() => Promise<AgentResult>) | null = null
   if (parsed) {
     turn.path = 'parser'
-    if (parsed.kind === 'stock_query') return runSteps(ctx, text, [step('ver_producto', { producto: parsed.product })], turn, pending)
     if (parsed.kind === 'correction') {
       turn.tools.push('corregir')
       if (await legacyCommerce(ctx, text)) return 'handled'
       return 'fallback'
     }
-    return runWrites(ctx, text, [parsed], turn, pending, session.state.focusSku || (session.state.lastSkus?.length === 1 ? session.state.lastSkus[0] : undefined))
+    if (parsed.kind === 'stock_query') {
+      const known = resolveProduct(await loadCatalog(ctx), parsed.product, {}, focusNow).kind !== 'none'
+      parserAnswer = () => runSteps(ctx, text, [step('ver_producto', { producto: parsed.product })], turn, pending)
+      if (known || !canModel) return parserAnswer()
+    } else {
+      const looksExisting = parsed.kind === 'create_product' && !parsed.sku && matchProducts(await loadCatalog(ctx), parsed.name).length > 0
+      parserAnswer = () => runWrites(ctx, text, [parsed], turn, pending, focusNow)
+      if (!looksExisting || !canModel) {
+        const first = await runWrites(ctx, text, [parsed], turn, pending, focusNow, '', canModel && parsed.kind !== 'create_product')
+        if (first !== 'retry') return first
+        await updateSessionState(ctx, { commerce: session.state.commerce })
+      }
+    }
+    turn.tools.length = 0
   }
   // Everything else the engine already recognises without AI (thanks, menu, reports, store design…) stays there.
-  if (quick) return 'other'
+  if (quick && !parserAnswer) return 'other'
 
-  if (!ctx.env.GEMINI_API_KEY) return 'fallback'
+  if (!canModel) return 'fallback'
   turn.path = 'model'
   await showTyping(ctx).catch(() => undefined)
   const catalog = await loadCatalog(ctx)
@@ -246,7 +270,11 @@ async function understand(ctx: AssistantContext, text: string, turn: Turn): Prom
     recent: await conversationContext(ctx),
   }
   const outcome = await withAiBudget(ctx, 'interpretacion', () => planTurn(ctx, text, context, timeout)).finally(() => clearTimeout(slow))
-  if (!outcome.ok) { turn.path = 'fallback'; turn.outcome = 'model_failed'; return 'fallback' }
+  if (!outcome.ok) {
+    if (parserAnswer) { turn.path = 'parser'; turn.outcome = 'model_failed'; return parserAnswer() }
+    turn.path = 'fallback'; turn.outcome = 'model_failed'
+    return 'fallback'
+  }
   turn.usage = outcome.value.usage
   return runSteps(ctx, text, outcome.value.steps, turn, pending, catalog)
 }
@@ -268,7 +296,12 @@ async function announce(ctx: AssistantContext, captured: Captured, before: Pendi
     await reply(ctx, `${prefix}${askConfirmation(shortPreview(pending, ctx.store.currency))}`, operationKeyboard(pending.operation_id, CORRECTABLE_ACTIONS.has(pending.action)))
     return true
   }
-  await relay(ctx, captured.filter((item) => !/Descart[eé] la propuesta anterior/.test(item.text)), prefix)
+  const said = captured.filter((item) => !/Descart[eé] la propuesta anterior/.test(item.text)).map((item) => ({
+    ...item,
+    // The two readings of a bare amount go in the text too (not every channel shows buttons).
+    text: item.text.replace(/Escribiste (\d{1,3}): ¿cuánto es\?/, (_match, amount: string) => `¿Lo dejo en ${formatMoney(Number(amount), ctx.store.currency)} o en ${formatMoney(Number(amount) * 1000, ctx.store.currency)}?`),
+  }))
+  await relay(ctx, said, prefix)
   return false
 }
 
@@ -379,7 +412,9 @@ function filtersOf(intent: CommerceIntent): { color?: string | null; size?: stri
 }
 
 /** One change: its one-line preview. Several: one summary and one confirmation for all of them. */
-async function runWrites(ctx: AssistantContext, text: string, intents: CommerceIntent[], turn: Turn, pending: PendingOperation | null, focus?: string, prefix = ''): Promise<AgentResult> {
+async function runWrites(ctx: AssistantContext, text: string, intents: CommerceIntent[], turn: Turn, pending: PendingOperation | null, focus?: string, prefix?: string, secondOpinion?: false): Promise<AgentResult>
+async function runWrites(ctx: AssistantContext, text: string, intents: CommerceIntent[], turn: Turn, pending: PendingOperation | null, focus: string | undefined, prefix: string, secondOpinion: boolean): Promise<WriteResult>
+async function runWrites(ctx: AssistantContext, text: string, intents: CommerceIntent[], turn: Turn, pending: PendingOperation | null, focus?: string, prefix = '', secondOpinion = false): Promise<WriteResult> {
   for (const intent of intents) { const tool = toolOfIntent(intent); if (!turn.tools.includes(tool)) turn.tools.push(tool) }
   if (intents.some((intent) => !TOOLS[toolOfIntent(intent)].allowed(ctx))) { await reply(ctx, `${prefix}${DENIED.write}`); return 'handled' }
   // Nothing is dropped in silence: a change is waiting, so the merchant decides before a new one is prepared.
@@ -416,6 +451,8 @@ async function runWrites(ctx: AssistantContext, text: string, intents: CommerceI
   const single = async (note = '') => {
     const sub = quiet(ctx)
     await runCommerceIntent(sub, first, focus, session.state.commerce, undefined, text)
+    // The parser ended in a question or a «no encontré»: let the model read the message before answering.
+    if (secondOpinion && !await getPendingOperation(ctx)) return 'retry' as const
     const proposed = await announce(ctx, sub.capture, null, prefix)
     if (note) await say(ctx, note).catch(() => undefined)
     turn.outcome = proposed ? 'proposed' : 'asked'
