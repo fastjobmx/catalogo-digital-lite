@@ -52,6 +52,8 @@ Verificado:
 - La **clave del Worker** solo es de sesión, con permisos de lectura y envío: no puede reiniciar sesiones ni listar claves (403, incluso con acceso directo).
 - Por el túnel, `dashboard`, `api/sessions`, `logout` y `keys` responden 404; sin token, 401.
 
+**Copia de operación fuera del repositorio** (2026-11-13): los contenedores corren desde `D:\LANDING 4000\CATALOGO DIGITAL\waha-tiendia`, con la misma configuración, los secretos y los datos de sesión. Así un cambio de rama en la carpeta del repositorio no rompe el servicio: ya pasó una vez, cuando otra sesión cambió de rama y la puerta de enlace perdió su archivo de configuración. La carpeta `infra/waha` del repositorio sigue siendo la fuente versionada; si cambia, hay que copiar los cambios a la copia de operación.
+
 ## 5. Sesión de WhatsApp
 
 Sesión `tiendia` en estado **WORKING**, número terminado en **…9121** (WhatsApp normal), vinculada por QR. WAHA solo procesa chats privados: estados, grupos, canales y difusiones se ignoran en la propia sesión y otra vez en el Worker.
@@ -190,7 +192,7 @@ Límites:
 
 | Recurso | Estado |
 |---|---|
-| Worker `sneakerhub-telegram-staging` | **`059a0711`**, desplegado desde `0bc9aa3` con el directorio limpio (código = `47a1a2c`). Retorno: `56401a84` |
+| Worker `sneakerhub-telegram-staging` | **`77c327da`**, desplegado desde `cdc1b96` (con `main` integrado) con el directorio limpio; túnel nuevo tras el reinicio del PC. Retorno: `56401a84` |
 | D1 staging | 0026 aplicada. Marcador previo: `00000400-00000000-00005121-c9aa92dfabee20e0a528a6be60a4a2cd` |
 | Cola | `tiendia-whatsapp-jobs-staging` (productor y consumidor). Configurada en `wrangler.remote-staging.toml` (local, no versionado) |
 | Variables nuevas | `WAHA_ENABLED=true`, `WAHA_SESSION=tiendia`, `WAHA_API_URL=<túnel>`, `WAHA_PHOTO_BATCH_ENABLED=true`, `WAHA_PHOTO_QUIET_SECONDS=20`, `WAHA_PHOTO_BATCH_MAX=100`. Piloto `1,94` |
