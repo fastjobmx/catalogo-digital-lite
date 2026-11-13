@@ -205,6 +205,7 @@ Reversión de staging: `wrangler rollback 56401a84-…` → (opcional) `database
 >
 > **Al integrar `main`** (verificado con `git merge-tree`; integración de referencia en la rama local `integracion/produccion-whatsapp`, `eab1ef9`):
 > - git combina sin conflicto, pero `AI_MESSAGE_QUOTA_MODE` queda **dos veces** en `worker/wrangler.production.toml`: el TOML sería inválido y el despliegue fallaría. Hay que dejar una sola declaración.
+> - ✅ **Integrado** (autorizado): merge `0b8595a` con una sola `AI_MESSAGE_QUOTA_MODE`; 669 pruebas del servidor y 139 del panel; dry-run de producción correcto con WhatsApp apagado.
 > - **Orden obligatorio en producción: 0024 → 0025 → 0026 y solo después la API.** `ai/usage.ts` (desde 0025) escribe `ai_usage_events.channel`; sin 0025, esa escritura falla también para Telegram y el estudio.
 
 1. Decidir el **alojamiento 24/7** (servidor dedicado con 2 CPU y 4 GB) y un **túnel con nombre** con Cloudflare Access.
