@@ -90,7 +90,8 @@ export default defineConfig(({ mode, isSsrBuild }) => {
     server: { port: 4317, strictPort: true },
     build: {
       target: 'es2022',
-      assetsInlineLimit: 2048,
+      // Fonts are never inlined as data: URIs (the CSP allows font-src 'self' only).
+      assetsInlineLimit: (file: string, content: Buffer) => !/\.woff2?$/.test(file) && content.length < 2048,
       chunkSizeWarningLimit: 900,
     },
   }
