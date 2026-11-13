@@ -73,6 +73,12 @@ export type Env = {
  ASSISTANT_AGENT_STORE_IDS?: string
  /** Milliseconds the layer waits for the model before handing the message to the previous engine (default 9000). */
  ASSISTANT_AGENT_TIMEOUT_MS?: string
+ /** Photos and voice inside the conversation (step 2), per store and independent of the text switch. Empty = previous flow. */
+ ASSISTANT_MEDIA_STORE_IDS?: string
+ /** Seconds photos wait for their description (default 1800), photos per product (max 10) and products prepared from photos per store and day (default 60). */
+ ASSISTANT_MEDIA_WINDOW_SECONDS?: string
+ ASSISTANT_MEDIA_MAX_PHOTOS?: string
+ ASSISTANT_MEDIA_DAILY_PRODUCTS?: string
  TELEGRAM_VOICE_ENABLED?: string
  /** Quota of AI messages per plan: 'off' (default, counts nothing) | 'shadow' (counts and alerts, never blocks) | 'enforce'. */
  AI_MESSAGE_QUOTA_MODE?: string

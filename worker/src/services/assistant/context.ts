@@ -61,6 +61,8 @@ export interface AssistantContext {
   /** Conversational layer: when present, say()/sayPhoto() keep the message here instead of sending it, so the
    * layer can run the existing engine and answer once, in its own words. Never set by the transports. */
   capture?: Array<{ text: string; markup?: Record<string, unknown>; photo?: string }>
+  /** A short reminder to send after the answer of this update (photos still waiting for their description). */
+  afterNote?: string
 }
 
 /** State of the conversational layer (agent). Lives inside the session, so it expires and resets with it. */
@@ -72,6 +74,9 @@ export type AgentState = {
   /** A new request arrived while a change was waiting: the merchant decides what happens to the pending one. */
   deferred?: string
   deferredOp?: string
+  deferredIntents?: Array<import('./commerce/intent').CommerceIntent>
+  /** Step 2: questions of the media layer and a description kept for a photo batch that is still being organised. */
+  media?: import('./agent/media').MediaState
 }
 
 export type SessionState = {

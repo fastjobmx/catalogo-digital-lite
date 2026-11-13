@@ -20,6 +20,7 @@ import {
 import { fromMetaMessage, readStoredInbound, type MetaInboundMessage, type NormalizedInbound, type WhatsAppProvider } from './inbound'
 import { downloadWahaMedia, sendWahaImage, sendWahaText, wahaEnabled, wahaSeenAndTyping, wahaStopTyping, type WahaSessionStatus } from './waha'
 import { handleBatchText, maintainPhotoBatches, receiveBatchPhoto, shouldBatchPhoto } from './photoBatch'
+import { applyPendingBatchNote } from '../services/assistant/agent/media'
 
 type Bindings = Env['Bindings']
 
@@ -370,6 +371,8 @@ async function handleInbound(env: Bindings, db: D1Database, input: { rowId: numb
     return { status: 'processed', code, identityId: identity.id, storeId: ctx.store.id }
   }
   const batchInput = update.callback_query?.data ?? text
+  // Media layer: a description the merchant gave while the photos were being organised is applied before the batch reads «sí».
+  if (batchInput) await applyPendingBatchNote(ctx)
   if (batchInput && await handleBatchText(ctx, outbox, batchInput, input.defer)) {
     return { status: 'processed', code: 'PHOTO_BATCH', identityId: identity.id, storeId: ctx.store.id }
   }

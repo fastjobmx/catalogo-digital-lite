@@ -74,6 +74,9 @@ export function intentFromStep(step: Step, message: string): CommerceIntent | nu
     let amount = step.monto
     const exact = step.porcentaje ? null : parseMoney(message)
     if (exact && (exact === amount * 1000 || exact * 1000 === amount)) amount = exact
+    // «a 185» with no «mil»: the model may not decide it means 185.000. The bare number is asked, never assumed.
+    const bare = !step.porcentaje && !exact && amount >= 1000 && amount % 1000 === 0 && new RegExp(`(?:^|\\D)${amount / 1000}(?!\\s*(?:mil|k\\b|lucas|palos|[.,]\\d{3}|\\d))`, 'i').test(message)
+    if (bare && amount / 1000 < 1000) amount = amount / 1000
     // A bare small amount («precio 180») is asked, never assumed.
     raw = !step.porcentaje && amount < 1000
       ? { kind: 'price_clarify', mode, amount, product: step.producto }

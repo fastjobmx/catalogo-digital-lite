@@ -40,6 +40,8 @@ const WAIT = /^(?:espera|esp[eé]rame?|esp[eé]rate|un momento|momento|aguanta|t
 const KEEP = /^(?:s[ií]guela|sigue(?:la)?|contin[uú]a(?:la)?|term[ií]nala|la sigo|seguir|conf[ií]rmala)\b/i
 const RESET = /^(?:olvida (?:eso|todo|lo anterior)|olv[ií]dalo todo|empecemos de nuevo|empezar de nuevo|empecemos de cero|borr[oó]n y cuenta nueva|reinicia(?:r)?(?: la conversaci[oó]n)?)[.! ]*$/i
 const UNDO = /^(?:deshaz(?:lo|la)?|deshacer|revierte(?:lo)?|reversa|devuelve (?:eso|el cambio|ese cambio)|me equivoqu[eé],? (?:deshaz|devuelve))\b/i
+/** Words of the merchant that are a yes when the model reads the message as a confirmation. */
+const AFFIRMS = /\b(?:si|sip|dale|hagale|hagalo|hazlo|confirm\w*|listo|de una|aplica\w*|apruebo|correcto|ok|okay|adelante|perfecto)\b/
 const BATCH_TTL_MS = 15 * 60 * 1000
 const UNDO_WINDOW = '-10 minutes'
 
@@ -134,17 +136,22 @@ export async function handleAgentControl(ctx: AssistantContext, text: string): P
     if (WAIT.test(text.trim())) { await reply(ctx, 'Tranquilo, los dejo en espera. Dime «sí» para aplicarlos o «cancela».'); return done('aclarar', 'batch_wait') }
   }
 
-  if (agent.deferred && agent.deferredOp !== pending?.operation_id) await saveAgent(ctx, { deferred: undefined, deferredOp: undefined })
+  if (agent.deferred && agent.deferredOp !== pending?.operation_id) await saveAgent(ctx, { deferred: undefined, deferredOp: undefined, deferredIntents: undefined })
   else if (pending && agent.deferred) {
     const keep = YES.test(text.trim()) || KEEP.test(text.trim())
     const drop = NO.test(text.trim()) || /^cancel/i.test(text.trim())
     if (keep || drop) {
       const deferred = agent.deferred
-      await saveAgent(ctx, { deferred: undefined, deferredOp: undefined })
+      const intents = agent.deferredIntents || []
+      await saveAgent(ctx, { deferred: undefined, deferredOp: undefined, deferredIntents: undefined })
       if (keep) await confirmOperation(ctx, pending)
       else { await cancelOperation(ctx, pending.operation_id); await say(ctx, 'Cancelado, eso no se cambió.') }
       await say(ctx, 'Ahora sí, lo otro que me pediste:').catch(() => undefined)
-      const next = await handleAgentText(ctx, deferred)
+      // What was understood then is prepared now, exactly as it was read (no second interpretation).
+      const session = await readSession(ctx.db, ctx.telegramUserId)
+      const next = intents.length
+        ? await runWrites(ctx, deferred, intents, turn, null, session.state.focusSku)
+        : await handleAgentText(ctx, deferred)
       if (next !== 'handled') await reply(ctx, 'Eso otro dímelo de nuevo, por favor.')
       return done(keep ? 'confirmar' : 'cancelar', 'deferred_resolved')
     }
@@ -258,7 +265,7 @@ async function understand(ctx: AssistantContext, text: string, turn: Turn): Prom
         }
         : () => runWrites(ctx, text, [parsed], turn, pending, focusNow)
       if (!looksExisting || !canModel) {
-        const first = await runWrites(ctx, text, [parsed], turn, pending, focusNow, '', canModel && parsed.kind !== 'create_product')
+        const first = await runWrites(ctx, text, [parsed], turn, pending, focusNow, '', canModel && parsed.kind !== 'create_product' && !(parsed.kind === 'price_clarify' && /(?:precio|vale|valen|cuesta|cuestan|pesos)|\$/.test(fold(trimmed))))
         if (first !== 'retry') return first
         await updateSessionState(ctx, { commerce: session.state.commerce })
       }
@@ -266,7 +273,9 @@ async function understand(ctx: AssistantContext, text: string, turn: Turn): Prom
     turn.tools.length = 0
   }
   // Everything else the engine already recognises without AI (thanks, menu, reports, store design…) stays there.
-  if (quick && !parserAnswer) return 'other'
+  // A long «créame un producto que serían…» sentence already names the product: the model reads it first.
+  const spokenProduct = quick?.kind === 'start_product' && canModel && trimmed.split(/\s+/).length > 5
+  if (quick && !parserAnswer && !spokenProduct) return 'other'
 
   if (!canModel) return 'fallback'
   turn.path = 'model'
@@ -286,7 +295,7 @@ async function understand(ctx: AssistantContext, text: string, turn: Turn): Prom
   if (!outcome.ok) {
     if (parserAnswer) { turn.path = 'parser'; turn.outcome = 'model_failed'; return parserAnswer() }
     turn.path = 'fallback'; turn.outcome = 'model_failed'
-    return 'fallback'
+    return quick ? 'other' : 'fallback'
   }
   turn.usage = outcome.value.usage
   return runSteps(ctx, text, outcome.value.steps, turn, pending, catalog)
@@ -383,7 +392,10 @@ async function runSteps(ctx: AssistantContext, text: string, steps: Step[], turn
     }
     switch (step.tool) {
       case 'confirmar':
-        if (pending) { if (out.length) await reply(ctx, out.splice(0).join('\n\n')); await confirmOperation(ctx, pending); pending = null }
+        // The model never confirms on the merchant's behalf: the message itself must say yes. Repeating the amount
+        // or commenting on the change is not a confirmation, so the change stays waiting and is asked again.
+        if (pending && AFFIRMS.test(fold(text))) { if (out.length) await reply(ctx, out.splice(0).join('\n\n')); await confirmOperation(ctx, pending); pending = null }
+        else if (pending) out.push('Para aplicarlo dime «sí»; si algo no está bien, dime qué corrijo.')
         else out.push('No hay nada pendiente por confirmar.')
         break
       case 'cancelar':
@@ -441,7 +453,7 @@ async function runWrites(ctx: AssistantContext, text: string, intents: CommerceI
   if (intents.some((intent) => !TOOLS[toolOfIntent(intent)].allowed(ctx))) { await reply(ctx, `${prefix}${DENIED.write}`); return 'handled' }
   // Nothing is dropped in silence: a change is waiting, so the merchant decides before a new one is prepared.
   if (pending) {
-    await saveAgent(ctx, { deferred: text.slice(0, 400), deferredOp: pending.operation_id })
+    await saveAgent(ctx, { deferred: text.slice(0, 400), deferredOp: pending.operation_id, deferredIntents: intents.slice(0, 5) })
     await reply(ctx, `${prefix}Tienes pendiente esto: ${shortPreview(pending, ctx.store.currency)}${shortPreview(pending, ctx.store.currency).includes('\n') ? '\n' : '. '}¿La sigo o la cancelo?`, {
       inline_keyboard: [[{ text: '✅ Seguir y confirmar', callback_data: `op:confirm:${pending.operation_id}` }, { text: '✖ Cancelarla', callback_data: `op:cancel:${pending.operation_id}` }]],
     })

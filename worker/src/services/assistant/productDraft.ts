@@ -73,6 +73,8 @@ async function resolveDraftCategory(ctx: AssistantContext, draft: TelegramProduc
   return draft
 }
 
+/** Saves the draft only if nobody changed it meanwhile (also used by the conversational layer). */
+export { saveDraft as saveProductDraft }
 async function saveDraft(ctx: AssistantContext, operation: PendingOperation, draft: TelegramProductDraft): Promise<PendingOperation | null> {
   const json = JSON.stringify(draft)
   if (json === operation.params_json) return operation

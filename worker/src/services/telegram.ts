@@ -27,7 +27,8 @@ import { answerWithStoreFacts, draftProductDescription, interpretRequest } from 
 import { detectIntent } from './assistant/intents'
 import { handleTeamCallback, showTeam } from './assistant/team'
 import { CONSUMPTION_INTENT, showConsumption } from './assistant/consumption'
-import { handleAgentCallback, handleAgentControl, handleAgentText } from './assistant/agent/orchestrator'
+import { agentEnabled, handleAgentCallback, handleAgentControl, handleAgentText } from './assistant/agent/orchestrator'
+import { handleAgentDescription, handleAgentDraftText, handleAgentMediaCallback, handleAgentPhoto, receiveDraftPhotoQuietly } from './assistant/agent/media'
 import { fingerprintText } from '../ai/messageQuota'
 import { sendPanelPasswordReset } from './assistant/panelAccess'
 import { acceptCampaignText, createCampaign, detectCouponDraft, detectMarketingIntent, handleMarketingCallback, proposeCoupon, showCampaigns, showCoupons, showFollowUps, unsubscribe } from './assistant/marketing'
@@ -181,6 +182,7 @@ export async function dispatchAssistantUpdate(ctx: AssistantContext, update: Tel
   } finally {
     // The 80 % / 100 % quota notice goes after the answer of this update.
     if (ctx.quotaNotice) await say(ctx, ctx.quotaNotice).catch(() => undefined)
+    if (ctx.afterNote) await say(ctx, ctx.afterNote).catch(() => undefined)
   }
 }
 
@@ -191,6 +193,7 @@ async function showStorePicker(ctx: AssistantContext): Promise<void> {
 
 async function handleCallback(ctx: AssistantContext, data: string): Promise<void> {
   if (data.startsWith('ag:') && await handleAgentCallback(ctx, data)) return
+  if (data.startsWith('am:') && await handleAgentMediaCallback(ctx, data)) return
   const key = data.trim()
   if (key === 'tb:new') { await startTelegramBatch(ctx); return }
   const select = key.match(/^s:select:(\d+)$/)
@@ -393,7 +396,8 @@ async function handlePhoto(ctx: AssistantContext, message: TelegramMessage): Pro
     return
   }
   const draft = await getPendingProductDraft(ctx)
-  if (draft) { await receiveProductPhoto(ctx, draft, message); return }
+  // Media layer (per store, off by default): an album to an open draft gets one line, not one message per photo.
+  if (draft) { if (!await receiveDraftPhotoQuietly(ctx, draft, message)) await receiveProductPhoto(ctx, draft, message); return }
   if (await getPendingAttach(ctx)) { await receiveAttachPhoto(ctx, fileId); return }
   const session = await readSession(ctx.db, ctx.telegramUserId)
   // Shipping guide: awaited after "Registrar guía", a guide already in progress, or a caption about it.
@@ -416,6 +420,8 @@ async function handlePhoto(ctx: AssistantContext, message: TelegramMessage): Pro
     return
   }
   const caption = (message.caption || '').trim()
+  // Media layer: photos wait together for their description (text or voice) instead of one question per photo.
+  if (await handleAgentPhoto(ctx, fileId, caption)) return
   if (caption) {
     const intent = detectIntent(caption, session.state.lastSkus)
     if (intent?.kind === 'change_store_image') { await proposeStoreImage(ctx, intent.target, fileId); return }
@@ -462,7 +468,13 @@ async function handleVoice(ctx: AssistantContext, message: TelegramMessage): Pro
   await rememberTurn(ctx, 'user', transcript)
   // Pending drafts take precedence: the transcript answers the current question.
   const draft = await getPendingProductDraft(ctx)
-  if (draft) { await acceptProductDraftText(ctx, draft, transcript); return }
+  if (draft) { if (!await handleAgentDraftText(ctx, draft, transcript, { voice: true })) await acceptProductDraftText(ctx, draft, transcript); return }
+  // Voice enters the same conversation as text: photos waiting, pending confirmations, the orchestrator.
+  if (await handleAgentDescription(ctx, transcript, { voice: true })) return
+  if (agentEnabled(ctx)) {
+    if (await handleAgentControl(ctx, transcript)) return
+    if (await handleAgentText(ctx, transcript) === 'handled') return
+  }
   // The same commerce rules apply to what was said: product names, sizes, corrections, confirmation.
   if (parseCommerce(transcript) && await handleCommerceText(ctx, transcript)) return
   await handleProposal(ctx, outcome.value, transcript)
@@ -554,6 +566,8 @@ async function handleText(ctx: AssistantContext, text: string): Promise<void> {
   if (draft) {
     if (CANCEL_WORDS.test(text)) { await cancelProductDraft(ctx, draft.operation.operation_id); await say(ctx, 'Cancelé el borrador del producto. No se publicó nada.', backToMenu()); return }
     if (CONFIRM_WORDS.test(text) && !draft.draft.awaiting) { await say(ctx, 'Para publicarlo, toca “Guardar producto” en la vista previa.'); return }
+    // Media layer: natural corrections of the draft («cambia el precio a 170 mil», «quita la tercera», «listo»).
+    if (await handleAgentDraftText(ctx, draft, text)) return
     // A different request while the draft is open: ask before leaving it (nothing is lost silently).
     if (isNewCommerceRequest(text) || detectOrderIntent(text)) {
       await updateSessionState(ctx, { deferredText: text.slice(0, 400) })
@@ -573,6 +587,8 @@ async function handleText(ctx: AssistantContext, text: string): Promise<void> {
   }
   // A shipping guide in progress takes its answers and corrections first.
   if (await handleGuideText(ctx, text)) return
+  // Media layer: a description (or an answer) for photos that are waiting belongs to that operation.
+  if (await handleAgentDescription(ctx, text)) return
   // Conversational layer (per store, off by default): natural confirmations, «espera», «empecemos de nuevo».
   if (await handleAgentControl(ctx, text)) return
   const pending = await getPendingOperation(ctx)
