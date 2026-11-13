@@ -18,6 +18,8 @@ const PICKS = {
   'pilot-equipment': ['Tankbag-0001'],
   // No product photos: every jean photo carries third-party brand marks; captures only.
   'imperio-nova': [],
+  // No product photos: its prices are still provisional (2026-11-13); captures only.
+  'el-palacio-de-las-flores': [],
 }
 const OUT = new URL('./.stores/real/', import.meta.url)
 await mkdir(OUT, { recursive: true })
