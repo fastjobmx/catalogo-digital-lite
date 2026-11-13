@@ -271,7 +271,7 @@ async function understand(ctx: AssistantContext, text: string, turn: Turn): Prom
       parserAnswer = looksExisting
         ? async () => {
           if (twins.length === 1) await updateSessionState(ctx, { focusSku: twins[0]!.sku, lastSkus: [twins[0]!.sku] })
-          await reply(ctx, `Ya tienes <b>${plainText(twins[0]!.name)}</b>${twins.length > 1 ? ` y ${twins.length - 1} parecido${twins.length > 2 ? 's' : ''}` : ''} en la tienda. Dime qué le cambio (por ejemplo «súbele 5 mil» o «llegaron 3 de la 38»), o escribe «producto nuevo» si es otro.`)
+          await reply(ctx, `Ya tienes <b>${plainText(twins[0]!.name)}</b>${twins.length > 1 ? ` y ${twins.length - 1} parecido${twins.length > 2 ? 's' : ''}` : ''} en la tienda. ¿Qué le cambio? Por ejemplo «súbele 5 mil» o «llegaron 3 de la 38»; si es otro, escribe «producto nuevo».`)
           return 'handled' as const
         }
         : () => runWrites(ctx, text, [parsed], turn, pending, focusNow)
@@ -309,6 +309,9 @@ async function understand(ctx: AssistantContext, text: string, turn: Turn): Prom
     return quick ? 'other' : 'fallback'
   }
   turn.usage = outcome.value.usage
+  // A bare amount («precio 180»): the parser's question shows both readings with the real price. If the model only
+  // asks back in its own words, the exact question stands.
+  if (parsed?.kind === 'price_clarify' && parserAnswer && outcome.value.steps.every((item) => item.tool === 'aclarar')) { turn.path = 'parser'; return parserAnswer() }
   return runSteps(ctx, text, outcome.value.steps, turn, pending, catalog)
 }
 
