@@ -360,6 +360,26 @@ export const DEFAULT_THEME: ThemeConfig = {
   },
 }
 
+/**
+ * «Restaurar» del panel de Apariencia: vuelve al diseño de fábrica (plantilla, estilo, orden de
+ * secciones y disposición de la portada) SIN tocar el contenido del comercio. DEFAULT_THEME trae los
+ * textos e imágenes de la tienda demo; aplicarlo entero reemplazaba los del comercio por los del demo.
+ */
+export function resetThemeDesign(current: ThemeConfig): ThemeConfig {
+  return {
+    ...current,
+    template: DEFAULT_THEME.template,
+    style: structuredClone(DEFAULT_THEME.style),
+    sections: structuredClone(DEFAULT_THEME.sections),
+    hero: {
+      ...current.hero,
+      align: DEFAULT_THEME.hero.align,
+      height: DEFAULT_THEME.hero.height,
+      overlayOpacity: DEFAULT_THEME.hero.overlayOpacity,
+    },
+  }
+}
+
 // ------------------------------------------------------------------
 // Migración tolerante: acepta configuraciones antiguas sin perderlas.
 // ------------------------------------------------------------------

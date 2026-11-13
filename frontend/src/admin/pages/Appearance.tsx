@@ -16,7 +16,7 @@ import {
   DEFAULT_THEME, THEME_PRESETS, BRAND_PALETTES, FONT_OPTIONS, SECTION_LABELS, RADIUS_VALUES, DENSITY_VALUES, TYPE_SCALE_VALUES, HEADING_WEIGHTS,
   type ThemeConfig, type SectionKey, type RadiusScale, type DensityScale,
   type ButtonStyle, type CardStyle, type HeroAlign, type HeroHeight, type TypeScale,
-  type HeadingWeight, type PaletteConfig,
+  type HeadingWeight, type PaletteConfig, resetThemeDesign,
 } from '../../types/theme'
 import { contrastRatio, palettesFromLogoFile, type LogoPaletteOption } from '../../lib/logoPalette'
 
@@ -383,8 +383,8 @@ export default function Appearance() {
   }
 
   const resetAll = () => {
-    if (!confirm('¿Restaurar la apariencia por defecto? Los cambios no guardados se perderán.')) return
-    setTheme(DEFAULT_THEME)
+    if (!confirm('¿Restaurar el diseño por defecto? Vuelven la plantilla, los colores, la tipografía y el orden de secciones de fábrica. Tus textos e imágenes se conservan. Nada se publica hasta que pulses «Guardar apariencia».')) return
+    setTheme((prev) => resetThemeDesign(prev))
   }
 
   const { palette, typography } = theme.style
@@ -451,7 +451,7 @@ export default function Appearance() {
         </div>
         <div className="flex items-center gap-3">
           <button onClick={resetAll} className="btn-ghost">
-            <RotateCcw size={16} /> Restaurar
+            <RotateCcw size={16} /> Restaurar diseño
           </button>
           {dirty && (
             <button onClick={discardChanges} className="btn-ghost">
