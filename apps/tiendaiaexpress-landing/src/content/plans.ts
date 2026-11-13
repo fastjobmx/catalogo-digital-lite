@@ -31,13 +31,13 @@ export const plans: Plan[] = [
   {
     key: 'emprendedor',
     name: 'Emprendedor',
-    audience: 'Para empezar a vender con un catálogo propio.',
+    audience: 'Para empezar a vender con tu propia tienda online.',
     setup: 149_000,
     monthly: 59_900,
     annual: 599_000,
     products: 'Hasta 150 productos',
     features: [
-      'Catálogo responsive con plantilla',
+      'Tienda responsive con plantilla',
       'Dirección propia: app.tiendiaexpres.com/t/tu-negocio',
       'Productos, categorías, tallas y variantes',
       'Carrito y pedidos por WhatsApp',
@@ -75,7 +75,7 @@ export const plans: Plan[] = [
   {
     key: 'mayorista',
     name: 'Mayorista',
-    audience: 'Para distribuidores y catálogos grandes.',
+    audience: 'Para distribuidores y tiendas con muchos productos.',
     setup: 299_000,
     monthly: 169_900,
     annual: 1_699_000,
@@ -122,17 +122,17 @@ export const addOns: AddOn[] = [
   {
     title: 'Dominio propio',
     body: 'Tu tienda en tu propia dirección (por ejemplo, tunegocio.com), con configuración asistida.',
-    price: 'Plan Emprendedor: $99.000 COP al año. Planes Negocio y Mayorista: consultá las condiciones.',
+    price: 'Plan Emprendedor: $99.000 COP al año. Planes Negocio y Mayorista: consulta las condiciones.',
     status: 'consulta',
   },
   {
     title: 'Créditos IA adicionales',
-    body: 'Si se terminan las cuotas IA del mes, podés solicitar créditos adicionales desde tu panel.',
+    body: 'Si se terminan las cuotas IA del mes, puedes solicitar créditos adicionales desde tu panel.',
     price: 'Valor según la cantidad: te lo confirmamos antes de cargarlos.',
     status: 'disponible',
   },
   {
-    title: 'Estudio de contenido',
+    title: 'Estudio Creativo',
     body: 'Imágenes, carruseles y videos cortos para redes con tus productos, desde tu panel. El video con IA llega pronto.',
     price: 'Incluido en todos los planes, sin consumir créditos IA.',
     status: 'disponible',

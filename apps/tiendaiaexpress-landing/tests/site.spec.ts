@@ -73,14 +73,32 @@ test.describe('page', () => {
     expect(await page.locator('img:not([alt])').count()).toBe(0)
   })
 
-  test('reduced motion shows the still layout with all three acts', async ({ browser }) => {
+  test('reduced motion shows every section without entrance animations', async ({ browser }) => {
     const ctx = await browser.newContext({ reducedMotion: 'reduce' })
     const page = await ctx.newPage()
     await page.goto('/')
     await expect(page.locator('html')).toHaveClass(/still/)
-    for (const verb of ['Mostrá', 'Organizá', 'Vendé']) await expect(page.locator('.still-only').getByText(verb, { exact: true })).toBeVisible()
-    expect(await page.evaluate(() => getComputedStyle(document.querySelector('.story-sticky')!).position)).not.toBe('sticky')
+    for (const step of ['Sube tus productos', 'Comparte tu enlace', 'Recibe pedidos por WhatsApp']) await expect(page.locator('#como-funciona').getByRole('heading', { name: step })).toBeVisible()
+    const hidden = await page.$$eval('[data-reveal], .hero-in', (els) => els.filter((el) => getComputedStyle(el).opacity !== '1').length)
+    expect(hidden).toBe(0)
     await ctx.close()
+  })
+
+  test('the header has one trial button and one panel link, and every section of the menu exists', async ({ page }) => {
+    await page.goto('/')
+    const header = page.locator('#root > header')
+    await expect(header.locator(`a[href="${TRIAL}"]`)).toHaveCount(1)
+    await expect(header.locator(`a[href="${ADMIN}"]`)).toHaveCount(1)
+    for (const id of ['inicio', 'funciones', 'como-funciona', 'tiendas', 'demo', 'estudio', 'administracion', 'planes', 'preguntas', 'contacto']) await expect(page.locator(`#${id}`)).toHaveCount(1)
+  })
+
+  test('copy uses Colombian "tú" (no voseo) and the trial conditions of the live /prueba page', async ({ request }) => {
+    const raw = await (await request.get('/')).text()
+    const text = raw.replace(/<script[\s\S]*?<\/script>/g, ' ').replace(/<[^>]+>/g, ' ')
+    const voseo = text.match(/(?<![\p{L}])(vos|tenés|querés|podés|sabés|hacés|vendés|creá|mostrá|administrá|organizá|vendé|subís|compartís|elegí|escribí|contanos|escribinos|mirá|explorá|probalo|armá|pagás|ahorrás|recordá|revisá|consultá|solicitá|descubrí|conocé|empezá|cambiá|cargá|sumá|seguí|importá|mejorá|pidás)(?![\p{L}])/giu)
+    expect(voseo ?? []).toEqual([])
+    expect(text).toContain('Sin correo ni contraseña')
+    expect(text).not.toMatch(/48 horas|sin registrarte|12 productos/i)
   })
 })
 
@@ -90,8 +108,8 @@ test.describe('contact form', () => {
     await page.evaluate(() => { (window as unknown as { __opened: string[] }).__opened = []; window.open = ((u: string) => { (window as unknown as { __opened: string[] }).__opened.push(u); return null }) as typeof window.open })
     await page.waitForTimeout(2600)
     await page.getByRole('button', { name: /preparar en whatsapp/i }).click()
-    await expect(page.getByText('Escribí tu nombre.')).toBeVisible()
-    await expect(page.getByText('Contanos qué vendés.')).toBeVisible()
+    await expect(page.getByText('Escribe tu nombre.')).toBeVisible()
+    await expect(page.getByText('Cuéntanos qué vendes.')).toBeVisible()
     expect(await page.evaluate(() => (window as unknown as { __opened: string[] }).__opened.length)).toBe(0)
   })
 
@@ -101,12 +119,12 @@ test.describe('contact form', () => {
     await page.getByLabel('Tu nombre').fill('Ana Prueba')
     await page.getByLabel('Nombre del negocio').fill('Tienda de prueba')
     await page.getByLabel('Ciudad').fill('Medellín')
-    await page.getByLabel('¿Qué vendés?').fill('Ropa deportiva')
+    await page.getByLabel('¿Qué vendes?').fill('Ropa deportiva')
     await page.getByLabel('Plan de interés').selectOption('Negocio')
     await page.getByLabel('Modalidad de pago').selectOption('Pago anual')
     await page.waitForTimeout(2600) // anti-spam minimum fill time
     await page.getByRole('button', { name: /preparar en whatsapp/i }).click()
-    await expect(page.getByText(/Recordá tocar «Enviar» en WhatsApp/)).toBeVisible()
+    await expect(page.getByText(/Recuerda tocar «Enviar» en WhatsApp/)).toBeVisible()
     const opened = await page.evaluate(() => (window as unknown as { __opened: string[] }).__opened)
     expect(opened).toHaveLength(1)
     const url = new URL(opened[0])

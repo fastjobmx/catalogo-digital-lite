@@ -1,0 +1,113 @@
+{
+  "capturedAt": "2026-11-13T01:50:31.856Z",
+  "stores": {
+    "luz-magica": {
+      "name": "Luz Mágica",
+      "slogan": "Tocadores y espejos",
+      "businessType": "Tocadores, espejos y muebles",
+      "productCount": 115,
+      "categoryCount": 10,
+      "products": [
+        {
+          "sku": "LM-005",
+          "name": "Tocador Imperia",
+          "price": 1050000,
+          "compareAtPrice": null,
+          "category": "Tocadores de 1.20",
+          "image": "luz-magica--lm-005.webp",
+          "width": 640,
+          "height": 888
+        },
+        {
+          "sku": "LM-007",
+          "name": "Tocador 1.20 corredizo LED medio arco WPC con enchape",
+          "price": 1090000,
+          "compareAtPrice": null,
+          "category": "Tocadores de 1.20",
+          "image": "luz-magica--lm-007.webp",
+          "width": 640,
+          "height": 700
+        },
+        {
+          "sku": "LM-117",
+          "name": "Espejo tapizado con LED",
+          "price": 570000,
+          "compareAtPrice": null,
+          "category": "Espejos",
+          "image": "luz-magica--lm-117.webp",
+          "width": 640,
+          "height": 1003
+        },
+        {
+          "sku": "LM-105",
+          "name": "Nochero Luxury LED oro rosa",
+          "price": 360000,
+          "compareAtPrice": null,
+          "category": "Nocheros, cómodas y zapateros",
+          "image": "luz-magica--lm-105.webp",
+          "width": 633,
+          "height": 654
+        },
+        {
+          "sku": "LM-139",
+          "name": "Puff corazón en tela gamuza",
+          "price": 160000,
+          "compareAtPrice": null,
+          "category": "Sillas y puffs",
+          "image": "luz-magica--lm-139.webp",
+          "width": 640,
+          "height": 791
+        },
+        {
+          "sku": "LM-054",
+          "name": "Carvalo Pink corredizo digital con enchape",
+          "price": 860000,
+          "compareAtPrice": null,
+          "category": "Carvalo y Solterón",
+          "image": "luz-magica--lm-054.webp",
+          "width": 640,
+          "height": 928
+        }
+      ]
+    },
+    "muy-parcero": {
+      "name": "MUY PARCERO",
+      "slogan": "Tu estilo, tu parche",
+      "businessType": "tenis, ropa y estilo urbano",
+      "productCount": 25,
+      "categoryCount": 6,
+      "products": [
+        {
+          "sku": "ZAP-NEG-3012",
+          "name": "Zapatillas Urbanas Negras con Franja Blanca",
+          "price": 90000,
+          "compareAtPrice": null,
+          "category": "Calzado",
+          "image": "muy-parcero--zap-neg-3012.webp",
+          "width": 640,
+          "height": 640
+        },
+        {
+          "sku": "CAM-NEG-7116",
+          "name": "Camiseta negra con estampado gráfico tipo ticket",
+          "price": 60000,
+          "compareAtPrice": null,
+          "category": "Ropa",
+          "image": "muy-parcero--cam-neg-7116.webp",
+          "width": 640,
+          "height": 962
+        },
+        {
+          "sku": "PLA-BLA-6934",
+          "name": "Playera Blanca con Estampado Gráfico GOLD",
+          "price": 40000,
+          "compareAtPrice": null,
+          "category": "Dama",
+          "image": "muy-parcero--pla-bla-6934.webp",
+          "width": 640,
+          "height": 972
+        }
+      ]
+    }
+  }
+}

@@ -16,11 +16,12 @@ function seo(siteUrl: string, allowIndexing: boolean, noindexHosts: string[]): P
   const scriptHash = createHash('sha256').update(MOTION_SCRIPT).digest('base64')
   const csp = [
     "default-src 'self'",
-    `script-src 'self' 'sha256-${scriptHash}'`,
+    // Cloudflare Web Analytics (injected by Pages): the beacon script and the endpoint it reports to.
+    `script-src 'self' 'sha256-${scriptHash}' https://static.cloudflareinsights.com`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self'",
-    "connect-src 'self'",
+    "connect-src 'self' https://cloudflareinsights.com",
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
@@ -31,7 +32,7 @@ function seo(siteUrl: string, allowIndexing: boolean, noindexHosts: string[]): P
     name: 'mostralopues-seo',
     transformIndexHtml(html, ctx) {
       // Preload the two Latin variable fonts used above the fold (avoids layout shift on swap).
-      const fonts = Object.keys(ctx.bundle ?? {}).filter((f) => /(space-grotesk|manrope)-latin-wght-normal.*\.woff2$/.test(f))
+      const fonts = Object.keys(ctx.bundle ?? {}).filter((f) => /(plus-jakarta-sans|manrope)-latin-wght-normal.*\.woff2$/.test(f))
       const preload = fonts.map((f) => `<link rel="preload" href="/${f}" as="font" type="font/woff2" crossorigin />`).join('\n    ')
       html = html.replace('</title>', `</title>\n    ${preload}`)
       const robots = allowIndexing ? 'index, follow, max-image-preview:large' : 'noindex, nofollow'
@@ -90,7 +91,8 @@ export default defineConfig(({ mode, isSsrBuild }) => {
     server: { port: 4317, strictPort: true },
     build: {
       target: 'es2022',
-      assetsInlineLimit: 2048,
+      // Fonts are never inlined as data: URIs (the CSP allows font-src 'self' only).
+      assetsInlineLimit: (file: string, content: Buffer) => !/\.woff2?$/.test(file) && content.length < 2048,
       chunkSizeWarningLimit: 900,
     },
   }
