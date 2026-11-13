@@ -124,11 +124,12 @@ export function refOf(raw: string, hasList: boolean): Ref | null {
   const lower = fold(raw)
   if (/\b(?:ultimo|mas\s+reciente|que\s+acaba\s+de\s+(?:llegar|entrar)|que\s+(?:llego|entro)\s+(?:ahorita|ahora|recien))\b/.test(lower) && !/\bultim[oa]s\b/.test(lower)) return { latest: true }
   const coded = raw.match(/\bpedido\s*(?:n[uú]mero\s*|#\s*|n[o°º]\.?\s*)?([A-Z0-9][A-Z0-9-]{3,39})\b/i)?.[1]
-  if (coded && /\d/.test(coded)) return { code: coded }
+  // Order codes are 8 hexadecimal characters: some have no digit at all («DDCCAFBC») and some no letter.
+  if (coded && (/\d/.test(coded) || /^[A-F]{8}$/i.test(coded))) return { code: coded }
   const numbered = lower.match(/\b(?:pedido|orden)\s*(?:numero\s*|#\s*)?(\d{1,9})\b/)
   if (numbered) return hasList && Number(numbered[1]) >= 1 && Number(numbered[1]) <= 15 ? { position: Number(numbered[1]) } : { code: numbered[1] }
   // The short code as the merchant sees it («AB12CD34»): letters and digits together.
-  const bare = raw.match(/\b(?=[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])[A-Z0-9]{6,12}\b/)?.[0]
+  const bare = raw.match(/\b(?=[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])[A-Z0-9]{6,12}\b/)?.[0] || raw.match(/\b[A-F]{8}\b/)?.[0]
   if (bare) return { code: bare }
   if (hasList) {
     const ordinal = lower.match(/\b(?:el|la|al|del|numero)\s+(\d{1,2}|primer[oa]?|segund[oa]|tercer[oa]?|cuart[oa]|quint[oa])\b(?!\s*(?:mil|unidades|pares|dias|de\s+la\s+\d))/)
