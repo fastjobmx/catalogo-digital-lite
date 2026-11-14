@@ -4,6 +4,7 @@
  *   ORDERS_BANK_REPORT=1 ORDERS_BANK_OUT=<carpeta> npx vitest run …/orders.bank.test.ts → los dos flujos + informe
  *   …con BANK_REAL=1 GEMINI_API_KEY=…                                                 → modelo real
  * Los pedidos se crean por la ruta real de la tienda (/api/orders). La clave nunca se imprime. */
+import { budgetedRealFetch, realTestKey, realTestKeyAvailable } from '../../../../testing/realAiBudget'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
@@ -14,9 +15,10 @@ const OWNER = 9941
 const INVENTORY = 9942
 const OTHER = 9943
 const SECRET = 'webhook-secret'
-const REAL = process.env.BANK_REAL === '1' && Boolean(process.env.GEMINI_API_KEY)
+// Modelo real solo con la clave de pruebas (o la compartida con permiso expreso) y bajo el presupuesto de pruebas.
+const REAL = process.env.BANK_REAL === '1' && realTestKeyAvailable()
 const REPORT = process.env.ORDERS_BANK_REPORT === '1' || REAL
-const realFetch = globalThis.fetch
+const realFetch = REAL ? budgetedRealFetch(globalThis.fetch, 'banco-pedidos') : globalThis.fetch
 
 type Flow = 'anterior' | 'nueva'
 type TurnLog = { input: string; replies: string[]; ms: number; ai: boolean; failures: string[]; uxFailures: string[] }
@@ -29,7 +31,7 @@ let counter = 990_000
 async function runCase(bank: OrdersCase, flow: Flow): Promise<CaseResult> {
   const on = flow === 'nueva' ? '*' : ''
   const h: Harness = createHarness({
-    TELEGRAM_BOT_TOKEN: 'bot-token', TELEGRAM_WEBHOOK_SECRET: SECRET, GEMINI_API_KEY: REAL ? process.env.GEMINI_API_KEY! : 'test-key',
+    TELEGRAM_BOT_TOKEN: 'bot-token', TELEGRAM_WEBHOOK_SECRET: SECRET, GEMINI_API_KEY: REAL ? realTestKey() : 'test-key',
     ...(process.env.GEMINI_MODEL ? { GEMINI_MODEL: process.env.GEMINI_MODEL } : {}),
     ASSISTANT_AGENT_STORE_IDS: on, ASSISTANT_MEDIA_STORE_IDS: on, ASSISTANT_ORDERS_STORE_IDS: on, ASSISTANT_AGENT_TIMEOUT_MS: REAL ? '9000' : '2000',
   })

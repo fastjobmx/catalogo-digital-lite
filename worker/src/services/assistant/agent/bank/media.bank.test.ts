@@ -5,6 +5,7 @@
  *   …con BANK_REAL=1 GEMINI_API_KEY=…                                               → visión y planificador reales
  *                                                                                     sobre una foto real de producto
  * La transcripción de las notas de voz siempre se simula (no hay audios grabados). La clave nunca se imprime. */
+import { budgetedRealFetch, realTestKey, realTestKeyAvailable } from '../../../../testing/realAiBudget'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -16,9 +17,10 @@ const OWNER = 9931
 const OPERATOR = 9932
 const OTHER = 9933
 const SECRET = 'webhook-secret'
-const REAL = process.env.BANK_REAL === '1' && Boolean(process.env.GEMINI_API_KEY)
+// Modelo real solo con la clave de pruebas (o la compartida con permiso expreso) y bajo el presupuesto de pruebas.
+const REAL = process.env.BANK_REAL === '1' && realTestKeyAvailable()
 const REPORT = process.env.MEDIA_BANK_REPORT === '1' || REAL
-const realFetch = globalThis.fetch
+const realFetch = REAL ? budgetedRealFetch(globalThis.fetch, 'banco-multimodal') : globalThis.fetch
 const here = dirname(fileURLToPath(import.meta.url))
 const SEED_PHOTO = join(here, '..', '..', '..', '..', '..', '..', 'frontend', 'public', 'seed-images', 'sneakerhub', 'KINETIK-05.jpg')
 
@@ -34,7 +36,7 @@ let counter = 880_000
 async function runCase(bank: MediaCase, flow: Flow): Promise<CaseResult> {
   const on = flow === 'nueva' ? '*' : ''
   const h: Harness = createHarness({
-    TELEGRAM_BOT_TOKEN: 'bot-token', TELEGRAM_WEBHOOK_SECRET: SECRET, GEMINI_API_KEY: REAL ? process.env.GEMINI_API_KEY! : 'test-key',
+    TELEGRAM_BOT_TOKEN: 'bot-token', TELEGRAM_WEBHOOK_SECRET: SECRET, GEMINI_API_KEY: REAL ? realTestKey() : 'test-key',
     ...(process.env.GEMINI_MODEL ? { GEMINI_MODEL: process.env.GEMINI_MODEL } : {}),
     ASSISTANT_AGENT_STORE_IDS: on, ASSISTANT_MEDIA_STORE_IDS: on, ASSISTANT_AGENT_TIMEOUT_MS: REAL ? '9000' : '2000', ...(REAL ? {} : { ASSISTANT_MEDIA_PROGRESS_MS: '150' }),
   })

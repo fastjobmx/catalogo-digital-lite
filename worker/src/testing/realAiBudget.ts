@@ -39,6 +39,11 @@ export function realTestKey(devVarsPath?: string): string {
   throw new Error('Pruebas con IA real: falta GEMINI_TEST_API_KEY (clave de un proyecto de pruebas con saldo propio). Usar la clave compartida exige AI_TEST_ALLOW_SHARED_KEY=1.')
 }
 
+/** True when a real-AI test may run: an own test key, or the shared key with explicit permission. */
+export function realTestKeyAvailable(): boolean {
+  return Boolean(process.env.GEMINI_TEST_API_KEY || (process.env.GEMINI_API_KEY && process.env.AI_TEST_ALLOW_SHARED_KEY === '1'))
+}
+
 export function readTestLedger(path = process.env.AI_TEST_LEDGER || DEFAULT_TEST_LEDGER): Entry[] {
   if (!existsSync(path)) return []
   return readFileSync(path, 'utf8').split(/\r?\n/).filter(Boolean).map((line) => { try { return JSON.parse(line) as Entry } catch { return null } }).filter((entry): entry is Entry => Boolean(entry))

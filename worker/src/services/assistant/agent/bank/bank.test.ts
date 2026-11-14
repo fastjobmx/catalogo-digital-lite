@@ -4,6 +4,7 @@
  *   BANK_REAL=1 GEMINI_API_KEY=… npx vitest run …/agent/bank     → los dos motores con el modelo real; escribe
  *                                                                  el informe (resultados, costo y latencia) en BANK_OUT
  * Solo tiendas ficticias en una base en memoria. La clave nunca se imprime. */
+import { budgetedRealFetch, realTestKey, realTestKeyAvailable } from '../../../../testing/realAiBudget'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
@@ -13,8 +14,9 @@ import { CONVERSATIONS, HOLDOUT, type BankCase, type Check } from './conversatio
 
 const OWNER = 9901
 const OPERATOR = 9902
-const REAL = process.env.BANK_REAL === '1' && Boolean(process.env.GEMINI_API_KEY)
-const realFetch = globalThis.fetch
+// Modelo real solo con la clave de pruebas (o la compartida con permiso expreso) y bajo el presupuesto de pruebas.
+const REAL = process.env.BANK_REAL === '1' && realTestKeyAvailable()
+const realFetch = REAL ? budgetedRealFetch(globalThis.fetch, 'banco-conversacional') : globalThis.fetch
 type Engine = 'anterior' | 'nueva'
 type Button = { text: string; callback_data?: string }
 type TurnLog = { input: string; replies: string[]; ms: number; failures: string[]; uxFailures: string[]; plans: string[] }
@@ -25,7 +27,7 @@ const strip = (html: string) => html.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<
 
 async function runCase(bank: BankCase, engine: Engine): Promise<CaseResult> {
   const h: Harness = createHarness({
-    TELEGRAM_BOT_TOKEN: 'bot-token', GEMINI_API_KEY: REAL ? process.env.GEMINI_API_KEY! : 'test-key',
+    TELEGRAM_BOT_TOKEN: 'bot-token', GEMINI_API_KEY: REAL ? realTestKey() : 'test-key',
     ...(process.env.GEMINI_MODEL ? { GEMINI_MODEL: process.env.GEMINI_MODEL } : {}),
     ASSISTANT_AGENT_STORE_IDS: engine === 'nueva' ? '*' : '', ASSISTANT_AGENT_TIMEOUT_MS: REAL ? '9000' : '2000',
   })

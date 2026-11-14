@@ -11,6 +11,7 @@
 import type { Env } from '../index'
 import { callGeminiJson, geminiFailureCode, UNTRUSTED_CONTENT_RULE, type GeminiPart } from '../ai/geminiClient'
 import { checkAiBudget, recordAiUsage } from '../ai/usage'
+import { isSpendBlocked, runWithSpend } from '../ai/spendGuard'
 import { roleAllows } from '../tenancy/access'
 import { slugify } from '../tenancy/stores'
 import { readSession, say, type AssistantContext } from '../services/assistant/context'
@@ -343,7 +344,8 @@ async function groupChunk(env: Bindings, db: D1Database, batch: BatchRow, items:
   }
   for (let attempt = 1; ; attempt++) {
   try {
-    const result = await callGeminiJson(env, fetch, request)
+    // Spend guard: one operation per group of photos (retries share its key and its attempt limit).
+    const result = await runWithSpend({ db, env, scope: 'store', storeId: batch.store_id, feature: 'agrupar_fotos', opKey: `waha:${batch.store_id}:${batch.id}:${items[0]?.id ?? 0}` }, () => callGeminiJson(env, fetch, request))
     await recordAiUsage(db, env, { storeId: batch.store_id, channel: 'whatsapp_waha', feature: 'agrupar_fotos', model: result.model, usage: result.usage, status: 'ok' })
     const reply = result.data as GroupingReply
     const localGroups = new Map<number, number>()
@@ -389,6 +391,11 @@ async function groupChunk(env: Bindings, db: D1Database, batch: BatchRow, items:
     for (const [id, target] of assignments) if (target !== 'not_product') assignments.set(id, remap.get(target)!)
     return { assignments, groups: kept, continuesPrevious: keptContinues }
   } catch (error) {
+    if (isSpendBlocked(error)) {
+      // No AI budget: the photos stay in the lot, grouped by album / one per photo, to complete by hand.
+      await recordAiUsage(db, env, { storeId: batch.store_id, channel: 'whatsapp_waha', feature: 'agrupar_fotos', status: 'blocked' }).catch(() => undefined)
+      return fallback()
+    }
     const code = geminiFailureCode(error)
     await recordAiUsage(db, env, { storeId: batch.store_id, channel: 'whatsapp_waha', feature: 'agrupar_fotos', status: 'error' }).catch(() => undefined)
     await db.prepare(`INSERT INTO platform_events (store_id, level, source, code, detail) VALUES (?, 'warning', 'gemini', 'GEMINI_REQUEST', ?)`)
