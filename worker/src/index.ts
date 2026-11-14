@@ -23,6 +23,8 @@ import { releaseExpiredReservations } from './ai/credits'
 import trialRoutes from './routes/trial'
 import seoRoutes from './routes/seo'
 import emailRoutes from './routes/email'
+import signupRoutes from './routes/signup'
+import { processTrialLifecycle } from './services/freeTrial'
 import { purgeEmailLogs } from './email/send'
 import { pollDeliveryStatus } from './email/webhooks'
 import { cleanupExpiredTrials } from './services/trials'
@@ -82,6 +84,12 @@ export type Env = {
  EMAIL_TEST_RECIPIENTS?: string
  /** Reply-To for platform emails (an address with a real inbox or forwarding, e.g. soporte@<domain>). */
  EMAIL_REPLY_TO?: string
+ /** Reply-To for commercial emails (trial notices, contract and plan activation), e.g. ventas@<domain>. Unset = EMAIL_REPLY_TO. */
+ EMAIL_REPLY_TO_SALES?: string
+ /** Real trial (store with temporary rights): 'false' turns off new sign-ups. Existing trial stores keep working. */
+ TRIAL_SIGNUP_ENABLED?: string
+ /** Optional Cloudflare Turnstile secret. When set, every trial sign-up must carry a valid Turnstile token. */
+ TURNSTILE_SECRET_KEY?: string
  /** Signing secret of the Resend webhook (whsec_…), for delivery, bounce and complaint events. */
  RESEND_WEBHOOK_SECRET?: string
  /** Days of email history kept (default 180, minimum 30). */
@@ -153,6 +161,7 @@ app.route('/api/auth', authRoutes)
 app.route('/api/master', masterRoutes)
 app.route('/api/seo', seoRoutes)
 app.route('/api/email', emailRoutes)
+app.route('/api/signup', signupRoutes)
 
 // Rutas protegidas (requieren autenticación admin)
 app.route('/api/admin', adminRoutes)
@@ -185,6 +194,8 @@ const worker = {
   context.waitUntil(pollDeliveryStatus(env.DB, env).catch((error) => console.error('Email delivery check failed:', error instanceof Error ? error.message : 'unknown')))
   if (env.ASSETS) context.waitUntil(cleanupExpiredTelegramProductAssets(env.DB, env.ASSETS))
   context.waitUntil(cleanupOrderDocuments(env.DB, env.ASSETS).catch((error) => console.error('Order documents cleanup failed:', error instanceof Error ? error.message : 'unknown')))
+  // Real free trial: notices 3 days and 1 day before the end, and the end itself (data is always kept).
+  context.waitUntil(processTrialLifecycle(env.DB, env).catch((error) => console.error('Trial lifecycle failed:', error instanceof Error ? error.message : 'unknown')))
   context.waitUntil(cleanupExpiredTrials(env.DB, env.ASSETS).catch((error) => console.error('Trial cleanup failed:', error instanceof Error ? error.message : 'unknown')))
   context.waitUntil(releaseExpiredReservations(env.DB).catch((error) => console.error('AI credit reservation cleanup failed:', error instanceof Error ? error.message : 'unknown')))
   // Estudio Creativo: primero libera trabajos caídos; después avanza la cola de fotos pendientes.

@@ -8,6 +8,7 @@ import { maskEmail, requestPasswordReset } from '../services/passwordReset'
 import { confirmEmailVerification } from '../services/userAccess'
 import { sendEmail } from '../email/send'
 import { adminStoreUrl, publicStoreUrl } from '../tenancy/stores'
+import { sendTrialWelcome, startTrialAfterActivation } from '../services/freeTrial'
 
 /** Security notice after a password change. Only to verified addresses; never contains links that grant access. */
 async function notifyPasswordChanged(env: Env['Bindings'], user: { id: number; email: string; displayName?: string | null }, storeId: number, changedAt: number) {
@@ -65,7 +66,11 @@ app.post('/activate', async (c) => {
      WHERE id = ? AND status <> 'disabled' RETURNING id, email, display_name AS displayName, email_verified_at IS NOT NULL AS verified`,
   ).bind(passwordHash, changedAt, consumed.deliveredVia, consumed.userId).first<{ id: number; email: string; displayName: string; verified: number }>()
   if (!user?.email) return c.json({ error: 'This account cannot be activated' }, 409)
-  if (user.verified) {
+  // A free-trial store starts its 7 days (and is published) when its owner confirms the email here.
+  const trial = await startTrialAfterActivation(c.env.DB, consumed.storeId, user.email)
+  if (trial.started) {
+    if (user.verified) await sendTrialWelcome(c.env.DB, c.env, consumed.storeId)
+  } else if (user.verified) {
     const store = await c.env.DB.prepare('SELECT s.id, s.slug, s.name, COALESCE(p.name, s.plan_code) AS planName FROM stores s LEFT JOIN plans p ON p.code = s.plan_code WHERE s.id = ?').bind(consumed.storeId).first<{ id: number; slug: string; name: string; planName: string | null }>()
     const panel = store ? `${adminStoreUrl(c.env.PUBLIC_STORE_BASE_URL, store)}/login` : ''
     if (store && panel.startsWith('https://')) {

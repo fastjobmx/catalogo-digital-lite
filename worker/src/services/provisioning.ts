@@ -85,7 +85,7 @@ export async function provisionStore(
   db: D1Database,
   env: Partial<Env['Bindings']>,
   rawInput: ProvisionInput,
-  options: { requestKey: string; actor: string },
+  options: { requestKey: string; actor: string; /** Free trial: the inactive 'prueba' plan, no AI, no services, no Telegram code. */ trial?: boolean },
 ): Promise<ProvisionResult> {
   if (!/^[\w.:-]{8,120}$/.test(options.requestKey)) throw new ProvisioningError('INVALID_REQUEST_KEY', 'La clave de la solicitud no es válida.')
   const parsed = provisionInputSchema.safeParse(rawInput)
@@ -95,8 +95,9 @@ export async function provisionStore(
   if (input.ownerEmail && !ownerEmail) throw new ProvisioningError('INVALID_OWNER_EMAIL', 'El correo del propietario no es válido.')
   if (ownerEmail && isSuperadminEmail(ownerEmail, env as Env['Bindings'])) throw new ProvisioningError('RESERVED_EMAIL', 'Ese correo está reservado para la administración de la plataforma.')
   if (!ownerEmail && !input.ownerTelegramId) throw new ProvisioningError('OWNER_REQUIRED', 'Indica el correo o el ID de Telegram del propietario.')
-  const plan = await db.prepare('SELECT code, name, ai_monthly_budget_micros, setup_price, monthly_price, currency, features_json FROM plans WHERE code = ? AND is_active = 1')
-    .bind(input.planCode).first<{ code: string; name: string; ai_monthly_budget_micros: number; setup_price: number; monthly_price: number; currency: string; features_json: string }>()
+  if (options.trial && input.planCode !== 'prueba') throw new ProvisioningError('PLAN_NOT_FOUND', 'La prueba gratuita usa el plan de prueba.')
+  const plan = await db.prepare(`SELECT code, name, ai_monthly_budget_micros, setup_price, monthly_price, currency, features_json FROM plans WHERE code = ? AND (is_active = 1 OR (? = 1 AND code = 'prueba'))`)
+    .bind(input.planCode, options.trial ? 1 : 0).first<{ code: string; name: string; ai_monthly_budget_micros: number; setup_price: number; monthly_price: number; currency: string; features_json: string }>()
   if (!plan) throw new ProvisioningError('PLAN_NOT_FOUND', 'El plan indicado no existe.')
 
   // 1. Reserve the job (idempotency anchor).
@@ -171,9 +172,10 @@ export async function provisionStore(
 
     // 6. Plan services (no real charges are created).
     const features = JSON.parse(plan.features_json || '[]') as string[]
-    const services: Array<[string, string, number]> = [['instalacion', 'unico', plan.setup_price]]
-    if (plan.monthly_price > 0) services.push(['mantenimiento_mensual', 'mensual', plan.monthly_price])
-    if (features.includes('asistente_ia')) services.push(['asistente_ia', 'mensual', 0])
+    // A free trial has no services: nothing is billed until a paid plan is activated.
+    const services: Array<[string, string, number]> = options.trial ? [] : [['instalacion', 'unico', plan.setup_price]]
+    if (!options.trial && plan.monthly_price > 0) services.push(['mantenimiento_mensual', 'mensual', plan.monthly_price])
+    if (!options.trial && features.includes('asistente_ia')) services.push(['asistente_ia', 'mensual', 0])
     for (const [code, billing, price] of services) {
       await db.prepare(
         `INSERT INTO store_services (store_id, service_code, billing, price, currency, status, created_by)
@@ -212,7 +214,7 @@ export async function provisionStore(
       activationUrl = `${adminStoreUrl(env.PUBLIC_STORE_BASE_URL, store)}/activar?token=${encodeURIComponent(token)}`
     }
     let telegramLinkCode: string | null = null
-    if (!ownerRow?.telegram_user_id) {
+    if (!ownerRow?.telegram_user_id && !options.trial) {
       telegramLinkCode = await createAccessToken(db, { userId: ownerId, storeId: storeId!, purpose: 'telegram_link', ttlSeconds: 72 * 3600, createdBy: options.actor })
     }
     const username = env.TELEGRAM_BOT_USERNAME?.replace(/^@/, '')

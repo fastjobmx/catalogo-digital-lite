@@ -8,6 +8,7 @@ import { zValidator } from '@hono/zod-validator'
 import type { Env } from '../index'
 import { adminAuth, requireCapability } from '../middleware/auth'
 import { publicStore } from '../middleware/tenant'
+import { isTrialExpired } from '../tenancy/stores'
 
 const app = new Hono<Env>()
 
@@ -111,6 +112,7 @@ app.post('/', publicStore, zValidator('json', createOrderSchema), async (c) => {
   if (String(c.env.COMMERCE_ENABLED || '').toLowerCase() !== 'true') return c.json({ error: 'Order requests are not enabled' }, 503)
   const store = c.get('store')!
   if (store.status !== 'active') return c.json({ error: 'This store is not accepting orders yet', code: 'STORE_NOT_ACTIVE' }, 409)
+  if (isTrialExpired(store)) return c.json({ error: 'This store is not accepting orders right now', code: 'TRIAL_EXPIRED' }, 409)
   const storeId = store.id
   const body = c.req.valid('json')
   const db = c.env.DB

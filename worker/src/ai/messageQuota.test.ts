@@ -91,7 +91,8 @@ describe('plans and limits', () => {
     expect(rows.filter((row) => ['basico', 'profesional', 'premium', 'legacy'].includes(String(row.code))).map((row) => [row.code, row.is_active, row.ai_monthly_messages, row.ai_usage_policy, row.setup_price])).toEqual([
       ['basico', 1, null, 'none', 0], ['profesional', 1, null, 'none', 0], ['premium', 1, null, 'none', 0], ['legacy', 1, null, 'none', 0],
     ])
-    expect(rows.filter((row) => !['basico', 'profesional', 'premium', 'legacy'].includes(String(row.code)))).toEqual([
+    // 'prueba' (free-trial rights, migration 0033) is also inactive and is checked in the free-trial tests.
+    expect(rows.filter((row) => !['basico', 'profesional', 'premium', 'legacy', 'prueba'].includes(String(row.code)))).toEqual([
       { code: 'emprendedor', setup_price: 149000, monthly_price: 59900, annual_price: 599000, is_active: 0, ai_monthly_messages: 500, ai_usage_policy: 'quota' },
       { code: 'negocio', setup_price: 199000, monthly_price: 99900, annual_price: 999000, is_active: 0, ai_monthly_messages: null, ai_usage_policy: 'monitored' },
       { code: 'mayorista', setup_price: 299000, monthly_price: 169900, annual_price: 1699000, is_active: 0, ai_monthly_messages: null, ai_usage_policy: 'monitored' },
@@ -389,6 +390,8 @@ describe('migration 0023', () => {
     const db = createTestDatabase() as SqliteD1
     db.sqlite.exec("INSERT INTO stores (id, slug, name, status, plan_code) VALUES (50, 'vieja', 'Vieja', 'active', 'premium')")
     db.sqlite.exec("INSERT INTO ai_message_ledger (store_id, cycle_key, event_key) VALUES (50, '2026-11-01', 'tg:1')")
+    // Rollbacks run newest first: 0033 (free trial) before 0023.
+    db.sqlite.exec(readFileSync(join(MIGRATIONS_DIR, '..', 'rollback', '0033_trial_real_store.down.sql'), 'utf8'))
     db.sqlite.exec(readFileSync(join(MIGRATIONS_DIR, '..', 'rollback', '0023_ai_message_quota.down.sql'), 'utf8'))
     const tables = db.query<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'ai_message_%'")
     expect(tables).toEqual([])
