@@ -14,14 +14,14 @@ const APP = (process.env.VITE_APP_URL || 'https://app.tiendiaexpres.com').replac
 const PICKS = {
   'luz-magica': ['LM-005', 'LM-007', 'LM-117', 'LM-105', 'LM-139', 'LM-054'],
   'muy-parcero': ['ZAP-NEG-3012', 'CAM-NEG-7116', 'PLA-BLA-6934'],
-  // Only the tankbag: the backpack shows a third-party logo and the tail bag a licence plate.
-  'pilot-equipment': ['Tankbag-0001'],
-  // No product photos: every jean photo carries third-party brand marks; captures only.
-  'imperio-nova': [],
-  // No product photos: its prices are still provisional (2026-11-13); captures only.
-  'el-palacio-de-las-flores': [],
-  // No product photos: every garment carries third-party brand marks; captures only. Prices are provisional (2026-11-13).
-  'altogramaje-twin': [],
+  // Pilot Equipment: no product photos on the landing (owner's decision, 2026-11-14); captures only.
+  'pilot-equipment': [],
+  // Photos carry third-party brand marks (Levi's, Polo, Diesel); shown at the owner's explicit request (2026-11-14).
+  'imperio-nova': ['PAN-AZU-9886', 'JEA-AZU-4526', 'TG-29C4ADBA-992'],
+  // Bouquets only: no licensed plush characters, no photos taken from other accounts or with people's notes. Prices are provisional.
+  'el-palacio-de-las-flores': ['PF-06', 'PF-09', 'PF-14', 'PF-58'],
+  // Own-brand pieces only (Undergold, Clemont); no Hugo Boss, Psycho Bunny, etc. Prices are provisional.
+  'altogramaje-twin': ['AG-0630', 'AG-0639', 'AG-0578', 'AG-0541'],
 }
 const OUT = new URL('./.stores/real/', import.meta.url)
 await mkdir(OUT, { recursive: true })
