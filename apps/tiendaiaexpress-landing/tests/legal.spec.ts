@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 
-// Legal pages (Terms and Conditions v1.1 and the add-on services). Served as /<page> like Cloudflare Pages.
+// Legal pages (Terms and Conditions v1.2 and the add-on services). Served as /<page> like Cloudflare Pages.
 const PAGES = [
   { path: '/terminos-y-condiciones', h1: 'Términos y Condiciones de Uso y Contratación', raw: 'Términos y Condiciones de Uso y Contratación' },
   { path: '/servicios-adicionales', h1: 'Tu negocio merece ir más allá.', raw: 'Elige lo que tu negocio necesita' },
@@ -42,8 +42,13 @@ test.describe('legal pages', () => {
 
   test('terms: version and date, index anchors that exist, and no pending identification fields', async ({ page }) => {
     await page.goto('/terminos-y-condiciones')
-    await expect(page.getByText('Versión 1.1').first()).toBeVisible()
-    await expect(page.locator('time[datetime="2026-11-13"]')).toHaveCount(1)
+    await expect(page.getByText('Versión 1.2').first()).toBeVisible()
+    await expect(page.locator('time[datetime="2026-11-14"]')).toHaveCount(1)
+    await expect(page.locator('#historial-versiones + ul li')).toHaveCount(2)
+    // v1.2: launch prices confirmed, the same as the services catalogue.
+    const doc = page.locator('.legal-doc')
+    for (const text of ['$99.000 COP por el primer año', 'Precio: $79.000 COP por tienda', 'Precio: $179.000 COP', 'Precio: $129.000 COP mensuales']) await expect(doc).toContainText(text)
+    await expect(doc).not.toContainText('— propuesto')
     const ids = await page.locator('.legal-toc a').evaluateAll((as) => as.map((a) => a.getAttribute('href')!.slice(1)))
     expect(ids.length).toBeGreaterThan(37)
     for (const id of new Set(ids)) await expect(page.locator(`[id="${id}"]`)).toHaveCount(1)
@@ -53,16 +58,16 @@ test.describe('legal pages', () => {
     await expect(page.locator('a[href="mailto:ventas@tiendiaexpres.com"]').first()).toBeVisible()
   })
 
-  test('services: 50 contractable services + 4 upcoming, only the domain renewal confirmed, quotes by e-mail, no payments', async ({ page }) => {
+  test('services: 50 contractable services, all confirmed, + 4 upcoming, quotes by e-mail, no payments', async ({ page }) => {
     await page.goto('/servicios-adicionales')
     const cards = page.locator('#catalogo ul').first().locator(':scope > li')
     await expect(cards).toHaveCount(50)
     await expect(page.locator('#catalogo')).toContainText('50 de 50 servicios')
-    // Only one card in the catalogue carries the confirmed price: the standard domain renewal.
-    const confirmed = page.locator('#catalogo article', { hasText: 'Precio confirmado' })
-    await expect(confirmed).toHaveCount(1)
-    await expect(confirmed).toContainText('Renovación de dominio estándar')
-    await expect(confirmed).toContainText('$120.000')
+    // Launch prices confirmed by the owner on 2026-11-14: every contractable service and package.
+    await expect(page.locator('#catalogo article', { hasText: 'Precio confirmado' })).toHaveCount(50)
+    await expect(page.locator('main')).not.toContainText('Precio propuesto')
+    await expect(page.locator('#paquetes article', { hasText: 'Precio confirmado' })).toHaveCount(3)
+    await expect(page.locator('#catalogo article', { hasText: 'Renovación de dominio estándar' })).toContainText('$120.000')
     // Upcoming services cannot be quoted.
     const upcoming = page.locator('#catalogo li', { hasText: 'Próximamente' })
     await expect(upcoming).toHaveCount(4)

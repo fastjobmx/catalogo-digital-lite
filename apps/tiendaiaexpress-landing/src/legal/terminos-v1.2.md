@@ -131,9 +131,7 @@ No podrán registrarse nombres que vulneren marcas, derechos de terceros o las p
 
 ### 10.2. Precio de adquisición
 
-**Precio propuesto para el registro inicial de un dominio estándar elegible: $120.000 COP por el primer año.**
-
-Este valor deberá confirmarse comercialmente antes de la publicación del tarifario.
+**Precio del registro inicial de un dominio estándar elegible: $99.000 COP por el primer año.**
 
 No incluye dominios premium, nombres revendidos, extensiones especiales ni servicios extraordinarios del registrador.
 
@@ -232,7 +230,7 @@ Esta obligación de mantenimiento de la Plataforma no equivale a la prestación 
 
 ### 13.2. SEO básico asistido
 
-**Precio propuesto: $149.000 COP por tienda, pago único.**
+**Precio: $79.000 COP por tienda, pago único.**
 
 Incluye, dentro del alcance técnicamente compatible con la tienda:
 
@@ -248,7 +246,7 @@ No incluye seguimiento mensual, generación ilimitada de contenido, campañas de
 
 ### 13.3. SEO avanzado: implementación inicial
 
-**Precio propuesto: $349.000 COP, pago único.**
+**Precio: $179.000 COP, pago único.**
 
 Incluye:
 
@@ -266,7 +264,7 @@ Los cambios de infraestructura o desarrollo a medida que excedan el alcance cont
 
 ### 13.4. SEO avanzado: seguimiento mensual
 
-**Precio propuesto: $249.000 COP mensuales.**
+**Precio: $129.000 COP mensuales.**
 
 Incluye:
 
@@ -291,17 +289,17 @@ La contratación y terminación del seguimiento deberán ajustarse a las condici
 
 ## 14. Servicios adicionales y tarifario
 
-Los siguientes valores corresponden a una **propuesta comercial pendiente de aprobación**, excepto la renovación estándar del dominio por $120.000 COP anuales.
+Los siguientes valores son las **tarifas vigentes de lanzamiento**, en pesos colombianos y sin impuestos. El tarifario completo y actualizado se publica en https://tiendiaexpres.com/servicios-adicionales.
 
-No producirán obligaciones de pago hasta que el comerciante reciba una oferta vigente y la acepte.
+No producirán obligaciones de pago hasta que el comerciante reciba una cotización vigente y la acepte.
 
 ### 14.1. Dominios y servicios técnicos
 
 | Servicio | Precio |
 |---|---:|
-| Registro inicial de dominio estándar elegible, por un año | $120.000 COP — propuesto |
-| Renovación anual de dominio estándar elegible | $120.000 COP — confirmado |
-| Conexión de dominio externo existente | $49.000 COP — propuesto |
+| Registro inicial de dominio estándar elegible, por un año | $99.000 COP |
+| Renovación anual de dominio estándar elegible | $120.000 COP |
+| Conexión de dominio externo existente | $29.000 COP |
 | Uso de subdominio incluido en el plan | Sin cobro adicional |
 | HTTPS estándar del servicio alojado | Sin cobro adicional |
 | Dominios premium o extensiones especiales | Cotización previa |
@@ -312,10 +310,10 @@ No producirán obligaciones de pago hasta que el comerciante reciba una oferta v
 
 | Servicio | Precio |
 |---|---:|
-| SEO básico asistido | $149.000 COP — propuesto, único |
-| SEO avanzado, implementación inicial | $349.000 COP — propuesto, único |
-| SEO avanzado, optimización y seguimiento | $249.000 COP — propuesto, mensual |
-| Redacción de artículo SEO de hasta 1.000 palabras | $80.000 COP — propuesto |
+| SEO básico asistido | $79.000 COP, pago único |
+| SEO avanzado, implementación inicial | $179.000 COP, pago único |
+| SEO avanzado, optimización y seguimiento | $129.000 COP mensuales |
+| Redacción de artículo SEO de hasta 1.000 palabras | $39.000 COP |
 | Servicios adicionales de contenido o investigación | Cotización previa |
 
 ### 14.3. Catálogo y administración
@@ -326,11 +324,11 @@ No sustituyen las funciones de importación o creación de productos que ya est�
 
 | Servicio | Precio |
 |---|---:|
-| Carga asistida de hasta 50 productos | $49.000 COP — propuesto |
-| Carga asistida de hasta 100 productos | $89.000 COP — propuesto |
-| Carga asistida de hasta 500 productos | $349.000 COP — propuesto |
-| Personalización visual avanzada | $129.000 COP — propuesto |
-| Capacitación personalizada | $60.000 COP por hora — propuesto |
+| Carga asistida de hasta 50 productos | $29.000 COP |
+| Carga asistida de hasta 100 productos | $49.000 COP |
+| Carga asistida de hasta 500 productos | $199.000 COP |
+| Personalización visual avanzada | $69.000 COP |
+| Capacitación personalizada | $35.000 COP por hora |
 
 La carga asistida requiere fotografías y datos comerciales suministrados por el usuario.
 
@@ -340,8 +338,8 @@ La edición profesional de fotografías, investigación de productos y redacció
 
 | Servicio | Precio |
 |---|---:|
-| Una pieza publicitaria diseñada manualmente | $35.000 COP — propuesto |
-| Paquete de cinco piezas de diseño manual | $149.000 COP — propuesto |
+| Una pieza publicitaria diseñada manualmente | $19.000 COP |
+| Paquete de cinco piezas de diseño manual | $79.000 COP |
 | Plantillas automáticas incluidas en el plan | Sin cobro adicional |
 | Campañas publicitarias pagadas | Cotización previa; inversión publicitaria aparte |
 | Producciones audiovisuales personalizadas | Cotización previa |
@@ -352,7 +350,7 @@ Los servicios de diseño humano son distintos de las plantillas automáticas dis
 
 | Servicio | Precio |
 |---|---:|
-| Configuración de una cuenta de correo corporativo con proveedor externo | $39.000 COP — propuesto |
+| Configuración de una cuenta de correo corporativo con proveedor externo | $19.000 COP |
 | Suscripción al proveedor de correo | Tarifa del tercero, informada previamente |
 | Integraciones especiales o desarrollos personalizados | Cotización previa |
 | Servicios de terceros con cargos variables | Según su facturación y aceptación previa |
@@ -365,9 +363,9 @@ No se considerarán comercialmente disponibles las integraciones que todavía pe
 
 | Paquete | Precio |
 |---|---:|
-| 100 créditos artísticos | $12.000 COP |
-| 300 créditos artísticos | $30.000 COP |
-| 700 créditos artísticos | $63.000 COP |
+| 100 créditos artísticos | $9.000 COP |
+| 300 créditos artísticos | $24.000 COP |
+| 700 créditos artísticos | $49.000 COP |
 
 El consumo requerido para cada herramienta se indicará antes de generar el contenido.
 
@@ -379,7 +377,7 @@ Todos los precios se expresan en pesos colombianos.
 
 Antes de finalizar cualquier contratación, TiendIA Exprés mostrará el total que debe pagar el usuario, incluidos los impuestos y cargos aplicables.
 
-Los importes propuestos de este documento requieren validación comercial y tributaria antes de convertirse en tarifas públicas.
+Los precios de este documento no incluyen impuestos; los impuestos y cargos aplicables se informan en la cotización.
 
 **No se realizarán trabajos opcionales con cobro sin cotización y aceptación previa.**
 

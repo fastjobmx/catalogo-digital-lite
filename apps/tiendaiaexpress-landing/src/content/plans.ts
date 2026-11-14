@@ -122,7 +122,7 @@ export const addOns: AddOn[] = [
   {
     title: 'Dominio propio',
     body: 'Tu tienda en tu propia dirección (por ejemplo, tunegocio.com), con configuración asistida.',
-    price: 'Plan Emprendedor: $99.000 COP al año. Planes Negocio y Mayorista: consulta las condiciones.',
+    price: 'Registro: $99.000 COP el primer año. Renovación: $120.000 COP al año. Detalles en Servicios adicionales.',
     status: 'consulta',
   },
   {

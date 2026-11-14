@@ -1,5 +1,15 @@
 # Servicios adicionales premium: entrega (2026-11-14)
 
+> **Actualización 2026-11-14 (rama `feat/precios-confirmados`):** el propietario confirmó todos los precios de lanzamiento.
+> - Los 50 servicios contratables y los 3 paquetes quedan como «Precio confirmado» en `src/content/addons.ts`.
+> - Los 4 de «Próximamente» siguen como propuesta: no se pueden contratar.
+> - Términos actualizados a la **v1.2** (`src/legal/terminos-v1.2.md`): registro de dominio $99.000 el primer año, SEO $79.000/$179.000/$129.000 al mes y tablas de la §14 con los precios nuevos.
+> - Los créditos artísticos siguen sujetos al monedero.
+> - La página de términos tiene ahora un historial de versiones.
+> - Tarjeta «Dominio propio» de la página principal: «Registro: $99.000 COP el primer año. Renovación: $120.000 COP al año».
+>
+> Sigue pendiente: impuestos (los precios son sin impuestos), vigencia de las cotizaciones, horario exacto y datos legales (razón social, NIT y domicilio).
+
 Rama `feat/servicios-premium`, solo commit local: **sin push, merge ni despliegue**.
 
 ## Qué cambió

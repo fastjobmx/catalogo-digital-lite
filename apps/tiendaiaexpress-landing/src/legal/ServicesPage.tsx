@@ -16,10 +16,10 @@ const quote = (subject: string) => `mailto:${site.email.sales}?subject=${encodeU
 const catOf = (key: CategoryKey) => categories.find((c) => c.key === key)!
 const normalize = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 
-export function Status({ status, onDark }: { status: PriceStatus | 'pronto'; onDark?: boolean }) {
+export function Status({ status, onDark, onLime }: { status: PriceStatus | 'pronto'; onDark?: boolean; onLime?: boolean }) {
   const label = status === 'confirmado' ? 'Precio confirmado' : status === 'pronto' ? 'Próximamente' : 'Precio propuesto'
   const style = status === 'confirmado'
-    ? 'bg-lime text-night ring-night/10'
+    ? onLime ? 'bg-night text-lime ring-night' : 'bg-lime text-night ring-night/10'
     : status === 'pronto'
       ? onDark ? 'bg-white/8 text-mist ring-white/15' : 'bg-night/6 text-ink-soft ring-night/15'
       : onDark ? 'bg-violet/20 text-violet-soft ring-violet/40' : 'bg-violet/10 text-violet-ink ring-violet/25'
@@ -149,7 +149,7 @@ function Packages() {
       <div className="wrap relative">
         <Eyebrow onDark>Propuestas para empezar</Eyebrow>
         <h2 id="paquetes-titulo" className="display mt-4 max-w-3xl text-[clamp(2rem,4vw,3.25rem)]">Soluciones completas. <span className="text-lime">Precios de lanzamiento.</span></h2>
-        <p className="mt-4 max-w-2xl text-[1.06rem] leading-relaxed text-mist">Paquetes que combinan servicios del catálogo y cuestan menos que por separado. Se confirman con una cotización antes de cualquier pago.</p>
+        <p className="mt-4 max-w-2xl text-[1.06rem] leading-relaxed text-mist">Paquetes que combinan servicios del catálogo y cuestan menos que por separado. Antes de pagar recibes la cotización con el total y los impuestos.</p>
         <div className="mt-12 grid gap-5 lg:grid-cols-3">
           {packages.map((p) => (
             <article key={p.key} className={`relative flex flex-col rounded-3xl p-7 ${p.highlight ? 'bg-lime text-night shadow-[0_40px_80px_-40px_rgba(217,255,20,.7)] lg:-translate-y-3' : 'bg-white/[0.06] ring-1 ring-inset ring-white/12'}`}>
@@ -159,7 +159,7 @@ function Packages() {
               <p className={`mt-2 text-[0.98rem] leading-relaxed ${p.highlight ? 'text-night/75' : 'text-mist'}`}>{p.summary}</p>
               <p className="mt-6 font-display text-[2.5rem] font-extrabold leading-none tracking-tight">{cop(p.price).replace(' COP', '')}<span className={`ml-1.5 text-[0.9rem] font-semibold ${p.highlight ? 'text-night/70' : 'text-mist'}`}>COP · pago único</span></p>
               <p className={`mt-2 text-[0.88rem] ${p.highlight ? 'text-night/75' : 'text-mist'}`}>Por separado: <s>{cop(p.separate)}</s> · ahorras {cop(p.separate - p.price)}</p>
-              <p className="mt-3"><Status status="propuesto" onDark={!p.highlight} /></p>
+              <p className="mt-3"><Status status="confirmado" onDark={!p.highlight} onLime={p.highlight} /></p>
               <ul className="mt-6 flex-1 space-y-2.5 text-[0.96rem]">
                 {p.items.map((i) => <li key={i} className="flex gap-2.5"><Icon name="check" size={18} className={`mt-0.5 shrink-0 ${p.highlight ? 'text-violet-ink' : 'text-lime'}`} />{i}</li>)}
               </ul>
@@ -216,7 +216,7 @@ function Catalog({ active, setActive }: { active: CategoryKey | 'todos'; setActi
             <Eyebrow>Catálogo completo</Eyebrow>
             <h2 id="catalogo-titulo" className="display mt-4 text-[clamp(2rem,4vw,3.25rem)] text-night">Elige lo que tu negocio necesita.</h2>
           </div>
-          <p className="text-[1.02rem] leading-relaxed text-ink-soft">Precios de lanzamiento en pesos colombianos, sin impuestos. La renovación de dominio estándar es la única tarifa confirmada; las demás son propuestas que se confirman en tu cotización.</p>
+          <p className="text-[1.02rem] leading-relaxed text-ink-soft">Precios de lanzamiento confirmados, en pesos colombianos y sin impuestos. El total con impuestos y el alcance exacto te llegan en la cotización, antes de pagar.</p>
         </div>
 
         <div className="mt-10 rounded-3xl bg-porcelain p-4 ring-1 ring-night/10 md:p-5">
@@ -354,7 +354,7 @@ function Process() {
 }
 
 const faqs = [
-  { q: '¿Estos precios ya son definitivos?', a: 'No. Son precios de lanzamiento propuestos. La única tarifa adicional confirmada es la renovación de dominio estándar por $120.000 COP al año. Antes de cualquier pago recibes una cotización con alcance y precio final, impuestos incluidos.' },
+  { q: '¿Estos precios son definitivos?', a: 'Sí: son nuestros precios de lanzamiento vigentes, en pesos colombianos y sin impuestos. Antes de cualquier pago recibes una cotización con el alcance exacto y el total con impuestos. Los servicios marcados como «Próximamente» todavía no se pueden contratar.' },
   { q: '¿Por qué son tan económicos?', a: 'Estamos empezando y queremos acompañar a los negocios desde el principio. Los valores se confirman en cada cotización y respetamos el precio que aceptaste durante el servicio contratado.' },
   { q: '¿Mi plan ya incluye alguno de estos servicios?', a: 'Tu plan incluye tu tienda online, plantillas y apariencia, importación de productos, mejoras de foto con IA, el Estudio Creativo y el asistente de Telegram. Cuando un servicio se parece a algo incluido, la tarjeta lo explica para que no pagues dos veces.' },
   { q: '¿Los servicios de SEO garantizan aparecer de primero?', a: 'No. Trabajamos la parte técnica y el contenido, pero los buscadores deciden sus resultados. No se garantizan posiciones, visitas ni ventas.' },

@@ -3,7 +3,7 @@ import { Icon } from '../components/ui/Icon'
 import { Button } from '../components/ui/primitives'
 import { Document, Inline, parse, toc } from './Markdown'
 import { LegalHero, LegalLayout, MetaChip } from './LegalLayout'
-import termsMd from './terminos-v1.1.md?raw'
+import termsMd from './terminos-v1.2.md?raw'
 
 const blocks = parse(termsMd)
 const index = toc(blocks)
@@ -72,6 +72,15 @@ export function TermsPage() {
           </header>
 
           <Document blocks={blocks} />
+
+          <section aria-labelledby="historial-versiones" className="mt-14 border-t border-night/10 pt-8">
+            <h2 id="historial-versiones" className="font-display text-[1.15rem] font-bold text-night">Historial de versiones</h2>
+            <ul className="mt-4 space-y-2 text-[0.95rem] text-ink-soft">
+              {site.terms.history.map((h) => (
+                <li key={h.version}><strong className="font-semibold text-night">Versión {h.version}</strong> · {h.date}: {h.change}</li>
+              ))}
+            </ul>
+          </section>
 
           <section aria-labelledby="contacto-oficial" className="legal-contact mt-14 rounded-3xl bg-night p-7 text-porcelain md:p-9 on-dark">
             <h2 id="contacto-oficial" className="display text-[1.6rem]">Contacto oficial</h2>
