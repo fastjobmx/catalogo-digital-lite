@@ -24,7 +24,7 @@ export function Trial() {
           <SectionHeading id="prueba-title" onDark eyebrow="Gratis · Sin tarjeta de crédito" title={<>Prueba gratis durante <span className="accent accent-gradient">{site.trial.days} días.</span></>} intro={`Crea tu tienda real en minutos y adminístrala desde el primer día con el mismo panel de los comercios que ya venden. Si contratas un plan, conservas tus productos y configuración.`} />
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <Button href={site.trialUrl} variant="lime" size="lg" lead="store" icon="arrowUpRight" external>Crear mi tienda gratis</Button>
-            <Button href="#contacto" variant="outline-light" size="lg">Crear mi tienda</Button>
+            <Button href="#contacto" variant="outline-light" size="lg">Te ayudamos a crearla</Button>
           </div>
         </div>
         <ul className="grid gap-3">
