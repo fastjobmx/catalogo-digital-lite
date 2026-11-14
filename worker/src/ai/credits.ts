@@ -6,6 +6,12 @@
 import type { Env } from '../index'
 import { checkAiBudget, recordAiUsage, type TokenUsage } from './usage'
 import { isSpendBlocked, runWithSpend } from './spendGuard'
+import { creditCostFor, expireCreditLots, grantPlanCredits } from './creditWallet'
+import { ownKeyCovers } from './ownKey'
+
+/** Features that generate images or video (the rest are text operations). */
+const IMAGE_FEATURES = new Set(['estudio_imagen', 'foto_packshot', 'foto_premium'])
+const kindOfFeature = (feature: string): 'text' | 'image' | 'video' => feature === 'video_ia_segundo' ? 'video' : IMAGE_FEATURES.has(feature) ? 'image' : 'text'
 
 export const RESERVATION_MINUTES = 15
 export const MAX_PENDING_REQUESTS = 3
@@ -120,15 +126,21 @@ export async function runWithCredits<T extends { usage?: TokenUsage; model?: str
 ): Promise<CreditRun<T>> {
   const blocked = (reason: CreditGateReason): CreditRun<T> => ({ ok: false, reason, message: CREDIT_GATE_MESSAGES[reason] })
   if (!env.GEMINI_API_KEY) return blocked('ai_unavailable')
-  const cost = await db.prepare('SELECT credits, enabled FROM ai_credit_costs WHERE feature = ?').bind(input.feature).first<{ credits: number; enabled: number }>()
+  // Wallet upkeep before pricing: expired lots out, this cycle's plan credits in (both idempotent).
+  await expireCreditLots(db, input.storeId).catch((error) => console.error('Credit expiry failed:', error instanceof Error ? error.message : 'unknown'))
+  await grantPlanCredits(db, input.storeId).catch((error) => console.error('Plan credits grant failed:', error instanceof Error ? error.message : 'unknown'))
+  const cost = await creditCostFor(db, input.storeId, input.feature)
   if (cost && !cost.enabled) return blocked('feature_disabled')
+  // The store's own API key pays this operation: TiendIA charges no credits for it (and the guard will never send
+  // it with the platform key instead).
+  const ownKey = await ownKeyCovers(db, env, input.storeId, input.feature, kindOfFeature(input.feature)).catch(() => false)
   const budget = await checkAiBudget(db, env, input.storeId)
   if (!budget.allowed) {
     await recordAiUsage(db, env, { storeId: input.storeId, feature: input.feature, status: 'blocked' })
     return blocked(budget.reason || 'budget_exhausted')
   }
   const units = Number.isInteger(input.units) && input.units! > 0 ? input.units! : 1
-  const credits = Number(cost?.credits || 0) * units
+  const credits = ownKey ? 0 : Number(cost?.credits || 0) * units
   let reservationId: number | null = null
   if (credits > 0) {
     await releaseExpiredReservations(db, input.storeId)
@@ -140,7 +152,7 @@ export async function runWithCredits<T extends { usage?: TokenUsage; model?: str
     reservationId = reservation.reservationId
   }
   try {
-    const spend = { db, env, scope: 'store' as const, storeId: input.storeId, feature: input.feature, opKey: `cr:${input.storeId}:${input.spendKey || input.key}` }
+    const spend = { db, env, scope: 'store' as const, storeId: input.storeId, feature: input.feature, opKey: `cr:${input.storeId}:${input.spendKey || input.key}`, creditsWaived: ownKey }
     const value = await runWithSpend(spend, call)
     if (reservationId) await settleReservation(db, reservationId, 'consumo')
     await recordAiUsage(db, env, { storeId: input.storeId, feature: input.feature, model: value.model, usage: value.usage, status: 'ok' })
@@ -221,7 +233,7 @@ export async function setCreditCost(db: D1Database, feature: unknown, body: { cr
 }
 
 /** Recharge (+) or adjustment (±) by the superadmin. An adjustment can never leave the balance below zero. */
-export async function grantCredits(db: D1Database, storeId: number, body: { kind?: unknown; amount?: unknown; reason?: unknown }, key: string, actor: string) {
+export async function grantCredits(db: D1Database, storeId: number, body: { kind?: unknown; amount?: unknown; reason?: unknown; source?: unknown; validDays?: unknown }, key: string, actor: string) {
   if (!validIdempotencyKey(key)) throw new CreditError('INVALID_IDEMPOTENCY_KEY', 'Falta el encabezado Idempotency-Key')
   if (body.kind !== 'recarga' && body.kind !== 'ajuste') throw new CreditError('INVALID_KIND', 'kind debe ser recarga o ajuste')
   const reason = cleanText(body.reason)
@@ -229,12 +241,17 @@ export async function grantCredits(db: D1Database, storeId: number, body: { kind
   const raw = Number(body.amount)
   const amount = body.kind === 'recarga' ? positiveInt(raw, 'amount') : (Number.isInteger(raw) && raw !== 0 && Math.abs(raw) <= MAX_CREDIT_AMOUNT ? raw : NaN)
   if (Number.isNaN(amount)) throw new CreditError('INVALID_AMOUNT', 'amount debe ser un entero distinto de 0')
+  // Origin of a recharge: courtesy (default, as before) or purchase. Optional validity in days.
+  const source = body.kind === 'ajuste' ? 'ajuste' : body.source === 'compra' ? 'compra' : 'cortesia'
+  if (body.source !== undefined && body.source !== 'compra' && body.source !== 'cortesia') throw new CreditError('INVALID_SOURCE', 'source debe ser cortesia o compra')
+  const days = body.validDays === undefined || body.validDays === null ? null : Number(body.validDays)
+  if (days !== null && (!Number.isInteger(days) || days < 1 || days > 1100)) throw new CreditError('INVALID_VALIDITY', 'validDays debe ser un entero entre 1 y 1100')
   const row = await db.prepare(
-    `INSERT OR IGNORE INTO ai_credit_ledger (store_id, kind, amount, idempotency_key, actor, reason)
-     SELECT ?1, ?2, ?3, ?4, ?5, ?6
+    `INSERT OR IGNORE INTO ai_credit_ledger (store_id, kind, amount, idempotency_key, actor, reason, source, lot_expires_at)
+     SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, CASE WHEN ?8 IS NULL THEN NULL ELSE datetime('now', '+' || ?8 || ' days') END
      WHERE ?3 > 0 OR (SELECT COALESCE(SUM(amount), 0) FROM ai_credit_ledger WHERE store_id = ?1) + ?3 >= 0
      RETURNING id`,
-  ).bind(storeId, body.kind, amount, key, actor, reason).first<{ id: number }>()
+  ).bind(storeId, body.kind, amount, key, actor, reason, source, days).first<{ id: number }>()
   if (!row) {
     const existing = await db.prepare('SELECT id, kind, amount FROM ai_credit_ledger WHERE store_id = ? AND idempotency_key = ?').bind(storeId, key).first<{ id: number; kind: string; amount: number }>()
     if (existing) return { replayed: true, movementId: existing.id, ...(await creditSummary(db, storeId)) }
@@ -260,8 +277,10 @@ export async function resolveCreditRequest(db: D1Database, requestId: number, bo
     const key = `request:${requestId}`
     await db.batch([
       db.prepare(
-        `INSERT INTO ai_credit_ledger (store_id, kind, amount, idempotency_key, actor, reason)
-         SELECT store_id, 'recarga', ?2, ?3, ?4, ?5 FROM ai_credit_requests WHERE id = ?1 AND status = 'pendiente'`,
+        `INSERT INTO ai_credit_ledger (store_id, kind, amount, idempotency_key, actor, reason, source, lot_expires_at)
+         SELECT store_id, 'recarga', ?2, ?3, ?4, ?5, 'compra',
+                datetime('now', '+' || COALESCE((SELECT valid_months FROM ai_credit_packs WHERE code = ai_credit_requests.pack_code), 12) || ' months')
+         FROM ai_credit_requests WHERE id = ?1 AND status = 'pendiente'`,
       ).bind(requestId, credits, key, actor, `Solicitud #${requestId} aprobada${note ? `: ${note}` : ''}`),
       db.prepare(
         `UPDATE ai_credit_requests SET status = 'aprobada', approved_credits = ?2, resolved_by = ?3, resolution_note = ?4, resolved_at = datetime('now'),
@@ -278,13 +297,18 @@ export async function resolveCreditRequest(db: D1Database, requestId: number, bo
 
 // ---- store (merchant: read and request only) -----------------------------------
 
-export async function createCreditRequest(db: D1Database, storeId: number, body: { credits?: unknown; note?: unknown }, actor: string) {
-  const credits = positiveInt(body.credits, 'credits')
+export async function createCreditRequest(db: D1Database, storeId: number, body: { credits?: unknown; note?: unknown; packCode?: unknown }, actor: string) {
+  // A pack fixes the credits (and its price and validity); without a pack the store asks for an amount, as before.
+  const pack = typeof body.packCode === 'string' && body.packCode
+    ? await db.prepare('SELECT code, credits FROM ai_credit_packs WHERE code = ? AND active = 1').bind(body.packCode).first<{ code: string; credits: number }>()
+    : null
+  if (typeof body.packCode === 'string' && body.packCode && !pack) throw new CreditError('UNKNOWN_PACK', 'Ese paquete de créditos no existe')
+  const credits = pack ? pack.credits : positiveInt(body.credits, 'credits')
   const pending = await db.prepare(`SELECT COUNT(*) AS n FROM ai_credit_requests WHERE store_id = ? AND status = 'pendiente'`).bind(storeId).first<{ n: number }>()
   if (Number(pending?.n || 0) >= MAX_PENDING_REQUESTS) throw new CreditError('TOO_MANY_PENDING', `Ya tienes ${MAX_PENDING_REQUESTS} solicitudes pendientes. Espera a que la plataforma las revise.`, 409)
   const row = await db.prepare(
-    `INSERT INTO ai_credit_requests (store_id, credits, note, requested_by) VALUES (?, ?, ?, ?) RETURNING id, credits, note, status, created_at AS createdAt`,
-  ).bind(storeId, credits, cleanText(body.note, 500), actor.slice(0, 160)).first()
+    `INSERT INTO ai_credit_requests (store_id, credits, note, requested_by, pack_code) VALUES (?, ?, ?, ?, ?) RETURNING id, credits, note, status, pack_code AS packCode, created_at AS createdAt`,
+  ).bind(storeId, credits, cleanText(body.note, 500), actor.slice(0, 160), pack?.code ?? null).first()
   await db.prepare(`INSERT INTO platform_events (store_id, level, source, code, detail) VALUES (?, 'info', 'ai', 'AI_CREDIT_REQUEST', ?)`)
     .bind(storeId, `Solicitud de recarga de ${credits} créditos de IA`).run()
   return row

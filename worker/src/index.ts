@@ -21,6 +21,7 @@ import { cleanupAssistantMemory } from './services/assistant/context'
 import { cleanupExpiredTelegramProductAssets } from './services/telegramProductImages'
 import { releaseExpiredReservations } from './ai/credits'
 import { expireStaleReservations } from './ai/spendGuard'
+import { expireCreditLots } from './ai/creditWallet'
 import trialRoutes from './routes/trial'
 import seoRoutes from './routes/seo'
 import emailRoutes from './routes/email'
@@ -119,6 +120,14 @@ export type Env = {
  AI_BUDGET_ENVIRONMENT?: string
  /** Correcciones de la tabla oficial de precios, JSON por modelo (ver src/ai/pricing.ts). */
  AI_PRICING_OVERRIDES?: string
+ /** Límites técnicos por tienda (también con API propia): tareas de IA simultáneas y por minuto. */
+ AI_STORE_CONCURRENCY?: string
+ AI_STORE_BURST_PER_MINUTE?: string
+ /** Pesos colombianos por dólar para convertir el presupuesto interno de cada plan (por defecto 4000). */
+ AI_FX_COP_PER_USD?: string
+ /** API propia por comercio: clave maestra (secreto, 32 bytes en base64) y su versión para rotación. */
+ AI_KEYS_MASTER_KEY?: string
+ AI_KEYS_MASTER_KEY_VERSION?: string
  ALLOWED_ORIGIN?: string
  /** Public storefront base URL used in links (e.g. https://catalogo-digital-ia.catalogo-lite-worker.workers.dev). */
  PUBLIC_STORE_BASE_URL?: string
@@ -248,6 +257,8 @@ const worker = {
   context.waitUntil(cleanupExpiredTrials(env.DB, env.ASSETS).catch((error) => console.error('Trial cleanup failed:', error instanceof Error ? error.message : 'unknown')))
   context.waitUntil(releaseExpiredReservations(env.DB).catch((error) => console.error('AI credit reservation cleanup failed:', error instanceof Error ? error.message : 'unknown')))
   // Gasto IA: cierra reservas que un Worker caído dejó abiertas (se cuentan por lo reservado: la llamada pudo cobrarse).
+  // Créditos artísticos: retira lo que quedó de lotes vencidos (un ajuste idempotente por lote).
+  context.waitUntil(expireCreditLots(env.DB).catch((error) => console.error('Credit expiry failed:', error instanceof Error ? error.message : 'unknown')))
   context.waitUntil(expireStaleReservations(env.DB).catch((error) => console.error('AI spend reservation cleanup failed:', error instanceof Error ? error.message : 'unknown')))
   // Estudio Creativo: primero libera trabajos caídos; después avanza la cola de fotos pendientes.
   context.waitUntil(maintainCreativeJobs(env.DB).then(() => processPendingPhotoJobs(env)).then(() => processPendingVideoJobs(env)).catch((error) => console.error('Creative jobs maintenance failed:', error instanceof Error ? error.message : 'unknown')))

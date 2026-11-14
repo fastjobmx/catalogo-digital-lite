@@ -17,6 +17,8 @@ import { AccessError, listStoreMembers, requestEmailVerification, resendInvitati
 import { roleAllows } from '../tenancy/access'
 import { AiCatalogError, photoToProduct, readCatalogPage, studioEdit } from '../services/aiCatalog'
 import { ImportError, applyImportBatch, createImportJob, finishImportJob, listImportJobs, previewImport } from '../services/catalogImport'
+import { aiOverview } from '../ai/aiOverview'
+import { connectOwnKey, disconnectOwnKey, OwnKeyError, ownKeyStatus, revalidateOwnKey, updateOwnKeyUses } from '../ai/ownKey'
 import { CreditError, createCreditRequest, creditSummary, listCreditCosts, listCreditMovements, listCreditRequests } from '../ai/credits'
 import { getTelegramBatchPhoto, getTelegramBatchReview, listTelegramBatches, updateTelegramBatchReviewItem } from '../services/telegramProductBatches'
 import type { Context } from 'hono'
@@ -323,8 +325,40 @@ app.get('/credits', adminAuth, requireRole('admin'), async (c) => {
  })
 })
 
+// Configuración → Inteligencia artificial: consultas de la sesión y del mes, créditos artísticos, API propia e historial.
+app.get('/ai/overview', adminAuth, requireRole('admin'), async (c) => {
+ return c.json(await aiOverview(c.env.DB, c.env, c.get('storeId')!))
+})
+
+// Mi API: solo el propietario conecta, valida, cambia o desconecta su clave. La clave nunca vuelve en una respuesta.
+const KEY_CHANGES_PER_HOUR = 10
+async function ownKeyAction(c: Context<Env>, run: (storeId: number, actor: string) => Promise<unknown>) {
+ const storeId = c.get('storeId')!
+ const recent = await c.env.DB.prepare(`SELECT COUNT(*) AS n FROM store_ai_key_events WHERE store_id = ? AND actor <> 'system' AND created_at > datetime('now', '-1 hour')`).bind(storeId).first<{ n: number }>()
+ if (Number(recent?.n || 0) >= KEY_CHANGES_PER_HOUR) return c.json({ error: 'Hiciste muchos intentos con la API propia. Espera una hora.', code: 'TOO_MANY_KEY_CHANGES' }, 429)
+ try {
+  return c.json(await run(storeId, c.get('adminEmail') || 'unknown'))
+ } catch (error) {
+  if (error instanceof OwnKeyError) return c.json({ error: error.message, code: error.code }, error.status)
+  throw error
+ }
+}
+app.get('/ai/key', adminAuth, requireRole('admin'), async (c) => c.json(await ownKeyStatus(c.env.DB, c.env, c.get('storeId')!)))
+app.put('/ai/key', adminAuth, requireRole('owner'), async (c) => {
+ const body = await c.req.json().catch(() => null) as Record<string, unknown> | null
+ if (!body) return c.json({ error: 'Invalid JSON body' }, 400)
+ return ownKeyAction(c, (storeId, actor) => connectOwnKey(c.env.DB, c.env, fetch, storeId, body, actor))
+})
+app.post('/ai/key/validate', adminAuth, requireRole('owner'), (c) => ownKeyAction(c, (storeId, actor) => revalidateOwnKey(c.env.DB, c.env, fetch, storeId, actor)))
+app.patch('/ai/key', adminAuth, requireRole('owner'), async (c) => {
+ const body = await c.req.json().catch(() => null) as Record<string, unknown> | null
+ if (!body) return c.json({ error: 'Invalid JSON body' }, 400)
+ return ownKeyAction(c, (storeId, actor) => updateOwnKeyUses(c.env.DB, c.env, fetch, storeId, body, actor))
+})
+app.delete('/ai/key', adminAuth, requireRole('owner'), (c) => ownKeyAction(c, (storeId, actor) => disconnectOwnKey(c.env.DB, c.env, storeId, actor)))
+
 app.post('/credits/requests', adminAuth, requireRole('admin'), async (c) => {
- const body = await c.req.json().catch(() => null) as { credits?: unknown; note?: unknown } | null
+ const body = await c.req.json().catch(() => null) as { credits?: unknown; note?: unknown; packCode?: unknown } | null
  if (!body) return c.json({ error: 'Invalid JSON body' }, 400)
  try {
   return c.json(await createCreditRequest(c.env.DB, c.get('storeId')!, body, c.get('adminEmail') || 'unknown'), 201)

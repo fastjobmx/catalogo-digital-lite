@@ -92,9 +92,10 @@ describe('plans and limits', () => {
       ['basico', 1, null, 'none', 0], ['profesional', 1, null, 'none', 0], ['premium', 1, null, 'none', 0], ['legacy', 1, null, 'none', 0],
     ])
     expect(rows.filter((row) => !['basico', 'profesional', 'premium', 'legacy'].includes(String(row.code)))).toEqual([
-      { code: 'emprendedor', setup_price: 149000, monthly_price: 59900, annual_price: 599000, is_active: 0, ai_monthly_messages: 500, ai_usage_policy: 'quota' },
-      { code: 'negocio', setup_price: 199000, monthly_price: 99900, annual_price: 999000, is_active: 0, ai_monthly_messages: null, ai_usage_policy: 'monitored' },
-      { code: 'mayorista', setup_price: 299000, monthly_price: 169900, annual_price: 1699000, is_active: 0, ai_monthly_messages: null, ai_usage_policy: 'monitored' },
+      // 0030: the new plans count smart queries (planUsage.ts), so the message quota of 0023 is off for them.
+      { code: 'emprendedor', setup_price: 149000, monthly_price: 59900, annual_price: 599000, is_active: 0, ai_monthly_messages: null, ai_usage_policy: 'none' },
+      { code: 'negocio', setup_price: 199000, monthly_price: 99900, annual_price: 999000, is_active: 0, ai_monthly_messages: null, ai_usage_policy: 'none' },
+      { code: 'mayorista', setup_price: 299000, monthly_price: 169900, annual_price: 1699000, is_active: 0, ai_monthly_messages: null, ai_usage_policy: 'none' },
     ])
     expect(h.db.query("SELECT code FROM plans WHERE code = 'promocional'")).toEqual([])
   })
@@ -106,12 +107,11 @@ describe('plans and limits', () => {
   })
 
   it('resolves the limit: store override (historical clients), then the plan, otherwise no numeric cap', async () => {
-    h.db.query("UPDATE stores SET plan_code = 'emprendedor' WHERE id = ?", a)
-    expect(await resolveLimit(h.db, a)).toMatchObject({ limit: 500, policy: 'quota', overridden: false })
+    // Historical clients keep a message cap through the store override; the new plans use smart queries instead.
     setLimit(a, 300)
     expect(await resolveLimit(h.db, a)).toMatchObject({ limit: 300, policy: 'quota', overridden: true })
-    h.db.query("UPDATE stores SET plan_code = 'negocio', ai_monthly_messages_override = NULL WHERE id = ?", a)
-    expect(await resolveLimit(h.db, a)).toMatchObject({ limit: null, policy: 'monitored' })
+    h.db.query("UPDATE stores SET plan_code = 'emprendedor', ai_monthly_messages_override = NULL WHERE id = ?", a)
+    expect(await resolveLimit(h.db, a)).toMatchObject({ limit: null, policy: 'none' })
     expect(await resolveLimit(h.db, b)).toMatchObject({ limit: null, policy: 'none' })
   })
 })
@@ -314,12 +314,13 @@ describe('/consumo', () => {
     await needsAi(); await needsAi()
     const before = geminiCalls
     await say('/consumo')
+    // Smart queries of the new plan: session (5 h) and month, plus the plan's artistic credits.
     expect(last()).toContain('Emprendedor')
-    expect(last()).toContain('2</b> de <b>500')
-    expect(last()).toContain('Disponibles: <b>498</b>')
-    expect(last()).toContain('mes calendario')
+    expect(last()).toContain('<b>28</b> disponibles de <b>30</b>')
+    expect(last()).toContain('Consultas del mes: <b>2</b> de <b>300</b>')
+    expect(last()).toContain('Créditos artísticos: <b>30</b>')
     await say('¿cuántos mensajes me quedan?')
-    expect(last()).toContain('Disponibles: <b>498</b>')
+    expect(last()).toContain('<b>28</b> disponibles de <b>30</b>')
     expect(geminiCalls).toBe(before)
     expect(consumed()).toBe(2)
   })
@@ -331,8 +332,9 @@ describe('/consumo', () => {
     h.env.AI_MESSAGE_QUOTA_MODE = 'shadow'
     h.db.query("UPDATE stores SET plan_code = 'negocio' WHERE id = ?", a)
     await say('/consumo')
-    expect(last()).toContain('uso conversacional ampliado')
-    expect(last()).not.toMatch(/shadow|ledger|enforce/i)
+    expect(last()).toContain('Consultas del mes: <b>0</b> de <b>1000</b>')
+    expect(last()).toContain('La sesión de 5 horas empieza con tu próxima consulta de IA')
+    expect(last()).not.toMatch(/shadow|ledger|enforce|micros/i)
   })
 
   it('reads only the store of the chat', async () => {

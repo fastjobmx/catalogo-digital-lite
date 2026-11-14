@@ -18,6 +18,8 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import type { Env } from '../index'
 import { costOf, estimateRequestMicros, PRICING_VERSION, usageFromMetadata, type GeminiUsage } from './pricing'
+import { bogotaDate, bogotaTime, copToMicros, COUNTED_UNITS, cycleOf, ensureSession, planQuota, unitsFor } from './planUsage'
+import { markOwnKeyResult, resolveOwnKey, statusFromHttp, STATUS_LABELS, useFor, type OwnKeyStatus } from './ownKey'
 
 type Bindings = Partial<Env['Bindings']>
 
@@ -34,11 +36,23 @@ export type SpendContext = {
   /** Stable key of the operation (webhook update, job, idempotency key). Retries of the same operation share it,
    * so the number of paid attempts per operation is bounded even across duplicate deliveries. */
   opKey: string
+  /** Set when the operation's credits were waived because the store's own key pays: then a failing own key can
+   * never fall back to the platform key (that would be a free generation). */
+  creditsWaived?: boolean
 }
+
+/** Who pays a call: the plan's queries, the store's own key, or the platform (master bot, free trials). */
+export type BillingSource = 'plan' | 'own_key' | 'platform' | 'trial'
 
 export type BlockReason =
   | 'global_day' | 'global_month' | 'store_day' | 'store_month' | 'images_month' | 'trial_day'
   | 'operation_max' | 'attempts' | 'duplicate' | 'unguarded' | 'guard_unavailable'
+  | 'session_units' | 'monthly_units' | 'concurrency' | 'burst' | 'duplicate_request' | 'too_large' | 'own_key_failed'
+
+export type BlockDetail = { limit?: number; resetAt?: string; ownKeyStatus?: OwnKeyStatus }
+
+const OWN_API_HINT = 'También puedes conectar tu propia API de Gemini en el panel: Configuración → Inteligencia artificial → Mi API.'
+const KEEPS_WORKING = 'El catálogo, los pedidos, los botones y los comandos siguen funcionando.'
 
 const USER_MESSAGES: Record<BlockReason, string> = {
   store_day: 'Tu tienda alcanzó el límite de IA de hoy. El catálogo, los pedidos, los botones y los comandos siguen funcionando; la IA vuelve mañana.',
@@ -52,14 +66,28 @@ const USER_MESSAGES: Record<BlockReason, string> = {
   duplicate: 'Esta solicitud ya se está procesando. Espera un momento.',
   unguarded: 'La IA no está disponible en este momento. Todo lo demás sigue funcionando.',
   guard_unavailable: 'La IA no está disponible en este momento. Todo lo demás sigue funcionando.',
+  session_units: `Usaste las consultas de IA de esta sesión. ${KEEPS_WORKING} ${OWN_API_HINT}`,
+  monthly_units: `Usaste las consultas de IA de este mes. ${KEEPS_WORKING} ${OWN_API_HINT}`,
+  concurrency: 'Hay varias tareas de IA en curso en tu tienda. Espera unos segundos y vuelve a intentarlo.',
+  burst: 'Llegaron muchas solicitudes de IA seguidas. Espera un minuto y vuelve a intentarlo.',
+  duplicate_request: 'Ya procesé esta misma solicitud hace un momento. Si necesitas otro resultado, cámbiala un poco o espera dos minutos.',
+  too_large: 'El archivo es demasiado grande para la IA: fotos de hasta 5 MB, audios de hasta 2 minutos y documentos de hasta 10 MB.',
+  own_key_failed: 'Tu API de Gemini no respondió bien. Revisa tu clave o la facturación de tu proyecto en Google.',
+}
+
+function messageFor(reason: BlockReason, detail: BlockDetail): string {
+  if (reason === 'session_units' && detail.resetAt) return `⏳ Usaste las ${detail.limit ?? ''} consultas de IA de esta sesión. Vuelven a las ${bogotaTime(detail.resetAt)} (hora de Colombia). ${KEEPS_WORKING} ${OWN_API_HINT}`
+  if (reason === 'monthly_units' && detail.resetAt) return `📅 Usaste las ${detail.limit ?? ''} consultas de IA de este mes. Se renuevan el ${bogotaDate(detail.resetAt)}. ${KEEPS_WORKING} ${OWN_API_HINT}`
+  if (reason === 'own_key_failed' && detail.ownKeyStatus) return `Tu API de Gemini respondió: ${STATUS_LABELS[detail.ownKeyStatus]}. Revisa tu clave o la facturación de tu proyecto en Google. No usamos el cupo de TiendIA porque así está configurado (puedes cambiarlo en Configuración → Inteligencia artificial → Mi API). ${KEEPS_WORKING}`
+  return USER_MESSAGES[reason]
 }
 
 export class AiSpendBlockedError extends Error {
   readonly userMessage: string
-  constructor(readonly reason: BlockReason, readonly shadow = false) {
+  constructor(readonly reason: BlockReason, readonly shadow = false, readonly detail: BlockDetail = {}) {
     super(`AI spend blocked (${reason})`)
     this.name = 'AiSpendBlockedError'
-    this.userMessage = USER_MESSAGES[reason]
+    this.userMessage = messageFor(reason, detail)
   }
 }
 
@@ -110,6 +138,17 @@ export const OPERATION_MAX_MICROS: Record<SpendKind, number> = { text: 100_000, 
 export const MAX_ATTEMPTS_PER_OPERATION = 3
 /** Minutes after which an open reservation is considered abandoned. */
 export const RESERVATION_TTL_MINUTES = 10
+/** Technical limits per store, also with its own key (they protect the platform's infrastructure). */
+export const DEFAULT_STORE_CONCURRENCY = 3
+export const DEFAULT_STORE_BURST_PER_MINUTE = 60
+/** Same request (fingerprint) within this window: not charged again; from DUPLICATE_BLOCK_AT copies on, refused. */
+export const DUPLICATE_WINDOW_SECONDS = 120
+export const DUPLICATE_BLOCK_AT = 6
+/** Size limits of what is sent to the model (decoded bytes). */
+export const MAX_IMAGE_BYTES = 5 * 1024 * 1024
+export const MAX_AUDIO_BYTES = 2 * 1024 * 1024
+export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
+export const MAX_TEXT_CHARS = 120_000
 
 export type ResolvedLimits = {
   environment: string
@@ -122,12 +161,18 @@ export type ResolvedLimits = {
   trialDay: number
   operationMax: number
   maxAttempts: number
+  sessionUnits: number | null
+  monthlyUnits: number | null
+  concurrency: number
+  burstPerMinute: number
 }
 
 export async function resolveLimits(db: D1Database, env: Bindings, _scope: SpendScope, storeId: number | null, kind: SpendKind): Promise<ResolvedLimits> {
   const environment = environmentOf(env)
   const store = storeId ? await db.prepare('SELECT plan_code AS planCode, ai_monthly_budget_micros AS budget FROM stores WHERE id = ?').bind(storeId).first<{ planCode: string | null; budget: number | null }>() : null
   const planCode = store?.planCode ?? null
+  const quota = storeId ? await planQuota(db, storeId) : null
+  const numberVar = (name: string, fallback: number) => { const value = Number((env as Record<string, unknown>)[name]); return Number.isInteger(value) && value > 0 ? value : fallback }
   const rows = (await db.prepare(
     `SELECT scope, scope_ref AS ref, period, metric, limit_value AS value FROM ai_spend_limits
      WHERE (scope = 'global' AND scope_ref = '*') OR (scope = 'trial' AND scope_ref = '*') OR (scope = 'plan' AND scope_ref = ?) OR (scope = 'store' AND scope_ref = ?)`,
@@ -138,18 +183,24 @@ export async function resolveLimits(db: D1Database, env: Bindings, _scope: Spend
   const fallbackMonth = Number(store?.budget || 0) > 0 ? Number(store!.budget) : 1_000_000
   const storeLimit = (period: 'day' | 'month', metric: 'micros' | 'images', fallback: number) =>
     pick('store', period, metric) ?? pick('plan', period, metric) ?? fallback
-  const month = storeId ? storeLimit('month', 'micros', plan?.month ?? fallbackMonth) : null
+  // New plans: the internal monthly budget in COP is the store's money ceiling (converted with AI_FX_COP_PER_USD).
+  const planMonth = quota?.budgetCop ? copToMicros(env, quota.budgetCop) : plan?.month ?? fallbackMonth
+  const month = storeId ? storeLimit('month', 'micros', planMonth) : null
   return {
     environment,
     globalDay: pick('global', 'day', 'micros') ?? global.day,
     globalMonth: pick('global', 'month', 'micros') ?? global.month,
     planCode,
     storeMonth: month,
-    storeDay: storeId ? storeLimit('day', 'micros', plan?.day ?? Math.max(100_000, Math.ceil(month! / 8))) : null,
+    storeDay: storeId ? storeLimit('day', 'micros', Math.min(plan?.day ?? Math.max(100_000, Math.ceil(month! / 8)), month!)) : null,
     storeImages: storeId ? storeLimit('month', 'images', plan?.images ?? 20) : null,
     trialDay: pick('trial', 'day', 'micros') ?? DEFAULT_TRIAL_DAY_MICROS,
     operationMax: OPERATION_MAX_MICROS[kind],
     maxAttempts: MAX_ATTEMPTS_PER_OPERATION,
+    sessionUnits: quota?.sessionUnits ?? null,
+    monthlyUnits: quota?.monthlyUnits ?? null,
+    concurrency: numberVar('AI_STORE_CONCURRENCY', DEFAULT_STORE_CONCURRENCY),
+    burstPerMinute: numberVar('AI_STORE_BURST_PER_MINUTE', DEFAULT_STORE_BURST_PER_MINUTE),
   }
 }
 
@@ -173,42 +224,102 @@ export function newOperationKey(prefix: string): string {
 const dayKey = (now: Date) => now.toISOString().slice(0, 10)
 const monthKey = (now: Date) => now.toISOString().slice(0, 7)
 /** Committed spend: open reservations at their reserved amount, closed ones at their real cost. */
-const COMMITTED = `COALESCE(SUM(CASE WHEN status = 'reserved' THEN reserved_micros ELSE COALESCE(actual_micros, 0) END), 0)`
+const COMMITTED = `COALESCE(SUM(CASE WHEN billing_source = 'own_key' THEN 0 WHEN status = 'reserved' THEN reserved_micros ELSE COALESCE(actual_micros, 0) END), 0)`
 
-export type Reservation = { id: number; attempt: number; reservedMicros: number; mode: 'shadow' | 'enforce'; limits: ResolvedLimits; wouldBlock: BlockReason | null }
+export type Reservation = { id: number; attempt: number; reservedMicros: number; units: number; billingSource: BillingSource; mode: 'shadow' | 'enforce'; limits: ResolvedLimits; wouldBlock: BlockReason | null }
 
-/** Reserves `amount` for one paid call. Throws AiSpendBlockedError when a limit would be crossed (enforce mode). */
-export async function reserveSpend(context: SpendContext, input: { model: string; kind: SpendKind; amountMicros: number }, now = new Date()): Promise<Reservation> {
+export type ReserveInput = { model: string; kind: SpendKind; amountMicros: number; units?: number; billingSource?: BillingSource; fingerprint?: string | null }
+
+/** Reserves one paid call. Throws AiSpendBlockedError when a limit would be crossed (enforce mode).
+ *
+ * One INSERT checks, atomically: attempts per operation, size per call, simultaneous and per-minute calls of the
+ * store (always, also with its own key), the platform and store money (not when the store's own key pays), premium
+ * images per month, free-trial money, and the plan's queries of the 5-hour session and of the month. */
+export async function reserveSpend(context: SpendContext, input: ReserveInput, now = new Date()): Promise<Reservation> {
   const { db, env } = context
   const mode = guardMode(env) === 'enforce' ? 'enforce' : 'shadow'
   const storeId = context.scope === 'store' && context.storeId ? context.storeId : null
+  const billingSource: BillingSource = input.billingSource ?? (context.scope === 'store' ? 'plan' : context.scope === 'trial' ? 'trial' : 'platform')
+  const ownKey = billingSource === 'own_key' ? 1 : 0
   const limits = await resolveLimits(db, env, context.scope, storeId, input.kind)
   const day = dayKey(now)
   const month = monthKey(now)
   const amount = Math.max(0, Math.ceil(input.amountMicros))
   const enforce = mode === 'enforce' ? 1 : 0
   const env_ = limits.environment
-  const row = await db.prepare(
-    `INSERT OR IGNORE INTO ai_spend_reservations (op_key, attempt, environment, scope, store_id, plan_code, feature, model, kind, day_key, month_key, reserved_micros, mode)
-     SELECT ?, (SELECT COALESCE(MAX(attempt), 0) + 1 FROM ai_spend_reservations WHERE op_key = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+  const fingerprint = input.fingerprint ? input.fingerprint.slice(0, 64) : null
+
+  // Queries are charged once per operation (retries of the same operation are free) and never twice for the same
+  // request repeated within the duplicate window.
+  let units = billingSource === 'plan' && storeId ? Math.max(0, Math.floor(input.units ?? 0)) : 0
+  let duplicates = 0
+  if (storeId && fingerprint) {
+    duplicates = Number((await db.prepare(
+      `SELECT COUNT(*) AS n FROM ai_spend_reservations WHERE store_id = ? AND request_fingerprint = ? AND op_key <> ? AND status IN ('reserved', 'settled')
+         AND created_at > datetime('now', ?)`,
+    ).bind(storeId, fingerprint, context.opKey, `-${DUPLICATE_WINDOW_SECONDS} seconds`).first<{ n: number }>())?.n || 0)
+  }
+  if (units > 0) {
+    const held = Number((await db.prepare(`SELECT COUNT(*) AS n FROM ai_spend_reservations WHERE op_key = ? AND units > 0 AND status <> 'released'`).bind(context.opKey).first<{ n: number }>())?.n || 0)
+    if (held > 0 || duplicates > 0) units = 0
+  }
+  let sessionId: number | null = null
+  let sessionEnds: string | null = null
+  let sessionLimit: number | null = null
+  let cycleKey: string | null = null
+  let cycleEnd: string | null = null
+  if (storeId && billingSource === 'plan') {
+    const cycle = await cycleOf(db, storeId, now)
+    cycleKey = cycle.key
+    cycleEnd = cycle.end
+    if (units > 0) {
+      const session = await ensureSession(db, storeId, limits.sessionUnits, now)
+      sessionId = session.id
+      sessionEnds = session.endsAt
+      sessionLimit = session.unitsLimit ?? limits.sessionUnits
+    }
+  }
+  const unitsChecked = units > 0 && (sessionLimit !== null || limits.monthlyUnits !== null) ? 1 : 0
+  const facts: DiagnoseInput = { amount, kind: input.kind, day, month, storeId, ownKey: Boolean(ownKey), units, sessionId, sessionEnds, sessionLimit, cycleKey, cycleEnd, duplicates }
+
+  const row = enforce && duplicates >= DUPLICATE_BLOCK_AT ? null : await db.prepare(
+    `INSERT OR IGNORE INTO ai_spend_reservations (op_key, attempt, environment, scope, store_id, plan_code, feature, model, kind, day_key, month_key, reserved_micros, mode,
+       units, session_id, cycle_key, billing_source, request_fingerprint)
+     SELECT ?, (SELECT COALESCE(MAX(attempt), 0) + 1 FROM ai_spend_reservations WHERE op_key = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
      WHERE ? = 0 OR (
        (SELECT COALESCE(MAX(attempt), 0) FROM ai_spend_reservations WHERE op_key = ?) < ?
        AND ? <= ?
-       AND (SELECT ${COMMITTED} FROM ai_spend_reservations WHERE environment = ? AND day_key = ?) + ? <= ?
-       AND (SELECT ${COMMITTED} FROM ai_spend_reservations WHERE environment = ? AND month_key = ?) + ? <= ?
        AND (? IS NULL OR (
-         (SELECT ${COMMITTED} FROM ai_spend_reservations WHERE environment = ? AND store_id = ? AND day_key = ?) + ? <= ?
-         AND (SELECT ${COMMITTED} FROM ai_spend_reservations WHERE environment = ? AND store_id = ? AND month_key = ?) + ? <= ?
-         AND (? <> 'image' OR (SELECT COUNT(*) FROM ai_spend_reservations WHERE environment = ? AND store_id = ? AND month_key = ? AND kind = 'image' AND status IN ('reserved', 'settled', 'expired')) < ?)
+         (SELECT COUNT(*) FROM ai_spend_reservations WHERE store_id = ? AND status = 'reserved' AND created_at > datetime('now', '-${RESERVATION_TTL_MINUTES} minutes')) < ?
+         AND (SELECT COUNT(*) FROM ai_spend_reservations WHERE store_id = ? AND created_at > datetime('now', '-60 seconds')) < ?
        ))
-       AND (? <> 'trial' OR (SELECT ${COMMITTED} FROM ai_spend_reservations WHERE environment = ? AND scope = 'trial' AND day_key = ?) + ? <= ?)
+       AND (? = 1 OR (
+         (SELECT ${COMMITTED} FROM ai_spend_reservations WHERE environment = ? AND day_key = ?) + ? <= ?
+         AND (SELECT ${COMMITTED} FROM ai_spend_reservations WHERE environment = ? AND month_key = ?) + ? <= ?
+         AND (? IS NULL OR (
+           (SELECT ${COMMITTED} FROM ai_spend_reservations WHERE environment = ? AND store_id = ? AND day_key = ?) + ? <= ?
+           AND (SELECT ${COMMITTED} FROM ai_spend_reservations WHERE environment = ? AND store_id = ? AND month_key = ?) + ? <= ?
+           AND (? <> 'image' OR (SELECT COUNT(*) FROM ai_spend_reservations WHERE environment = ? AND store_id = ? AND month_key = ? AND kind = 'image'
+                 AND billing_source <> 'own_key' AND status IN ('reserved', 'settled', 'expired')) < ?)
+         ))
+         AND (? <> 'trial' OR (SELECT ${COMMITTED} FROM ai_spend_reservations WHERE environment = ? AND scope = 'trial' AND day_key = ?) + ? <= ?)
+       ))
+       AND (? = 0 OR (
+         (? IS NULL OR (SELECT ${COUNTED_UNITS} FROM ai_spend_reservations WHERE session_id = ?) + ? <= ?)
+         AND (? IS NULL OR (SELECT ${COUNTED_UNITS} FROM ai_spend_reservations WHERE store_id = ? AND cycle_key = ?) + ? <= ?)
+       ))
      )
      RETURNING id, attempt`,
   ).bind(
     context.opKey, context.opKey, env_, context.scope, storeId, limits.planCode, context.feature, input.model.slice(0, 80), input.kind, day, month, amount, mode,
+    units, sessionId, cycleKey, billingSource, fingerprint,
     enforce,
     context.opKey, limits.maxAttempts,
     amount, limits.operationMax,
+    storeId,
+    storeId, limits.concurrency,
+    storeId, limits.burstPerMinute,
+    ownKey,
     env_, day, amount, limits.globalDay,
     env_, month, amount, limits.globalMonth,
     storeId,
@@ -216,44 +327,65 @@ export async function reserveSpend(context: SpendContext, input: { model: string
     env_, storeId, month, amount, limits.storeMonth ?? 0,
     input.kind, env_, storeId, month, limits.storeImages ?? 0,
     context.scope, env_, day, amount, limits.trialDay,
+    unitsChecked,
+    sessionLimit, sessionId, units, sessionLimit ?? 0,
+    limits.monthlyUnits, storeId, cycleKey, units, limits.monthlyUnits ?? 0,
   ).first<{ id: number; attempt: number }>()
 
   if (!row) {
-    const reason = (await diagnose(db, context, limits, { amount, kind: input.kind, day, month, storeId })) ?? 'duplicate'
-    await alert(db, limitKey(reason, context, storeId), periodOf(reason, day, month), 100, context, `${limitLabel(reason, storeId)}: límite alcanzado, llamada bloqueada (${reason}, ${context.feature})`)
-    throw new AiSpendBlockedError(reason)
+    const found = (await diagnose(db, context, limits, facts)) ?? { reason: 'duplicate' as BlockReason, detail: {} }
+    await alert(db, limitKey(found.reason, context, storeId), periodOf(found.reason, day, month), 100, context, `${limitLabel(found.reason, storeId)}: límite alcanzado, llamada bloqueada (${found.reason}, ${context.feature})`)
+    throw new AiSpendBlockedError(found.reason, false, found.detail)
   }
   // In shadow mode the call goes ahead; still say whether it would have been blocked.
-  const wouldBlock = mode === 'shadow' ? await diagnose(db, context, limits, { amount, kind: input.kind, day, month, storeId, excludeId: row.id }) : null
-  if (wouldBlock && wouldBlock !== 'duplicate') {
+  const would = mode === 'shadow' ? await diagnose(db, context, limits, { ...facts, excludeId: row.id }) : null
+  const wouldBlock = would && would.reason !== 'duplicate' ? would.reason : null
+  if (wouldBlock) {
     await alert(db, `shadow:${limitKey(wouldBlock, context, storeId)}`, periodOf(wouldBlock, day, month), 100, context, `Modo observación (${limitLabel(wouldBlock, storeId)}): se habría bloqueado por ${wouldBlock} (${context.feature})`)
   }
-  return { id: row.id, attempt: row.attempt, reservedMicros: amount, mode, limits, wouldBlock: wouldBlock === 'duplicate' ? null : wouldBlock }
+  return { id: row.id, attempt: row.attempt, reservedMicros: amount, units, billingSource, mode, limits, wouldBlock }
+}
+
+type DiagnoseInput = {
+  amount: number; kind: SpendKind; day: string; month: string; storeId: number | null; ownKey: boolean; units: number
+  sessionId: number | null; sessionEnds: string | null; sessionLimit: number | null; cycleKey: string | null; cycleEnd: string | null
+  duplicates: number; excludeId?: number
 }
 
 /** Which limit refused (or would refuse) the reservation. Read-only; used for messages and alerts. */
-async function diagnose(
-  db: D1Database, context: SpendContext, limits: ResolvedLimits,
-  input: { amount: number; kind: SpendKind; day: string; month: string; storeId: number | null; excludeId?: number },
-): Promise<BlockReason | null> {
+async function diagnose(db: D1Database, context: SpendContext, limits: ResolvedLimits, input: DiagnoseInput): Promise<{ reason: BlockReason; detail: BlockDetail } | null> {
   const e = limits.environment
   const ex = input.excludeId ?? -1
-  const sum = async (where: string, ...binds: unknown[]) => Number((await db.prepare(`SELECT ${COMMITTED} AS v FROM ai_spend_reservations WHERE environment = ? AND id <> ? AND ${where}`).bind(e, ex, ...binds).first<{ v: number }>())?.v || 0)
-  const attempts = Number((await db.prepare('SELECT COALESCE(MAX(attempt), 0) AS v FROM ai_spend_reservations WHERE op_key = ? AND id <> ?').bind(context.opKey, ex).first<{ v: number }>())?.v || 0)
-  if (attempts >= limits.maxAttempts) return 'attempts'
-  if (input.amount > limits.operationMax) return 'operation_max'
-  if (await sum('day_key = ?', input.day) + input.amount > limits.globalDay) return 'global_day'
-  if (await sum('month_key = ?', input.month) + input.amount > limits.globalMonth) return 'global_month'
+  const found = (reason: BlockReason, detail: BlockDetail = {}) => ({ reason, detail })
+  const count = async (sql: string, ...binds: unknown[]) => Number((await db.prepare(sql).bind(...binds).first<{ v: number }>())?.v || 0)
+  const sum = (where: string, ...binds: unknown[]) => count(`SELECT ${COMMITTED} AS v FROM ai_spend_reservations WHERE environment = ? AND id <> ? AND ${where}`, e, ex, ...binds)
+  if (input.duplicates >= DUPLICATE_BLOCK_AT) return found('duplicate_request')
+  if (await count('SELECT COALESCE(MAX(attempt), 0) AS v FROM ai_spend_reservations WHERE op_key = ? AND id <> ?', context.opKey, ex) >= limits.maxAttempts) return found('attempts')
+  if (input.amount > limits.operationMax) return found('operation_max')
   if (input.storeId) {
-    if (await sum('store_id = ? AND day_key = ?', input.storeId, input.day) + input.amount > (limits.storeDay ?? 0)) return 'store_day'
-    if (await sum('store_id = ? AND month_key = ?', input.storeId, input.month) + input.amount > (limits.storeMonth ?? 0)) return 'store_month'
-    if (input.kind === 'image') {
-      const images = Number((await db.prepare(`SELECT COUNT(*) AS v FROM ai_spend_reservations WHERE environment = ? AND id <> ? AND store_id = ? AND month_key = ? AND kind = 'image' AND status IN ('reserved', 'settled', 'expired')`).bind(e, ex, input.storeId, input.month).first<{ v: number }>())?.v || 0)
-      if (images >= (limits.storeImages ?? 0)) return 'images_month'
+    if (await count(`SELECT COUNT(*) AS v FROM ai_spend_reservations WHERE store_id = ? AND id <> ? AND status = 'reserved' AND created_at > datetime('now', '-${RESERVATION_TTL_MINUTES} minutes')`, input.storeId, ex) >= limits.concurrency) return found('concurrency')
+    if (await count(`SELECT COUNT(*) AS v FROM ai_spend_reservations WHERE store_id = ? AND id <> ? AND created_at > datetime('now', '-60 seconds')`, input.storeId, ex) >= limits.burstPerMinute) return found('burst')
+  }
+  if (!input.ownKey) {
+    if (await sum('day_key = ?', input.day) + input.amount > limits.globalDay) return found('global_day')
+    if (await sum('month_key = ?', input.month) + input.amount > limits.globalMonth) return found('global_month')
+    if (input.storeId) {
+      // Month first: when the day ceiling equals the month's (small budgets), the month is the real reason.
+      if (await sum('store_id = ? AND month_key = ?', input.storeId, input.month) + input.amount > (limits.storeMonth ?? 0)) return found('store_month')
+      if (await sum('store_id = ? AND day_key = ?', input.storeId, input.day) + input.amount > (limits.storeDay ?? 0)) return found('store_day')
+      if (input.kind === 'image' && await count(`SELECT COUNT(*) AS v FROM ai_spend_reservations WHERE environment = ? AND id <> ? AND store_id = ? AND month_key = ? AND kind = 'image' AND billing_source <> 'own_key' AND status IN ('reserved', 'settled', 'expired')`, e, ex, input.storeId, input.month) >= (limits.storeImages ?? 0)) return found('images_month')
+    }
+    if (context.scope === 'trial' && await sum(`scope = 'trial' AND day_key = ?`, input.day) + input.amount > limits.trialDay) return found('trial_day')
+  }
+  if (input.units > 0 && input.storeId) {
+    if (input.sessionLimit !== null && await count(`SELECT ${COUNTED_UNITS} AS v FROM ai_spend_reservations WHERE session_id = ? AND id <> ?`, input.sessionId, ex) + input.units > input.sessionLimit) {
+      return found('session_units', { limit: input.sessionLimit, resetAt: input.sessionEnds ?? undefined })
+    }
+    if (limits.monthlyUnits !== null && await count(`SELECT ${COUNTED_UNITS} AS v FROM ai_spend_reservations WHERE store_id = ? AND cycle_key = ? AND id <> ?`, input.storeId, input.cycleKey, ex) + input.units > limits.monthlyUnits) {
+      return found('monthly_units', { limit: limits.monthlyUnits, resetAt: input.cycleEnd ?? undefined })
     }
   }
-  if (context.scope === 'trial' && await sum(`scope = 'trial' AND day_key = ?`, input.day) + input.amount > limits.trialDay) return 'trial_day'
-  return input.excludeId === undefined ? 'duplicate' : null
+  return input.excludeId === undefined ? found('duplicate') : null
 }
 
 export type SettleInput = { outcome: 'ok' | 'http_error' | 'network_error' | 'truncated'; usage?: GeminiUsage; model: string }
@@ -296,10 +428,12 @@ export async function expireStaleReservations(db: D1Database, minutes = RESERVAT
 /** Same keys as the 50/80 % alerts, so «100 %» means «limit reached» whether it was crossed or a call was refused. */
 const limitKey = (reason: BlockReason, context: SpendContext, storeId: number | null) => ({
   global_day: 'global:day', global_month: 'global:month', store_day: `store:${storeId}:day`, store_month: `store:${storeId}:month`, images_month: `store:${storeId}:images`,
+  session_units: `store:${storeId}:session_units`, monthly_units: `store:${storeId}:units`,
 } as Partial<Record<BlockReason, string>>)[reason] ?? `${context.scope}:${reason}`
 const limitLabel = (reason: BlockReason, storeId: number | null) => ({
   global_day: 'IA de la plataforma hoy', global_month: 'IA de la plataforma este mes', store_day: `IA de la tienda ${storeId} hoy`,
   store_month: `IA de la tienda ${storeId} este mes`, images_month: `Fotos IA de la tienda ${storeId} este mes`,
+  session_units: `Consultas de IA de la tienda ${storeId} en la sesión`, monthly_units: `Consultas de IA de la tienda ${storeId} este mes`,
 } as Partial<Record<BlockReason, string>>)[reason] ?? 'IA'
 const periodOf = (reason: BlockReason, day: string, month: string) => reason.endsWith('_month') ? month : day
 
@@ -320,6 +454,7 @@ async function alert(db: D1Database, scopeKey: string, periodKey: string, thresh
 
 async function checkThresholds(context: SpendContext, reservation: Reservation, now: Date): Promise<void> {
   const { db } = context
+  if (reservation.billingSource === 'own_key') return
   const limits = reservation.limits
   const e = limits.environment
   const day = dayKey(now)
@@ -353,13 +488,43 @@ async function checkThresholds(context: SpendContext, reservation: Reservation, 
 
 let warnedUnguarded = false
 
-/** The only way the platform calls the paid Gemini API. Reserve → call → settle. */
+/** Size limits of what a request carries (decoded bytes of photos, audio and documents; text length). */
+function tooLarge(body: unknown): boolean {
+  const b = (body || {}) as { systemInstruction?: unknown; contents?: Array<{ parts?: Array<{ text?: string; inlineData?: { mimeType?: string; data?: string } }> }> }
+  let text = 0
+  for (const content of b.contents || []) {
+    for (const part of content.parts || []) {
+      if (typeof part.text === 'string') text += part.text.length
+      const mime = part.inlineData?.mimeType || ''
+      const bytes = Math.floor((part.inlineData?.data?.length || 0) * 0.75)
+      if (mime.startsWith('image/') && bytes > MAX_IMAGE_BYTES) return true
+      if (mime.startsWith('audio/') && bytes > MAX_AUDIO_BYTES) return true
+      if (part.inlineData && !mime.startsWith('image/') && !mime.startsWith('audio/') && bytes > MAX_DOCUMENT_BYTES) return true
+    }
+  }
+  return text > MAX_TEXT_CHARS
+}
+
+async function fingerprintOf(model: string, init: RequestInit): Promise<string | null> {
+  if (typeof init.body !== 'string') return null
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${model}\n${init.body}`))
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+function withKey(init: RequestInit, apiKey: string): RequestInit {
+  const headers = new Headers(init.headers)
+  headers.set('x-goog-api-key', apiKey)
+  return { ...init, headers }
+}
+
+/** The only way the platform calls the paid Gemini API. Decide who pays → reserve → call → settle. */
 export async function guardedGeminiFetch(
   env: Bindings,
   fetcher: typeof fetch,
   url: string,
   init: RequestInit,
   info: { model: string; kind: SpendKind },
+  options: { forcePlatform?: boolean } = {},
 ): Promise<Response> {
   const mode = guardMode(env)
   if (mode === 'off') return fetcher(url, init)
@@ -371,16 +536,23 @@ export async function guardedGeminiFetch(
   }
   let body: unknown = null
   try { body = typeof init.body === 'string' ? JSON.parse(init.body) : null } catch { body = null }
+  if (tooLarge(body)) throw new AiSpendBlockedError('too_large')
+  const storeId = context.scope === 'store' && context.storeId ? context.storeId : null
+
+  // Who pays: the store's own key when it applies to this use and model; otherwise the plan (or the platform).
+  const own = storeId && !options.forcePlatform ? await resolveOwnKey(context.db, context.env, storeId, useFor(context.feature, info.kind), info.model) : null
+  const billingSource: BillingSource = own ? 'own_key' : context.scope === 'store' ? 'plan' : context.scope === 'trial' ? 'trial' : 'platform'
+  const units = billingSource === 'plan' ? await unitsFor(context.db, context.feature, body).catch(() => 1) : 0
   const estimate = estimateRequestMicros(context.env, info.model, body, info.kind)
   let reservation: Reservation
   try {
-    reservation = await reserveSpend(context, { model: info.model, kind: info.kind, amountMicros: estimate })
+    reservation = await reserveSpend(context, { model: info.model, kind: info.kind, amountMicros: estimate, units, billingSource, fingerprint: await fingerprintOf(info.model, init) })
   } catch (error) {
     if (isSpendBlocked(error)) throw error
     // The ledger is unavailable: fail closed when enforcing, keep serving when only observing.
     console.error('AI spend reservation failed:', error instanceof Error ? error.message : 'unknown')
     if (mode === 'enforce') throw new AiSpendBlockedError('guard_unavailable')
-    return fetcher(url, init)
+    return fetcher(url, own ? withKey(init, own.apiKey) : init)
   }
   const settle = (input: SettleInput) => settleSpend(context, reservation, input).catch((error) => {
     console.error('AI spend settlement failed:', error instanceof Error ? error.message : 'unknown')
@@ -388,15 +560,27 @@ export async function guardedGeminiFetch(
   })
   let response: Response
   try {
-    response = await fetcher(url, init)
+    // Only this store's key, only for this call. The platform key (set by the client) is never sent with it.
+    response = await fetcher(url, own ? withKey(init, own.apiKey) : init)
   } catch (error) {
     await settle({ outcome: 'network_error', model: info.model })
     throw error
   }
   if (!response.ok) {
     await settle({ outcome: 'http_error', model: info.model })
+    if (own && storeId) {
+      const keyStatus = statusFromHttp(response.status, await response.clone().text().catch(() => ''))
+      if (keyStatus) {
+        await markOwnKeyResult(context.db, storeId, { ok: false, status: keyStatus, code: `HTTP_${response.status}` })
+        // No silent fallback: the platform key is used only if the owner switched it on, and never for an
+        // operation whose credits were waived because the own key was going to pay.
+        if (own.fallbackToPlatform && !context.creditsWaived) return guardedGeminiFetch(env, fetcher, url, init, info, { forcePlatform: true })
+        throw new AiSpendBlockedError('own_key_failed', false, { ownKeyStatus: keyStatus })
+      }
+    }
     return response
   }
+  if (own && storeId) await markOwnKeyResult(context.db, storeId, { ok: true })
   const json = await response.clone().json().catch(() => null) as {
     usageMetadata?: unknown
     usage?: { total_input_tokens?: number; total_output_tokens?: number }

@@ -43,15 +43,19 @@ function textModel(outcome: (call: number) => 'ok' | 'error' | 'network' | 'trun
 
 const ctx = (opKey: string, storeId: number | null = a, scope: SpendContext['scope'] = 'store'): SpendContext => ({ db: h.db, env: h.env, scope, storeId, feature: 'prueba', opKey })
 const ask = (fetcher: typeof fetch, opKey: string, storeId: number | null = a, scope: SpendContext['scope'] = 'store') =>
-  runWithSpend(ctx(opKey, storeId, scope), () => callGeminiJson(h.env, fetcher, { system: ['Responde JSON.'], parts: [{ text: 'hola' }], schema: { type: 'object' }, maxOutputTokens: 200 }))
+  runWithSpend(ctx(opKey, storeId, scope), () => callGeminiJson(h.env, fetcher, { system: ['Responde JSON.'], parts: [{ text: `hola ${opKey}` }], schema: { type: 'object' }, maxOutputTokens: 200 }))
 const blockedReason = async (promise: Promise<unknown>) => {
   try { await promise; return null } catch (error) { return error instanceof AiSpendBlockedError ? error.reason : `otro: ${(error as Error).message}` }
 }
 
 beforeEach(async () => {
   h = createHarness({ GEMINI_API_KEY: 'test-key', GEMINI_MODEL: 'gemini-3.8-flash', GEMINI_IMAGE_MODEL: 'gemini-3.1-flash-image' })
-  a = await seedStore(h.db, { slug: 'gasto-a', name: 'Gasto A', plan: 'emprendedor' })
-  b = await seedStore(h.db, { slug: 'gasto-b', name: 'Gasto B', plan: 'negocio' })
+  // Planes anteriores (sin cupo de consultas): estas pruebas miden el gasto en dinero. Las consultas tienen las suyas.
+  a = await seedStore(h.db, { slug: 'gasto-a', name: 'Gasto A', plan: 'profesional' })
+  b = await seedStore(h.db, { slug: 'gasto-b', name: 'Gasto B', plan: 'premium' })
+  // Límites técnicos holgados: aquí se prueban los de dinero (los técnicos tienen sus propias pruebas).
+  h.env.AI_STORE_CONCURRENCY = '100'
+  h.env.AI_STORE_BURST_PER_MINUTE = '1000'
   calls = 0
 })
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
@@ -138,11 +142,11 @@ describe('control centralizado antes de cada llamada pagada', () => {
   })
 
   it('3 · solicitudes simultáneas: ninguna combinación evade el límite global', async () => {
-    await ask(textModel(), 'medir')
+    await ask(textModel(), 'simultanea-xx')
     const reserved = rows()[0]!.reserved_micros
     setLimit('global', '*', 'day', 'micros', committed() + 5 * reserved)
     const model = textModel(() => 'ok', 20) // slow model: every reservation is still open when the others arrive
-    const results = await Promise.all(Array.from({ length: 20 }, (_, i) => blockedReason(ask(model, `simultanea-${i}`))))
+    const results = await Promise.all(Array.from({ length: 20 }, (_, i) => blockedReason(ask(model, `simultanea-${String(i).padStart(2, '0')}`))))
     expect(results.filter((reason) => reason === null)).toHaveLength(5)
     expect(results.filter((reason) => reason === 'global_day')).toHaveLength(15)
     expect(calls).toBe(1 + 5)

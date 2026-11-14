@@ -444,7 +444,7 @@ async function askModel(ctx: AssistantContext, text: string, state: OrdersState)
   const timeout = Math.min(20000, Math.max(2000, Number(ctx.env.ASSISTANT_AGENT_TIMEOUT_MS) || 9000))
   const timed: typeof fetch = (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(timeout) })
   const context = `Tienda: ${ctx.store.name}\n${fresh(state.at) && state.list?.length ? `Hay una lista numerada de ${state.list.length} pedido(s) en pantalla.` : 'No hay lista de pedidos en pantalla.'}\nMensaje del comerciante: ${text.slice(0, 600)}`
-  const outcome = await withAiBudget(ctx, 'interpretacion', () => callGeminiJson(ctx.env, timed, { system: MODEL_SYSTEM, parts: [{ text: context }], schema: MODEL_SCHEMA, maxOutputTokens: 200, thinkingBudget: 0 })).catch(() => null)
+  const outcome = await withAiBudget(ctx, 'pedidos', () => callGeminiJson(ctx.env, timed, { system: MODEL_SYSTEM, parts: [{ text: context }], schema: MODEL_SCHEMA, maxOutputTokens: 200, thinkingBudget: 0 })).catch(() => null)
   if (!outcome || !outcome.ok) return null
   const parsed = modelSchema.safeParse(outcome.value.data)
   if (!parsed.success) return null
