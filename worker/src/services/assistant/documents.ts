@@ -1,6 +1,6 @@
 import { roleAllows } from '../../tenancy/access'
-import { downloadTelegramFile, bytesToBase64, type TelegramMessage } from './telegramApi'
-import { say, rememberTurn, type AssistantContext } from './context'
+import { bytesToBase64, type TelegramMessage } from './telegramApi'
+import { fetchFile, say, rememberTurn, type AssistantContext } from './context'
 import { proposeChange } from './operations'
 import { summarizeDocument } from './ai'
 import { escapeHtml } from './tools'
@@ -119,7 +119,7 @@ export async function handleDocument(ctx: AssistantContext, message: TelegramMes
   }
   let bytes: Uint8Array
   try {
-    bytes = (await downloadTelegramFile(ctx.botToken, document.file_id, limit)).bytes
+    bytes = await fetchFile(ctx, document.file_id, limit)
   } catch {
     await say(ctx, 'No pude descargar el archivo. Intenta enviarlo de nuevo.')
     return

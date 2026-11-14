@@ -1,7 +1,12 @@
 import { storeAssetPrefix } from '../lib/assets'
 import { TEMPLATE_KEYS, type TemplateKey } from './templates'
 
-export type BusinessSource = 'admin' | 'telegram' | 'platform' | 'system'
+export type BusinessSource = 'admin' | 'telegram' | 'whatsapp' | 'platform' | 'system'
+
+/** Channel of an assistant action, taken from its actor. Only these two literals exist, so it is safe inside SQL text. */
+export function assistantSource(actor: string): 'telegram' | 'whatsapp' {
+  return actor.startsWith('whatsapp:') ? 'whatsapp' : 'telegram'
+}
 
 /** Every business operation runs inside exactly one store. */
 export type AuditContext = { actor: string; source: BusinessSource; storeId: number }
@@ -162,7 +167,7 @@ export async function applyTelegramProductBatchItem(
   await assertCategoryInStore(db, product.categoryId, storeId)
   const limit = await productLimit(db, storeId)
   if (limit.max !== null && limit.count >= limit.max) throw new Error('PLAN_PRODUCT_LIMIT')
-  const context: AuditContext = { actor: input.actor, source: 'telegram', storeId }
+  const context: AuditContext = { actor: input.actor, source: assistantSource(input.actor), storeId }
   const statements = buildCatalogProductStatements(db, product, context, {
     sku: product.sku, batchId, batchItemId: itemId, chatId, telegramUserId, maxProducts: limit.max,
     auditPayload: { batchId, batchItemId: itemId, sku: product.sku, imageCount: product.imageUrls?.length || 0 },
@@ -218,7 +223,7 @@ export async function applyConfirmedTelegramProductCreation(
        AND EXISTS (SELECT 1 FROM categories WHERE id = ? AND store_id = ? AND name = ? AND slug = ? AND is_active = 1)`,
   ).bind(executionToken, operationId, chatId, storeId, input.paramsJson, input.beforeJson, input.afterJson,
     storeId, product.sku, category.id, storeId, category.name, category.slug)
-  const productStatements = buildCatalogProductStatements(db, product, { actor: input.actor, source: 'telegram', storeId }, {
+  const productStatements = buildCatalogProductStatements(db, product, { actor: input.actor, source: assistantSource(input.actor), storeId }, {
     sku: product.sku, operationId, executionToken, chatId,
     paramsJson: input.paramsJson, beforeJson: input.beforeJson, afterJson: input.afterJson,
     auditPayload: { operationId, sku: product.sku, categoryId: category.id, imageCount: product.imageUrls?.length || 0 },
@@ -362,7 +367,7 @@ export async function applyConfirmedStoreMutation(
   ).bind(input.storeId, input.storeId, input.operationId, input.chatId, executionToken)
   const audit = db.prepare(
     `INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source, store_id)
-     SELECT 'store_updated', 'store', ?, ?, ?, 'telegram', ?
+     SELECT 'store_updated', 'store', ?, ?, ?, '${assistantSource(input.actor)}', ?
      WHERE EXISTS (SELECT 1 FROM telegram_operations WHERE operation_id = ? AND chat_id = ? AND status = 'applying' AND execution_token = ?)`,
   ).bind(String(input.storeId), JSON.stringify({ operationId: input.operationId, before: input.before, after: input.after }), input.actor, input.storeId, input.operationId, input.chatId, executionToken)
   const complete = db.prepare(
@@ -538,7 +543,7 @@ export async function applyConfirmedProductEdit(db: D1Database, input: Confirmed
     WHERE store_id=? AND sku=? AND is_archived=0 AND EXISTS (SELECT 1 FROM telegram_operations WHERE operation_id=? AND chat_id=? AND status='applying' AND execution_token=?)`)
     .bind(...values, input.storeId, input.sku, input.operationId, input.chatId, executionToken)
   const audit = db.prepare(`INSERT INTO audit_log (action,entity_type,entity_id,payload,performed_by,source,store_id)
-    SELECT 'product_updated','product',?,? ,?,'telegram',? WHERE EXISTS (SELECT 1 FROM telegram_operations WHERE operation_id=? AND chat_id=? AND status='applying' AND execution_token=?)`)
+    SELECT 'product_updated','product',?,? ,?,'${assistantSource(input.actor)}',? WHERE EXISTS (SELECT 1 FROM telegram_operations WHERE operation_id=? AND chat_id=? AND status='applying' AND execution_token=?)`)
     .bind(input.sku, JSON.stringify({ operationId: input.operationId, before: input.before, after: input.after }), input.actor, input.storeId, input.operationId, input.chatId, executionToken)
   const complete = db.prepare(`UPDATE telegram_operations SET status='applied',execution_token=NULL,completed_at=datetime('now')
     WHERE operation_id=? AND chat_id=? AND status='applying' AND execution_token=?`)
@@ -606,7 +611,7 @@ export async function applyConfirmedCatalogMutation(
 
   const audit = db.prepare(
     `INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source, store_id)
-     SELECT ?, ?, ?, ?, ?, 'telegram', ?
+     SELECT ?, ?, ?, ?, ?, '${assistantSource(actor)}', ?
      WHERE EXISTS (SELECT 1 FROM telegram_operations WHERE operation_id = ? AND status = 'applying' AND execution_token = ?)`,
   ).bind(action, action === 'update_stock' ? 'variant' : 'product', sku,
     JSON.stringify({ operationId, before, after }), actor, storeId, operationId, executionToken)

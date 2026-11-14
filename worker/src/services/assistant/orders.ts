@@ -6,7 +6,7 @@ import {
   SHIPPING_STATUS_LABELS, TRANSITION_MESSAGES, effectiveShippingStatus, findOrder, isOrderStatus, listOpenOrders, listOrdersByView, orderRecipients,
   parseOrderItems, transitionOrder, type DeliveryMethod, type OrderRow, type OrderStatus, type OrderView,
 } from '../orders'
-import { legacyOwnerIds, readSession, say, updateSessionState, type AssistantContext } from './context'
+import { legacyOwnerIds, readSession, say, updateSessionState, type AssistantContext, actorOf } from './context'
 import { sendTelegramMessage, type InlineKeyboard } from './telegramApi'
 import { escapeHtml, formatMoney } from './tools'
 
@@ -149,7 +149,7 @@ async function applyTransition(ctx: AssistantContext, orderId: number, change: {
   if (!can(ctx.role, 'orders.manage')) { await say(ctx, 'Tu rol no permite gestionar pedidos.'); return }
   await updateSessionState(ctx, { awaiting: undefined, targetOrder: undefined, pendingDelivery: undefined })
   const result = await transitionOrder(ctx.db, {
-    storeId: ctx.store.id, orderId, expectedRevision: revision, actor: `telegram:${ctx.telegramUserId}`, source: 'telegram',
+    storeId: ctx.store.id, orderId, expectedRevision: revision, actor: actorOf(ctx), source: 'telegram',
     status: change.status, paymentStatus: change.payment, carrier: delivery.carrier, trackingNumber: delivery.trackingNumber,
     ...(delivery.method ? { delivery: { method: delivery.method } } : {}),
   })

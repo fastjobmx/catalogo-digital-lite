@@ -7,6 +7,12 @@ import { conversationContext, say, type AssistantContext } from './context'
 import { suggestProductFromPhotos, type VisionSuggestion } from '../../ai/productVision'
 import { isSpendBlocked, newOperationKey, runWithSpend } from '../../ai/spendGuard'
 
+/** Canal del registro de IA: Telegram/panel (sin canal), WhatsApp oficial o WAHA, cada uno por separado. */
+export function aiChannelOf(ctx: Pick<AssistantContext, 'channel'>): 'whatsapp' | 'whatsapp_waha' | undefined {
+  if (!ctx.channel) return undefined
+  return ctx.channel.provider === 'waha' ? 'whatsapp_waha' : 'whatsapp'
+}
+
 export type AiOutcome<T> = { ok: true; value: T } | { ok: false; message: string }
 
 const FAILURE_MESSAGES: Record<string, string> = {
@@ -19,6 +25,12 @@ const FAILURE_MESSAGES: Record<string, string> = {
   request: 'No pude entender bien la solicitud. ¿Puedes decirlo de otra forma?',
 }
 
+/** Feature plus the technical cause (HTTP status and classified reason, or the error name): never message content. */
+function failureDetail(feature: string, error: unknown): string {
+  if (error instanceof GeminiRequestError) return `${feature}:${error.status}:${error.reason}`.slice(0, 120)
+  return `${feature}:${error instanceof Error ? error.name : 'unknown'}`.slice(0, 120)
+}
+
 /** Runs a Gemini call only when the store has budget, and records its usage. */
 export async function withAiBudget<T extends { usage?: TokenUsage; model?: string }>(
   ctx: AssistantContext,
@@ -28,11 +40,11 @@ export async function withAiBudget<T extends { usage?: TokenUsage; model?: strin
   if (!ctx.env.GEMINI_API_KEY) return { ok: false, message: 'La IA todavía no está activada en esta plataforma. Puedes usar los botones y comandos.' }
   const budget = await checkAiBudget(ctx.db, ctx.env, ctx.store.id)
   if (!budget.allowed) {
-    await recordAiUsage(ctx.db, ctx.env, { storeId: ctx.store.id, feature, status: 'blocked' })
+    await recordAiUsage(ctx.db, ctx.env, { storeId: ctx.store.id, channel: aiChannelOf(ctx), feature, status: 'blocked' })
     return { ok: false, message: BUDGET_MESSAGES[budget.reason || 'budget_exhausted'] }
   }
   // Quota of AI messages (off by default). One interaction counts once, however many calls it needs.
-  const ref = ctx.updateId > 0 ? { storeId: ctx.store.id, eventKey: `tg:${ctx.updateId}`, feature, voiceSeconds: ctx.voiceSeconds, fingerprint: ctx.fingerprint } : null
+  const ref = ctx.updateId > 0 ? { storeId: ctx.store.id, eventKey: `${ctx.channel ? (ctx.channel.provider === 'waha' ? 'wa:waha' : 'wa') : 'tg'}:${ctx.updateId}`, feature, voiceSeconds: ctx.voiceSeconds, fingerprint: ctx.fingerprint } : null
   if (ref) {
     const reservation = await reserveMessage(ctx.db, ctx.env, ref).catch((error) => {
       // A counter failure must never take the assistant down: the interaction proceeds uncounted and is logged.
@@ -40,16 +52,16 @@ export async function withAiBudget<T extends { usage?: TokenUsage; model?: strin
       return { state: 'off' } as const
     })
     if (reservation.state === 'blocked') {
-      await recordAiUsage(ctx.db, ctx.env, { storeId: ctx.store.id, feature, status: 'blocked' })
+      await recordAiUsage(ctx.db, ctx.env, { storeId: ctx.store.id, channel: aiChannelOf(ctx), feature, status: 'blocked' })
       return { ok: false, message: QUOTA_BLOCKED_MESSAGE(reservation.limit, reservation.cycle.end) }
     }
   }
   // Spend guard: every paid call inside `call` reserves and settles against the store, plan and platform limits.
   // The same Telegram update shares one operation key, so duplicate deliveries cannot multiply paid attempts.
-  const spend = { db: ctx.db, env: ctx.env, scope: 'store' as const, storeId: ctx.store.id, feature, opKey: ctx.updateId > 0 ? `tg:${ctx.store.id}:${ctx.updateId}:${feature}` : newOperationKey(`as:${ctx.store.id}:${feature}`) }
+  const spend = { db: ctx.db, env: ctx.env, scope: 'store' as const, storeId: ctx.store.id, feature, opKey: ctx.updateId > 0 ? `${ctx.channel?.name === "whatsapp" ? "wa" : "tg"}:${ctx.store.id}:${ctx.updateId}:${feature}` : newOperationKey(`as:${ctx.store.id}:${feature}`) }
   try {
     const value = await runWithSpend(spend, call)
-    const recorded = await recordAiUsage(ctx.db, ctx.env, { storeId: ctx.store.id, feature, model: value.model, usage: value.usage, status: 'ok' })
+    const recorded = await recordAiUsage(ctx.db, ctx.env, { storeId: ctx.store.id, channel: aiChannelOf(ctx), feature, model: value.model, usage: value.usage, status: 'ok' })
     if (ref) {
       const completed = await completeMessage(ctx.db, ctx.env, ref, { costMicros: estimateCostMicros(ctx.env, value.usage || { promptTokens: 0, outputTokens: 0 }, value.model), promptTokens: value.usage?.promptTokens || 0 })
         .catch((error) => { console.error('AI message counter failed:', error instanceof Error ? error.message : 'unknown'); return { alert: null } })
@@ -63,16 +75,16 @@ export async function withAiBudget<T extends { usage?: TokenUsage; model?: strin
     if (ref) await releaseMessage(ctx.db, ctx.env, ref).catch(() => undefined)
     if (isSpendBlocked(error)) {
       // Nothing was sent to the model: deterministic commands, catalog and orders keep working.
-      await recordAiUsage(ctx.db, ctx.env, { storeId: ctx.store.id, feature, status: 'blocked' })
+      await recordAiUsage(ctx.db, ctx.env, { storeId: ctx.store.id, channel: aiChannelOf(ctx), feature, status: 'blocked' })
       return { ok: false, message: error.userMessage }
     }
-    await recordAiUsage(ctx.db, ctx.env, { storeId: ctx.store.id, feature, usage: usageFromError(error), status: 'error' })
+    await recordAiUsage(ctx.db, ctx.env, { storeId: ctx.store.id, channel: aiChannelOf(ctx), feature, usage: usageFromError(error), status: 'error' })
     const category = error instanceof GeminiRequestError ? error.category : 'request'
     const code = geminiFailureCode(error)
     console.error('Assistant AI call failed:', feature, code)
     // Every AI failure is visible to the platform (/errores) without exposing content.
     await ctx.db.prepare(`INSERT INTO platform_events (store_id, level, source, code, detail) VALUES (?, ?, 'gemini', ?, ?)`)
-      .bind(ctx.store.id, category === 'request' || category === 'structured_schema' ? 'warning' : 'error', code, feature).run().catch(() => undefined)
+      .bind(ctx.store.id, category === 'request' || category === 'structured_schema' ? 'warning' : 'error', code, ctx.channel ? failureDetail(feature, error) : feature).run().catch(() => undefined)
     return { ok: false, message: FAILURE_MESSAGES[category] || FAILURE_MESSAGES.request! }
   }
 }

@@ -21,6 +21,10 @@ export function sizesOf(product: CatalogProduct): string[] {
   return [...new Set(product.variants.filter((variant) => variant.isActive).map((variant) => variantLabel(variant)))]
 }
 
+function productColorsOf(variants: CatalogProduct['variants']): string[] {
+  return [...new Set(variants.map((variant) => variant.color).filter(Boolean))] as string[]
+}
+
 export function planStock(product: CatalogProduct, intent: StockIntent): StockPlan {
   const active = product.variants.filter((variant) => variant.isActive)
   if (!active.length) return { kind: 'error', text: `${product.name} no tiene tallas ni variantes activas. Agrégalas desde el panel.` }
@@ -36,8 +40,20 @@ export function planStock(product: CatalogProduct, intent: StockIntent): StockPl
     }
     return { kind: 'ask', ask: 'distribution', text: `Las tallas suman ${units(declared)}, pero mencionaste ${intent.total}. ¿Cuál es el dato correcto? Escríbeme de nuevo la distribución.` }
   }
-  const lines: StockLine[] = intent.lines.length ? intent.lines : intent.total ? [{ quantity: intent.total, size: intent.size, color: intent.color }] : []
+  let lines: StockLine[] = intent.lines.length ? intent.lines : intent.total ? [{ quantity: intent.total, size: intent.size, color: intent.color }] : []
   if (!lines.length) return { kind: 'error', text: 'No identifiqué cuántas unidades son.' }
+  // "De cada talla": the same quantity for every active size (of the colour named, if any). The preview lists each one.
+  if (intent.each) {
+    // With several colours and none named, "de cada talla" could touch variants the merchant did not mean: ask.
+    const named = lines.some((line) => line.color) || Boolean(intent.color)
+    if (!named && productColorsOf(active).length > 1) {
+      return { kind: 'ask', ask: 'color', text: `${product.name} existe en ${list(productColorsOf(active))}. ¿De qué color son las ${units(lines[0]!.quantity)} de cada talla?` }
+    }
+    lines = lines.flatMap((line) => line.size ? [line] : active
+      .filter((variant) => variantMatches(variant, { color: line.color || intent.color }))
+      .map((variant) => ({ quantity: line.quantity, size: variant.size, color: variant.color })))
+    if (!lines.length) return { kind: 'error', text: `${product.name} no tiene variantes de ese color. Sus variantes son: ${list(sizesOf(product))}.` }
+  }
 
   const changes = new Map<number, StockChange>()
   const create: NewVariant[] = []

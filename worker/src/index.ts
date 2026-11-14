@@ -24,6 +24,9 @@ import { expireStaleReservations } from './ai/spendGuard'
 import trialRoutes from './routes/trial'
 import seoRoutes from './routes/seo'
 import emailRoutes from './routes/email'
+import whatsappRoutes from './routes/whatsapp'
+import { maintainWhatsApp } from './whatsapp/processor'
+import { consumeWhatsAppJobs } from './whatsapp/photoBatch'
 import { purgeEmailLogs } from './email/send'
 import { pollDeliveryStatus } from './email/webhooks'
 import { cleanupExpiredTrials } from './services/trials'
@@ -67,6 +70,22 @@ export type Env = {
  GEMINI_VIDEO_PRICE_OUTPUT_MICROS_PER_MTOK?: string
  /** Telegram assistant: 'false' turns off the natural-language commerce interpreter / voice notes (previous behaviour stays). */
  TELEGRAM_SMART_INTERPRETER_ENABLED?: string
+ /** Conversational layer (agent) per store: comma-separated store ids, or "*" for every store. Empty = off everywhere. */
+ ASSISTANT_AGENT_STORE_IDS?: string
+ /** Milliseconds the layer waits for the model before handing the message to the previous engine (default 9000). */
+ ASSISTANT_AGENT_TIMEOUT_MS?: string
+ /** Photos and voice inside the conversation (step 2), per store and independent of the text switch. Empty = previous flow. */
+ ASSISTANT_MEDIA_STORE_IDS?: string
+ /** Seconds photos wait for their description (default 1800), photos per product (max 10) and products prepared from photos per store and day (default 60). */
+ ASSISTANT_MEDIA_WINDOW_SECONDS?: string
+ ASSISTANT_MEDIA_MAX_PHOTOS?: string
+ ASSISTANT_MEDIA_DAILY_PRODUCTS?: string
+ /** Milliseconds of photo analysis after which the merchant gets one «still working» notice (default 4000). */
+ ASSISTANT_MEDIA_PROGRESS_MS?: string
+ /** Orders and reports inside the conversation (step 3), per store and independent of the other switches. Empty = previous flow. */
+ ASSISTANT_ORDERS_STORE_IDS?: string
+ /** Hours between UTC and the stores' day for «hoy», «ayer», «esta semana» (default -5, Colombia). */
+ ASSISTANT_TZ_OFFSET_HOURS?: string
  TELEGRAM_VOICE_ENABLED?: string
  /** Quota of AI messages per plan: 'off' (default, counts nothing) | 'shadow' (counts and alerts, never blocks) | 'enforce'. */
  AI_MESSAGE_QUOTA_MODE?: string
@@ -108,6 +127,39 @@ export type Env = {
  MASTER_WEBHOOK_SECRET?: string
  MASTER_ADMIN_TELEGRAM_IDS?: string
  MASTER_ENV_LABEL?: string
+ /** Asistente administrativo por WhatsApp (Cloud API oficial). Apagado salvo WHATSAPP_ADMIN_BOT_ENABLED = 'true'. */
+ WHATSAPP_ADMIN_BOT_ENABLED?: string
+ WHATSAPP_ACCESS_TOKEN?: string
+ WHATSAPP_APP_SECRET?: string
+ WHATSAPP_VERIFY_TOKEN?: string
+ WHATSAPP_PHONE_NUMBER_ID?: string
+ WHATSAPP_ACCOUNT_ID?: string
+ /** Graph API version (default v26.0) and the public number shown in wa.me links (digits with country code). */
+ WHATSAPP_GRAPH_VERSION?: string
+ WHATSAPP_DISPLAY_NUMBER?: string
+ /** Pilot: comma-separated store ids allowed on the channel or "*" for every store (empty = none). */
+ WHATSAPP_PILOT_STORE_IDS?: string
+ /** Estimated Meta rates per category in USD micros, e.g. {"service":800,"utility":800}. Only for reports. */
+ WHATSAPP_RATES_USD_MICROS?: string
+ WHATSAPP_MONITOR_DAILY_MESSAGES?: string
+ /** Extra host suffixes allowed for media downloads (comma separated). */
+ WHATSAPP_MEDIA_HOSTS?: string
+ /**
+  * WAHA (WhatsApp HTTP API): proveedor alternativo NO oficial. Apagado salvo WAHA_ENABLED = 'true'.
+  * WAHA_API_URL = gateway HTTPS de infra/waha; WAHA_API_KEY = clave de sesión limitada (lectura y envío).
+  */
+ WAHA_ENABLED?: string
+ WAHA_API_URL?: string
+ WAHA_API_KEY?: string
+ WAHA_GATEWAY_TOKEN?: string
+ WAHA_WEBHOOK_HMAC_KEY?: string
+ WAHA_SESSION?: string
+ /** Lotes de fotos agrupados por IA (solo WAHA): 'true' activa; máximo de fotos por lote y segundos de espera. */
+ WAHA_PHOTO_BATCH_ENABLED?: string
+ WAHA_PHOTO_BATCH_MAX?: string
+ WAHA_PHOTO_QUIET_SECONDS?: string
+ /** Cola opcional para los pasos de lotes de fotos (sin el límite de 30 s de waitUntil). */
+ WHATSAPP_JOBS?: Queue<{ type: string; batchId: string; force?: boolean }>
  }
  Variables: {
  isAdmin: boolean
@@ -160,6 +212,7 @@ app.route('/api/auth', authRoutes)
 app.route('/api/master', masterRoutes)
 app.route('/api/seo', seoRoutes)
 app.route('/api/email', emailRoutes)
+app.route('/api/whatsapp', whatsappRoutes)
 
 // Rutas protegidas (requieren autenticación admin)
 app.route('/api/admin', adminRoutes)
@@ -198,8 +251,11 @@ const worker = {
   context.waitUntil(expireStaleReservations(env.DB).catch((error) => console.error('AI spend reservation cleanup failed:', error instanceof Error ? error.message : 'unknown')))
   // Estudio Creativo: primero libera trabajos caídos; después avanza la cola de fotos pendientes.
   context.waitUntil(maintainCreativeJobs(env.DB).then(() => processPendingPhotoJobs(env)).then(() => processPendingVideoJobs(env)).catch((error) => console.error('Creative jobs maintenance failed:', error instanceof Error ? error.message : 'unknown')))
+  context.waitUntil(maintainWhatsApp(env, env.DB).catch((error) => console.error('WhatsApp maintenance failed:', error instanceof Error ? error.message : 'unknown')))
   context.waitUntil(cleanupAssistantMemory(env.DB).catch((error) => console.error('Assistant memory cleanup failed:', error instanceof Error ? error.message : 'unknown')))
  },
+ /** Cola WHATSAPP_JOBS (solo si está configurada): pasos de los lotes de fotos de WhatsApp. */
+ queue: (batch: MessageBatch<{ type?: string; batchId?: string; force?: boolean }>, env: Env['Bindings']) => consumeWhatsAppJobs(batch, env),
 }
 
 export default worker

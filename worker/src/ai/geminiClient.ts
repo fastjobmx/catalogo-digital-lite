@@ -29,7 +29,7 @@ export function geminiModel(env: Partial<Env['Bindings']>): string {
 export async function callGeminiJson(
   env: Partial<Env['Bindings']>,
   fetcher: typeof fetch,
-  request: { system: string[]; parts: GeminiPart[]; schema: Record<string, unknown>; maxOutputTokens?: number; temperature?: number },
+  request: { system: string[]; parts: GeminiPart[]; schema: Record<string, unknown>; maxOutputTokens?: number; temperature?: number; thinkingBudget?: number },
 ): Promise<GeminiJsonResult> {
   if (!env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not configured')
   const model = geminiModel(env)
@@ -44,6 +44,8 @@ export async function callGeminiJson(
         temperature: request.temperature ?? 0,
         maxOutputTokens: request.maxOutputTokens ?? 1536,
         responseFormat: { text: { mimeType: 'APPLICATION_JSON', schema: request.schema } },
+        // Only when a caller asks for it (short classifications): the other calls keep the model's default.
+        ...(request.thinkingBudget === undefined ? {} : { thinkingConfig: { thinkingBudget: request.thinkingBudget } }),
       },
     }),
   }, { model, kind: 'text' })
@@ -87,7 +89,13 @@ export async function classifyGeminiError(response: Response): Promise<GeminiReq
         ? 'unknown-request-field'
         : /schema/.test(diagnostic)
           ? 'schema-definition'
-          : 'unclassified'
+          : /mime|media type|unsupported.*(audio|file|format)/.test(diagnostic)
+            ? 'unsupported-media'
+            : /too large|payload|exceeds|maximum/.test(diagnostic)
+              ? 'payload-too-large'
+              : /invalid argument|invalid_argument/.test(diagnostic)
+                ? 'invalid-argument'
+                : 'unclassified'
   const category: GeminiFailureCategory = status === 429
     ? 'quota'
     : status >= 500

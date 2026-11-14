@@ -2,7 +2,7 @@
  * "ponle el precio en 80mil", "las blancas ya no quedan"). It only extracts what is written; missing
  * or contradictory data is left for the planner to ask about. */
 import { commerceIntentSchema, type CommerceIntent, type StockLine } from './intent'
-import { ambiguousAmount, colorOf, fold, FILLER, numberWordsToDigits, parseMoney, quantityOf, sizeOf } from './language'
+import { ambiguousAmount, colorOf, fold, FILLER, numberWordsToDigits, parseMoney, quantityOf, sizeOf, SPOKEN_AMOUNT } from './language'
 import { parseSizeLayouts } from './layouts'
 
 const VERB_WORDS = new Set(fold([
@@ -19,7 +19,7 @@ const VERB_WORDS = new Set(fold([
   'ajustale', 'actualiza', 'actualizale', 'aumenta', 'aumentale', 'rebaja', 'rebajale', 'reduce', 'reducele', 'hay', 'tengo', 'tenemos', 'queda', 'quedan', 'quedaron',
 ].join('|')).split('|'))
 
-const CONNECTORS = new Set(['unidades', 'unidad', 'u', 'pares', 'par', 'piezas', 'pieza', 'de', 'la', 'las', 'los', 'el', 'en', 'del', 'color', 'talla', 'tallas', 'numero', 'num'])
+const CONNECTORS = new Set(['docena', 'docenas', 'unidades', 'unidad', 'u', 'pares', 'par', 'piezas', 'pieza', 'de', 'la', 'las', 'los', 'el', 'en', 'del', 'color', 'talla', 'tallas', 'numero', 'num'])
 const SKU_LIKE = /^(?=[a-z0-9._-]*\d)(?=[a-z0-9._-]*[a-z])[a-z0-9][a-z0-9._-]{2,63}$/i
 
 type Token = { raw: string; word: string }
@@ -44,7 +44,10 @@ function productWords(tokens: Token[], used: Set<number>, extraSkip: Set<string>
 
 /** Walks the message collecting "N [color] [talla] SIZE" lines, bare quantities and listed sizes. */
 export function parseStockLines(text: string): { lines: StockLine[]; bare: Array<{ quantity: number; index: number }>; used: Set<number>; colors: string[]; sizes: string[]; firstLineIndex: number } {
-  const tokens = tokenize(numberWordsToDigits(text))
+  // "Una docena" is twelve units (two words in, two words out, so positions still match the original message).
+  const dozens = numberWordsToDigits(text).replace(/\b(media|una|un|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|\d{1,3})\s+docenas?\b/g,
+    (_match, count: string) => `${count === 'media' ? 6 : (quantityOf(count) ?? 1) * 12} unidades`)
+  const tokens = tokenize(dozens)
   const used = new Set<number>()
   const lines: StockLine[] = []
   const bare: Array<{ quantity: number; index: number }> = []
@@ -103,6 +106,8 @@ export function parseStockLines(text: string): { lines: StockLine[]; bare: Array
       }
       if (!color && colorOf(next)) { color = colorOf(next); used.add(j); continue }
       if (CONNECTORS.has(next)) continue
+      // "súmale tres a la 38", "dos para la 39": the size follows "a la"; "a 45 mil" is a price and stops here.
+      if ((next === 'a' || next === 'para') && /^(?:la|las)$/.test(tokens[j + 1]?.word || '') && sizeOf(tokens[j + 2]?.word) && !/^(?:mil|k|lucas?)$/.test(tokens[j + 3]?.word || '')) continue
       break
     }
     used.add(i)
@@ -138,13 +143,43 @@ function capitalize(value: string): string {
  * counts as new only with an indefinite article ("agrega unos tenis…"), because "agrega 3 negras talla 38" is a restock. */
 const CREATE = /^(?:por\s+favor\s+|porfa\s+)?(?:creame|crea|crear|registrame|registra|publicame|publica|subeme|sube|quiero\s+(?:crear|publicar|vender|subir)|nuevo\s+producto:?|(?:agregame|agrega|anademe|anade|aniademe|aniade)\s+(?=(?:un|una|unos|unas)\b))\s*(?:(?:un|una|unos|unas|nuevo|nueva|nuevos|nuevas)\s+)?/
 
-function parseCreate(text: string, lower: string): CommerceIntent | null {
-  const head = lower.match(CREATE)
+/** The same sentence without the article ("agrega tenis blancos AD223…") or as an arrival ("me llegaron unas
+ * camisetas PL200…"). It is only read as a new product by the engine, after checking that the store has no such product. */
+const CREATE_LOOSE = /^(?:por\s+favor\s+|porfa\s+)?(?:me\s+)?(agregame|agrega|agregar|anademe|anade|aniademe|aniade|registrame|registra|meteme|mete|cargame|carga|anotame|anota|ingresame|ingresa|llegaron|llego|recibimos|recibi|compramos|compre|entraron)\s+(?:(?:un|una|unos|unas|nuevo|nueva|nuevos|nuevas)\s+)?/
+const ARRIVAL = /^(?:llegaron|llego|recibimos|recibi|compramos|compre|entraron)$/
+
+/** A code written without the word "referencia": letters followed by digits ("AD223", "SAN-1", "pm100").
+ * Sizes ("2xl") and amounts ("80mil", "180k") start with a digit and never match. */
+const BARE_REFERENCE = /^[a-z]{1,12}[-._]?\d[a-z0-9._-]{0,48}$/i
+
+/** A code and not a name: it has a separator ("SAN-1"), or a short prefix with two or more digits ("AD223", "pm100").
+ * A capitalised word or a long word ending in a number ("Jordan1", "Max90", "iphone15") reads like a model name. */
+function looksLikeCode(raw: string): boolean {
+  if (/^[a-z]{1,12}[-._]\d/i.test(raw)) return true
+  return /^[a-z]{1,4}\d{2,}[a-z0-9._-]*$/i.test(raw) && !/^[A-Z][a-z]+\d/.test(raw)
+}
+
+function codeTokens(text: string): Token[] {
+  return tokenize(text).filter((token) => token.raw.length >= 3 && BARE_REFERENCE.test(token.raw) && !sizeOf(token.word))
+}
+
+/** Codes written in a product description, in order and without repeats. */
+export function referencesIn(text: string): string[] {
+  return [...new Set(codeTokens(text).filter((token) => looksLikeCode(token.raw)).map((token) => token.raw.toUpperCase()))]
+}
+
+/** Words that could be a reference or part of the name ("Jordan1"), as written. The merchant decides. */
+export function doubtfulReferencesIn(text: string): string[] {
+  return [...new Set(codeTokens(text).filter((token) => !looksLikeCode(token.raw)).map((token) => token.raw))]
+}
+
+function parseCreate(text: string, lower: string, loose = false): CommerceIntent | null {
+  const head = lower.match(loose ? CREATE_LOOSE : CREATE)
   if (!head) return null
   // Spoken compound numbers become digits, keeping the original capitals (brands).
   const original = numberWordsToDigits(text, true)
   const folded = fold(original)
-  const priceMatch = folded.match(/\b(?:a|en|por|precio(?:\s+de)?|vale[n]?|cuesta[n]?)\s+(\$?\s*[\d.,]+\s*(?:mil|k|lucas?|millon(?:es)?)?|\w+(?:\s+y\s+\w+)?\s+mil)\b/)
+  const priceMatch = folded.match(new RegExp(`\\b(?:a|en|por|precio(?:\\s+de)?|vale[n]?|cuesta[n]?)\\s+(\\$?\\s*[\\d.,]+\\s*(?:mil|k|lucas?|millon(?:es)?)?|${SPOKEN_AMOUNT}|\\w+(?:\\s+y\\s+\\w+)?\\s+mil)\\b`))
   const priceStart = priceMatch?.index ?? folded.length
   const price = priceMatch ? parseMoney(priceMatch[1]!) : null
   const priceAsk = !price ? ambiguousAmount(folded) : null
@@ -152,15 +187,22 @@ function parseCreate(text: string, lower: string): CommerceIntent | null {
   const tokens = tokenize(region)
   const words = tokens.map((token) => ({ raw: token.raw, word: fold(token.raw) }))
   const layout = parseSizeLayouts(words)
-  const reference = region.match(/\b(?:referencia|ref\.?|sku|c[oó]digo)\s*[:#-]?\s*([A-Za-z0-9][A-Za-z0-9._-]{2,63})\b/i)?.[1]?.toUpperCase() ?? null
+  const named = region.match(/\b(?:referencia|ref\.?|sku|c[oó]digo)\s*[:#-]?\s*([A-Za-z0-9][A-Za-z0-9._-]{2,63})\b/i)?.[1]?.toUpperCase() ?? null
+  // Without the word "referencia", a single code in the description is the reference; two or more are left for the merchant to say.
+  const bare = named ? [] : referencesIn(region)
+  const reference = named ?? (bare.length === 1 ? bare[0]! : null)
+  const doubtful = reference || bare.length ? [] : doubtfulReferencesIn(region)
   const used = new Set<number>(layout?.used || [])
   words.forEach((token, index) => { if (reference && token.word === fold(reference)) used.add(index) })
   let stocks: Array<{ size: string; quantity: number }> = (layout?.lines || []).map((line) => ({ size: line.size!, quantity: line.quantity }))
   const sizes: string[] = stocks.map((stock) => stock.size)
   if (!layout) {
     // Quantity-first: "5 unidades talla M".
-    const lines = parseStockLines(region).lines
+    const quantities = parseStockLines(region)
+    const lines = quantities.lines
     if (lines.length && lines.every((line) => line.size)) stocks = lines.map((line) => ({ size: line.size!, quantity: line.quantity }))
+    // "agrega 10 camisetas polo PL200 talla M": one quantity and one size belong together.
+    else if (loose && !lines.length && quantities.bare.length === 1 && quantities.sizes.length === 1) stocks = [{ size: quantities.sizes[0]!, quantity: quantities.bare[0]!.quantity }]
     stocks.forEach((stock) => sizes.push(stock.size))
   }
   let color: string | null = null
@@ -180,6 +222,7 @@ function parseCreate(text: string, lower: string): CommerceIntent | null {
     inSizes = false
     if (word === 'marca') { brand = tokens[i + 1]?.raw || null; i++; continue }
     if (colorOf(word)) { if (!color) { color = colorOf(word); colorWord = word } continue }
+    if (bare.includes(raw.toUpperCase())) continue
     if (['cada', 'una', 'uno', 'referencia', 'ref', 'sku', 'codigo'].includes(word) || FILLER.has(word) || VERB_WORDS.has(word) || /^\d/.test(word) || quantityOf(word) !== null) continue
     // A capitalised word after the product noun is read as the brand ("sandalias negras Guess").
     if (!brand && nouns.length && /^\p{Lu}/u.test(raw)) { brand = raw; continue }
@@ -187,7 +230,26 @@ function parseCreate(text: string, lower: string): CommerceIntent | null {
   }
   if (!nouns.length) return null
   const name = [capitalize(nouns.join(' ')), brand, colorWord].filter(Boolean).join(' ')
-  return result({ kind: 'create_product', name, brand, color, sizes: [...new Set(sizes)], price, sku: reference, stocks, priceAsk })
+  return result({ kind: 'create_product', name, brand, color, sizes: [...new Set(sizes)], price, sku: reference, stocks, priceAsk, skuAsk: doubtful.length === 1 ? doubtful[0]! : null })
+}
+
+export type NewProductReading = {
+  intent: Extract<CommerceIntent, { kind: 'create_product' }>
+  /** "agrega/registra…" states a new product; "llegaron/recibí…" only suggests one, so the merchant is asked. */
+  direct: boolean
+  references: string[]
+}
+
+/** Reads a message that named a product the store does not have as the description of a new product.
+ * Pure: the engine decides, with the real catalogue, whether it is a new product, a restock or a question. */
+export function parseNewProduct(raw: string): NewProductReading | null {
+  const text = raw.trim().replace(/[.!¡]+$/, '').trim()
+  if (!text || text.length > 400) return null
+  const lower = numberWordsToDigits(text)
+  const head = lower.match(CREATE_LOOSE)
+  const intent = parseCreate(text, lower, true)
+  if (!head || !intent || intent.kind !== 'create_product') return null
+  return { intent, direct: !ARRIVAL.test(head[1]!), references: referencesIn(text) }
 }
 
 function parseCorrection(lower: string): CommerceIntent | null {
@@ -316,5 +378,7 @@ export function parseCommerce(raw: string): CommerceIntent | null {
   const color = parsed.colors.length === 1 ? parsed.colors[0]! : null
   if (color) lines = lines.map((line) => ({ ...line, color: line.color || color }))
   const product = productWords(tokens, parsed.used)
-  return result({ kind: 'stock', mode, product, total, lines, color, size: parsed.sizes.length === 1 && lines.every((line) => !line.size) ? parsed.sizes[0]! : null })
+  // "Cinco pares de cada talla" without naming the sizes: the product's own sizes, resolved by the planner.
+  const each = lines.length === 1 && !lines[0]!.size && !parsed.sizes.length && /\b(?:de|por|a|en|para)\s+cada\s+(?:talla|una|uno|numero)\b|\bpor\s+talla\b/.test(lower)
+  return result({ kind: 'stock', mode, product, total, lines, color, size: parsed.sizes.length === 1 && lines.every((line) => !line.size) ? parsed.sizes[0]! : null, ...(each ? { each: true } : {}) })
 }

@@ -3,7 +3,7 @@ import {
   campaignText, consentedContacts, couponResults, normalizeCouponCode, normalizePhone, OPT_OUT_LINE,
   unsubscribeContact, whatsappLink, type Coupon,
 } from '../marketing'
-import { readSession, say, updateSessionState, type AssistantContext } from './context'
+import { readSession, say, updateSessionState, type AssistantContext, actorOf, sourceOf } from './context'
 import { parseAmount } from './intents'
 import { escapeHtml, formatMoney } from './tools'
 
@@ -90,9 +90,9 @@ async function createCoupon(ctx: AssistantContext): Promise<void> {
   try {
     await ctx.db.batch([
       ctx.db.prepare(`INSERT INTO coupons (store_id, code, kind, value, min_subtotal, ends_at, max_uses, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-        .bind(ctx.store.id, draft.code, draft.kind, draft.value, draft.minSubtotal, draft.endsAt, draft.maxUses, `telegram:${ctx.telegramUserId}`),
-      ctx.db.prepare(`INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source, store_id) VALUES ('coupon_created', 'coupon', ?, ?, ?, 'telegram', ?)`)
-        .bind(draft.code, JSON.stringify(draft), `telegram:${ctx.telegramUserId}`, ctx.store.id),
+        .bind(ctx.store.id, draft.code, draft.kind, draft.value, draft.minSubtotal, draft.endsAt, draft.maxUses, actorOf(ctx)),
+      ctx.db.prepare(`INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source, store_id) VALUES ('coupon_created', 'coupon', ?, ?, ?, '${sourceOf(ctx)}', ?)`)
+        .bind(draft.code, JSON.stringify(draft), actorOf(ctx), ctx.store.id),
     ])
   } catch (error) {
     if (/unique|constraint/i.test(String(error))) { await say(ctx, `Ya existe un cupón ${escapeHtml(draft.code)}. No creé nada.`); return }
@@ -114,7 +114,7 @@ async function deactivateCoupon(ctx: AssistantContext, code: string, confirmed: 
   }
   const result = await ctx.db.prepare(`UPDATE coupons SET is_active = 0, updated_at = datetime('now') WHERE store_id = ? AND code = ? AND is_active = 1`).bind(ctx.store.id, code).run()
   if (Number(result.meta.changes || 0)) {
-    await ctx.db.prepare(`INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source, store_id) VALUES ('coupon_deactivated', 'coupon', ?, '{}', ?, 'telegram', ?)`).bind(code, `telegram:${ctx.telegramUserId}`, ctx.store.id).run()
+    await ctx.db.prepare(`INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source, store_id) VALUES ('coupon_deactivated', 'coupon', ?, '{}', ?, '${sourceOf(ctx)}', ?)`).bind(code, actorOf(ctx), ctx.store.id).run()
   }
   await say(ctx, Number(result.meta.changes || 0) ? `⏸ El cupón ${escapeHtml(code)} quedó desactivado.` : 'Ese cupón ya estaba desactivado o no existe.')
 }
@@ -134,7 +134,7 @@ export async function createCampaign(ctx: AssistantContext, couponCode: string |
   if (couponCode && !coupon) { await say(ctx, `No encontré un cupón activo ${escapeHtml(couponCode)} en esta tienda.`); return }
   const text = (message || defaultCampaignMessage(ctx.store.name, coupon, ctx.store.currency)).slice(0, 400)
   const created = await ctx.db.prepare(`INSERT INTO campaigns (store_id, name, message, coupon_code, created_by) VALUES (?, ?, ?, ?, ?) RETURNING id`)
-    .bind(ctx.store.id, coupon ? `Campaña ${coupon.code}` : 'Campaña', text, coupon?.code ?? null, `telegram:${ctx.telegramUserId}`).first<{ id: number }>()
+    .bind(ctx.store.id, coupon ? `Campaña ${coupon.code}` : 'Campaña', text, coupon?.code ?? null, actorOf(ctx)).first<{ id: number }>()
   await showCampaign(ctx, created!.id)
 }
 
@@ -164,10 +164,10 @@ async function campaignLinks(ctx: AssistantContext, campaignId: number, page: nu
 async function approveCampaign(ctx: AssistantContext, campaignId: number): Promise<void> {
   const audience = (await consentedContacts(ctx.db, ctx.store.id)).length
   const result = await ctx.db.prepare(`UPDATE campaigns SET status = 'aprobada', approved_by = ?, approved_at = datetime('now'), recipients = ? WHERE id = ? AND store_id = ? AND status = 'borrador'`)
-    .bind(`telegram:${ctx.telegramUserId}`, audience, campaignId, ctx.store.id).run()
+    .bind(actorOf(ctx), audience, campaignId, ctx.store.id).run()
   if (!Number(result.meta.changes || 0)) { await say(ctx, 'Esa campaña ya no está en borrador.'); return }
-  await ctx.db.prepare(`INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source, store_id) VALUES ('campaign_approved', 'campaign', ?, ?, ?, 'telegram', ?)`)
-    .bind(String(campaignId), JSON.stringify({ recipients: audience }), `telegram:${ctx.telegramUserId}`, ctx.store.id).run()
+  await ctx.db.prepare(`INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source, store_id) VALUES ('campaign_approved', 'campaign', ?, ?, ?, '${sourceOf(ctx)}', ?)`)
+    .bind(String(campaignId), JSON.stringify({ recipients: audience }), actorOf(ctx), ctx.store.id).run()
   await say(ctx, `✅ Campaña aprobada para ${audience} cliente(s).`)
   await campaignLinks(ctx, campaignId, 0)
 }
@@ -195,7 +195,7 @@ export async function unsubscribe(ctx: AssistantContext, rawPhone: string): Prom
   const phone = normalizePhone(rawPhone, ctx.env.STORE_COUNTRY || 'CO')
   if (!phone) { await say(ctx, 'Escribe el número completo, por ejemplo: dar de baja 3001234567.'); return }
   const done = await unsubscribeContact(ctx.db, ctx.store.id, phone)
-  if (done) await ctx.db.prepare(`INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source, store_id) VALUES ('contact_unsubscribed', 'contact', ?, '{}', ?, 'telegram', ?)`).bind(`•••${phone.slice(-4)}`, `telegram:${ctx.telegramUserId}`, ctx.store.id).run()
+  if (done) await ctx.db.prepare(`INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source, store_id) VALUES ('contact_unsubscribed', 'contact', ?, '{}', ?, '${sourceOf(ctx)}', ?)`).bind(`•••${phone.slice(-4)}`, actorOf(ctx), ctx.store.id).run()
   await say(ctx, done ? `✅ El número •••${phone.slice(-4)} quedó dado de baja: no aparecerá en ninguna campaña.` : 'Ese número no estaba suscrito a promociones.')
 }
 

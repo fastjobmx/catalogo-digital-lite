@@ -1,5 +1,5 @@
 import { applyConfirmedTelegramProductCreation, createCatalogCategory, productLimit } from '../business'
-import { deleteTelegramDraftImages, deleteTelegramDraftTempImages, downloadTelegramImage, promoteTelegramDraftImages, storeTelegramDraftImage } from '../telegramProductImages'
+import { deleteTelegramDraftImages, deleteTelegramDraftTempImages, promoteTelegramDraftImages, storeTelegramDraftImage } from '../telegramProductImages'
 import {
   createTelegramProductDraft, mergeGeminiProductFields, missingProductDraftFields, parseProductDraftFieldReply,
   suggestSku, telegramProductDraftSchema, type ProductDraftField, type ProductDraftMissingField, type TelegramProductDraft,
@@ -7,7 +7,7 @@ import {
 import { roleAllows } from '../../tenancy/access'
 import { publicStoreUrl, slugify } from '../../tenancy/stores'
 import { bytesToBase64, type TelegramMessage } from './telegramApi'
-import { say, sayPhoto, rememberTurn, type AssistantContext } from './context'
+import { fetchImage, say, sayPhoto, rememberTurn, type AssistantContext, actorOf, sourceOf } from './context'
 import { analyzeProductPhotos } from './ai'
 import { escapeHtml, formatMoney } from './tools'
 import { advanceAfterPublishedProduct } from './onboarding'
@@ -15,6 +15,7 @@ import { backToMenu } from './menus'
 import type { PendingOperation } from './operations'
 import { parseCommerce } from './commerce/parse'
 import { sameColor, sameSize } from './commerce/language'
+import { continuePhotoBatch } from '../../whatsapp/photoBatch'
 
 export type PendingProductDraft = { operation: PendingOperation; draft: TelegramProductDraft }
 type DraftCategory = { id: number; name: string; slug: string }
@@ -72,6 +73,8 @@ async function resolveDraftCategory(ctx: AssistantContext, draft: TelegramProduc
   return draft
 }
 
+/** Saves the draft only if nobody changed it meanwhile (also used by the conversational layer). */
+export { saveDraft as saveProductDraft }
 async function saveDraft(ctx: AssistantContext, operation: PendingOperation, draft: TelegramProductDraft): Promise<PendingOperation | null> {
   const json = JSON.stringify(draft)
   if (json === operation.params_json) return operation
@@ -252,7 +255,7 @@ export async function receiveProductPhoto(ctx: AssistantContext, active: Pending
     if (document && (!document.mime_type?.startsWith('image/') || !/\.(jpe?g|png|webp)$/i.test(document.file_name || ''))) throw new Error('TELEGRAM_IMAGE_FORMAT_UNSUPPORTED')
     const fileId = message.photo?.at(-1)?.file_id || document?.file_id
     if (!fileId) throw new Error('TELEGRAM_IMAGE_FORMAT_UNSUPPORTED')
-    const image = await downloadTelegramImage(ctx.botToken, fileId)
+    const image = await fetchImage(ctx, fileId)
     const stored = await storeTelegramDraftImage(ctx.env.ASSETS, active.operation.operation_id, image, fileId)
     // Re-read the draft so several photos sent as an album are all kept.
     for (let attempt = 0; attempt < 4; attempt++) {
@@ -415,6 +418,12 @@ export async function handleProductDraftCallback(ctx: AssistantContext, intent: 
   switch (intent) {
     case 'cancel':
       await cancelProductDraft(ctx, operationId)
+      if (active.draft.batch) {
+        // Product of a WhatsApp photo batch: cancelling it skips to the next product of the batch.
+        await say(ctx, 'Listo, omití este producto. No se publicó. (Escribe <b>cancelar lote</b> para dejar todo el lote.)')
+        await continuePhotoBatch(ctx, active.draft, 'skipped')
+        return
+      }
       await say(ctx, 'Listo, cancelé el borrador. No se publicó nada.', backToMenu())
       return
     case 'done':
@@ -486,7 +495,7 @@ export async function handleProductDraftCallback(ctx: AssistantContext, intent: 
       if (!name) { await say(ctx, 'Escribe el nombre de la categoría que quieres crear.'); return }
       let categoryId: number
       try {
-        const created = await createCatalogCategory(ctx.db, { name, slug: slugify(name) }, { actor: `telegram:${ctx.telegramUserId}`, source: 'telegram', storeId: ctx.store.id })
+        const created = await createCatalogCategory(ctx.db, { name, slug: slugify(name) }, { actor: actorOf(ctx), source: sourceOf(ctx), storeId: ctx.store.id })
         categoryId = created.id
       } catch (error) {
         if (!(error instanceof Error && error.message === 'CATEGORY_SLUG_EXISTS')) throw error
@@ -570,7 +579,7 @@ export async function publishProductDraft(ctx: AssistantContext, active: Pending
   let status: string
   try {
     status = await applyConfirmedTelegramProductCreation(ctx.db, {
-      operationId: operation.operation_id, chatId: String(ctx.chatId), storeId: ctx.store.id, actor: `telegram:${ctx.telegramUserId}`,
+      operationId: operation.operation_id, chatId: String(ctx.chatId), storeId: ctx.store.id, actor: actorOf(ctx),
       paramsJson, beforeJson: operation.before_json, afterJson, category, product,
     })
   } catch (error) {
@@ -611,6 +620,8 @@ export async function publishProductDraft(ctx: AssistantContext, active: Pending
   await sayPhoto(ctx, mainPhoto.telegramFileId,
     `✅ <b>¡Producto publicado!</b>\n${escapeHtml(saved?.name || product.name)}\nCódigo: ${escapeHtml(product.sku)} · ${formatMoney(Number(saved?.price ?? product.price), ctx.store.currency)}\n` +
     `Stock: ${saved?.stock ?? product.variants.reduce((sum, variant) => sum + variant.stock, 0)} u. · Fotos: ${imageUrls.length}\n\nYa está visible en tu tienda:\n${escapeHtml(url)}`,
-    backToMenu())
+    draft.batch ? undefined : backToMenu())
+  // Product of a WhatsApp photo batch: go on with the next one (no-op for every other draft).
+  if (draft.batch) { await continuePhotoBatch(ctx, draft, 'published'); return }
   await advanceAfterPublishedProduct(ctx)
 }

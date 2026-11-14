@@ -2,7 +2,7 @@
  * privilege role chosen by the owner) and revoke access. Every change is audited. */
 import { can, INVITABLE_ROLES, ROLE_LABELS, type StoreRole } from '../../tenancy/access'
 import { createAccessToken, upsertMembership } from '../platformUsers'
-import { say, type AssistantContext } from './context'
+import { say, unavailableHere, type AssistantContext, actorOf } from './context'
 import { escapeHtml } from './tools'
 
 const ROLE_HELP: Record<StoreRole, string> = {
@@ -26,6 +26,7 @@ async function botUsername(ctx: AssistantContext): Promise<string | null> {
 }
 
 export async function showTeam(ctx: AssistantContext): Promise<void> {
+  if (await unavailableHere(ctx, 'team')) return
   if (!can(ctx.role, 'team.manage')) { await say(ctx, 'Solo el propietario o un administrador pueden ver y gestionar el equipo.'); return }
   const members = (await ctx.db.prepare(
     `SELECT u.id, u.display_name AS name, m.role, CASE WHEN u.telegram_user_id IS NULL THEN 0 ELSE 1 END AS linked
@@ -52,7 +53,7 @@ async function chooseRole(ctx: AssistantContext): Promise<void> {
 /** Creates an invited account with the chosen role and a 72-hour, single-use link. */
 async function invite(ctx: AssistantContext, role: StoreRole): Promise<void> {
   if (!INVITABLE_ROLES.includes(role) || (role === 'admin' && ctx.role !== 'owner')) { await say(ctx, 'No puedes invitar con ese rol.'); return }
-  const actor = `telegram:${ctx.telegramUserId}`
+  const actor = actorOf(ctx)
   const created = await ctx.db.prepare(`INSERT INTO platform_users (email, display_name, status, created_by) VALUES (NULL, ?, 'invited', ?)`)
     .bind(`${ROLE_LABELS[role]} invitado`, actor).run()
   const userId = Number(created.meta.last_row_id)
@@ -84,7 +85,7 @@ async function revoke(ctx: AssistantContext, userId: number, confirmed: boolean)
     ctx.db.prepare(`UPDATE store_memberships SET status = 'revoked', updated_at = datetime('now') WHERE store_id = ? AND user_id = ? AND status = 'active' AND role <> 'owner'`).bind(ctx.store.id, userId),
     ctx.db.prepare(`UPDATE user_access_tokens SET used_at = unixepoch() WHERE user_id = ? AND store_id = ? AND used_at IS NULL`).bind(userId, ctx.store.id),
     ctx.db.prepare(`INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source, store_id) VALUES ('team_member_revoked', 'user', ?, ?, ?, 'telegram', ?)`)
-      .bind(String(userId), JSON.stringify({ role: member.role }), `telegram:${ctx.telegramUserId}`, ctx.store.id),
+      .bind(String(userId), JSON.stringify({ role: member.role }), actorOf(ctx), ctx.store.id),
   ])
   await say(ctx, Number(result[0]?.meta.changes || 0) ? '✅ Acceso quitado. Esa persona ya no puede ver ni cambiar esta tienda.' : 'Ese acceso ya había sido quitado.', { inline_keyboard: [[{ text: '👥 Ver equipo', callback_data: cb(ctx, 'list') }]] })
 }

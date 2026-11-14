@@ -1,6 +1,6 @@
 import type { AssistantContext } from './assistant/context'
 import type { TelegramMessage } from './assistant/telegramApi'
-import { say } from './assistant/context'
+import { say, unavailableHere, actorOf } from './assistant/context'
 import { escapeHtml, formatMoney } from './assistant/tools'
 import { roleAllows } from '../tenancy/access'
 import { adminStoreUrl, publicStoreUrl, slugify } from '../tenancy/stores'
@@ -112,6 +112,7 @@ async function explainTelegramBatchDisabled(ctx: AssistantContext): Promise<void
 }
 
 export async function startTelegramBatch(ctx: AssistantContext): Promise<void> {
+  if (await unavailableHere(ctx, 'batches')) return
   if (!roleAllows(ctx.role, 'admin')) { await say(ctx, 'Tu rol no permite publicar productos. Pídeselo al propietario o a un administrador.'); return }
   if (!await isTelegramBatchEnabled(ctx)) { await explainTelegramBatchDisabled(ctx); return }
   const active = await activeTelegramBatch(ctx)
@@ -140,7 +141,7 @@ export async function startTelegramBatch(ctx: AssistantContext): Promise<void> {
     throw error
   }
   await ctx.db.prepare(`INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source, store_id) VALUES ('telegram_product_batch_started', 'telegram_product_batch', ?, ?, ?, 'telegram', ?)`)
-    .bind(id, JSON.stringify({ maxItems }), `telegram:${ctx.telegramUserId}`, ctx.store.id).run()
+    .bind(id, JSON.stringify({ maxItems }), actorOf(ctx), ctx.store.id).run()
   await say(ctx, `Vamos a cargar varios productos a tu tienda.\n\nEnvíame una fotografía por cada artículo. Puedes enviar varias fotografías juntas o por separado.\n\nCuando termines, escribe /listo.\n\nSi necesitas detener el proceso, escribe /cancelar.\n\nLímite disponible para este lote: ${maxItems} productos.`)
 }
 
@@ -440,7 +441,7 @@ export async function analyzeTelegramBatchNext(ctx: AssistantContext, batchId: s
       if (Number(image.size || 0) > 5 * 1024 * 1024) throw new Error('IMAGE_TOO_LARGE_FOR_AI')
       const bytes = new Uint8Array(await image.arrayBuffer())
       const run = await runWithCredits(ctx.db, ctx.env, {
-        storeId: ctx.store.id, feature: 'foto_a_producto', key: `telegram-batch-${batch.id}-${item.id}`, actor: `telegram:${ctx.telegramUserId}`,
+        storeId: ctx.store.id, feature: 'foto_a_producto', key: `telegram-batch-${batch.id}-${item.id}`, actor: actorOf(ctx),
       }, () => suggestProductFromPhotos(ctx.env, fetch, [{ mimeType: item.content_type, data: bytesToBase64(bytes) }], { text: item.name || undefined, categories: categoryNames }))
       if (!run.ok) {
         const note = run.reason === 'error' ? run.message : run.message
@@ -528,7 +529,7 @@ export async function publishTelegramBatch(ctx: AssistantContext, batchId: strin
       const found = await ctx.db.prepare('SELECT id FROM categories WHERE store_id = ? AND lower(name) = lower(?) AND is_active = 1 LIMIT 1').bind(ctx.store.id, categoryName).first<{ id: number }>()
       if (found) categoryId = found.id
       else {
-        try { categoryId = (await createCatalogCategory(ctx.db, { name: categoryName, slug: `${slugify(categoryName)}-${ctx.store.id}` }, { actor: `telegram:${ctx.telegramUserId}`, source: 'telegram', storeId: ctx.store.id })).id }
+        try { categoryId = (await createCatalogCategory(ctx.db, { name: categoryName, slug: `${slugify(categoryName)}-${ctx.store.id}` }, { actor: actorOf(ctx), source: 'telegram', storeId: ctx.store.id })).id }
         catch { categoryId = null }
       }
     }
@@ -542,7 +543,7 @@ export async function publishTelegramBatch(ctx: AssistantContext, batchId: strin
       await ctx.env.ASSETS.put(finalKey, object.body, { httpMetadata: { contentType: item.content_type, cacheControl: 'public, max-age=31536000, immutable' }, customMetadata: { batchId: batch.id, itemId: String(item.id), storeId: String(ctx.store.id) } })
       await applyTelegramProductBatchItem(ctx.db, {
         batchId: batch.id, itemId: item.id, chatId: String(ctx.chatId), telegramUserId: ctx.telegramUserId,
-        storeId: ctx.store.id, actor: `telegram:${ctx.telegramUserId}`,
+        storeId: ctx.store.id, actor: actorOf(ctx),
         product: {
           sku, name: item.name!, description: item.description || '', categoryId, price: Number(item.price),
           imageUrls: [`/api/assets/${finalKey}`],
@@ -570,7 +571,7 @@ export async function publishTelegramBatch(ctx: AssistantContext, batchId: strin
   await ctx.db.prepare('UPDATE telegram_product_batches SET status = ?, updated_at = datetime(\'now\'), completed_at = CASE WHEN ? IN (\'published\',\'failed\') THEN datetime(\'now\') ELSE completed_at END WHERE id = ? AND store_id = ?')
     .bind(finalStatus, finalStatus, batch.id, ctx.store.id).run()
   await ctx.db.prepare(`INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source, store_id) VALUES ('telegram_product_batch_published', 'telegram_product_batch', ?, ?, ?, 'telegram', ?)`)
-    .bind(batch.id, JSON.stringify({ created, pending, failed, published }), `telegram:${ctx.telegramUserId}`, ctx.store.id).run()
+    .bind(batch.id, JSON.stringify({ created, pending, failed, published }), actorOf(ctx), ctx.store.id).run()
   const publicUrl = publicStoreUrl(ctx.env.PUBLIC_STORE_BASE_URL, ctx.store)
   const adminUrl = `${adminStoreUrl(ctx.env.PUBLIC_STORE_BASE_URL, ctx.store)}/products`
   await say(ctx, `${created ? '¡Listo! Tu catálogo fue actualizado.' : 'No se informó éxito: revisa los errores y vuelve a intentarlo.'}\n\nProductos publicados en esta operación: ${created}\nProductos pendientes: ${pending}\nProductos fallidos: ${failed}`, {
@@ -593,7 +594,7 @@ export async function cancelTelegramBatch(ctx: AssistantContext, batchId?: strin
   const temp = await ctx.db.prepare('SELECT temp_key FROM telegram_product_batch_items WHERE batch_id = ? AND store_id = ?').bind(batch.id, ctx.store.id).all<{ temp_key: string }>()
   if (ctx.env.ASSETS) await Promise.all((temp.results || []).map((item) => ctx.env.ASSETS!.delete(item.temp_key).catch(() => undefined)))
   await ctx.db.prepare(`INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source, store_id) VALUES ('telegram_product_batch_cancelled', 'telegram_product_batch', ?, '{}', ?, 'telegram', ?)`)
-    .bind(batch.id, `telegram:${ctx.telegramUserId}`, ctx.store.id).run()
+    .bind(batch.id, actorOf(ctx), ctx.store.id).run()
   await say(ctx, `Cancelé el lote. No se publicaron productos nuevos.${batch.status === 'partially_published' ? ' Los que ya se habían publicado permanecen en el catálogo.' : ''}`)
 }
 

@@ -1,6 +1,6 @@
-import { downloadTelegramImage, deleteTelegramDraftImages, deleteTelegramDraftTempImages, promoteTelegramDraftImages, storeTelegramDraftImage } from '../telegramProductImages'
+import { deleteTelegramDraftImages, deleteTelegramDraftTempImages, promoteTelegramDraftImages, storeTelegramDraftImage } from '../telegramProductImages'
 import { roleAllows } from '../../tenancy/access'
-import { readSession, say, sayPhoto, updateSessionState, type AssistantContext } from './context'
+import { fetchImage, readSession, say, sayPhoto, updateSessionState, type AssistantContext, actorOf, sourceOf } from './context'
 import { proposeChange, type PendingOperation } from './operations'
 import { escapeHtml } from './tools'
 import { backToMenu } from './menus'
@@ -22,7 +22,7 @@ export async function proposeStoreImage(ctx: AssistantContext, kind: 'banner' | 
   if (!ctx.env.ASSETS) { await say(ctx, 'El almacenamiento de imágenes no está disponible. No cambié nada.'); return }
   let image
   try {
-    image = await downloadTelegramImage(ctx.botToken, fileId)
+    image = await fetchImage(ctx, fileId)
   } catch {
     await say(ctx, 'No pude usar esa imagen. Envía una foto JPG, PNG o WebP de buena calidad.')
     return
@@ -89,7 +89,7 @@ export async function receiveAttachPhoto(ctx: AssistantContext, fileId: string):
   const pending = await getPendingAttach(ctx)
   if (!pending || !ctx.env.ASSETS) { await say(ctx, 'No hay fotos pendientes por agregar.'); return }
   let image
-  try { image = await downloadTelegramImage(ctx.botToken, fileId) }
+  try { image = await fetchImage(ctx, fileId) }
   catch { await say(ctx, 'No pude usar esa imagen. Envía una foto JPG, PNG o WebP.'); return }
   const stored = await storeTelegramDraftImage(ctx.env.ASSETS, pending.operation.operation_id, image, fileId)
   for (let attempt = 0; attempt < 4; attempt++) {
@@ -147,8 +147,8 @@ export async function handleAttachCallback(ctx: AssistantContext, intent: string
       .bind(token, operationId, String(ctx.chatId), ctx.store.id, pending.operation.params_json),
     ctx.db.prepare(`UPDATE products SET image_urls = ?, updated_at = datetime('now') WHERE store_id = ? AND sku = ? AND image_urls = ? AND ${gate}`)
       .bind(JSON.stringify(nextUrls), ctx.store.id, pending.draft.sku, before.image_urls, operationId, token),
-    ctx.db.prepare(`INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source, store_id) SELECT 'product_photos_added', 'product', ?, ?, ?, 'telegram', ? WHERE ${gate}`)
-      .bind(pending.draft.sku, JSON.stringify({ operationId, added: promoted.keys.length }), `telegram:${ctx.telegramUserId}`, ctx.store.id, operationId, token),
+    ctx.db.prepare(`INSERT INTO audit_log (action, entity_type, entity_id, payload, performed_by, source, store_id) SELECT 'product_photos_added', 'product', ?, ?, ?, '${sourceOf(ctx)}', ? WHERE ${gate}`)
+      .bind(pending.draft.sku, JSON.stringify({ operationId, added: promoted.keys.length }), actorOf(ctx), ctx.store.id, operationId, token),
     ctx.db.prepare(`UPDATE telegram_operations SET status = 'applied', execution_token = NULL, completed_at = datetime('now')
       WHERE operation_id = ? AND status = 'applying' AND execution_token = ? AND EXISTS (SELECT 1 FROM products WHERE store_id = ? AND sku = ? AND image_urls = ?)`)
       .bind(operationId, token, ctx.store.id, pending.draft.sku, JSON.stringify(nextUrls)),

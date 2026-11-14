@@ -14,10 +14,10 @@
       "port": 8788
     },
     {
-      "name": "landing-local",
+      "name": "panel-staging",
       "runtimeExecutable": "cmd",
-      "runtimeArgs": ["/c", "cd apps\\tiendaiaexpress-landing && npx vite --mode official --port 4317 --strictPort"],
-      "port": 4317
+      "runtimeArgs": ["/c", "cd frontend && set VITE_API_PROXY=https://sneakerhub-telegram-staging.catalogo-lite-worker.workers.dev&& npx vite --port 5174 --strictPort"],
+      "port": 5174
     },
     {
       "name": "panel-local",

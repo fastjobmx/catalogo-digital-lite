@@ -13,7 +13,8 @@ export default defineConfig({
     port: 5173,
     host: true,
     proxy: {
-      '/api': process.env.VITE_API_PROXY || 'http://localhost:8788',
+      // Development only. An https target (e.g. the staging Worker) needs its own Host header.
+      '/api': { target: process.env.VITE_API_PROXY || 'http://localhost:8788', changeOrigin: true },
     },
   },
 })

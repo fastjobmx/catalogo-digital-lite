@@ -1,0 +1,69 @@
+# Puerta de enlace mínima entre el Worker de Cloudflare y WAHA.
+# Lista blanca estricta: todo lo que no aparece aquí responde 404 (panel, Swagger, sesiones,
+# claves, grupos, contactos, logout, borrado...). Exige X-Gateway-Token además de la clave de
+# sesión de WAHA (X-Api-Key, con permisos solo de lectura y envío en la sesión ${WAHA_SESSION}).
+
+limit_req_zone $binary_remote_addr zone=waha_gateway:1m rate=20r/s;
+
+map $http_x_gateway_token $gateway_denied {
+    default 1;
+    "${WAHA_GATEWAY_TOKEN}" 0;
+}
+
+server {
+    listen 8080;
+    server_tokens off;
+    client_max_body_size 1m;
+    access_log /dev/stdout combined;
+    error_log /dev/stderr warn;
+
+    proxy_hide_header X-Powered-By;
+    proxy_set_header Host waha:3000;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_read_timeout 30s;
+    proxy_connect_timeout 5s;
+
+    location = /gateway-health { access_log off; default_type text/plain; return 200 "ok"; }
+
+    # Envío de respuestas y señales de lectura / escritura.
+    location ~ ^/api/(sendText|sendSeen|startTyping|stopTyping)$ {
+        limit_req zone=waha_gateway burst=40 nodelay;
+        if ($gateway_denied) { return 401; }
+        limit_except POST { deny all; }
+        proxy_pass http://waha:3000;
+    }
+
+    # Foto del producto en la vista previa (imagen en base64, máximo 5 MB antes de codificar).
+    location = /api/sendImage {
+        client_max_body_size 8m;
+        limit_req zone=waha_gateway burst=20 nodelay;
+        if ($gateway_denied) { return 401; }
+        limit_except POST { deny all; }
+        proxy_pass http://waha:3000;
+    }
+
+    # Descarga de archivos recibidos (nombres aleatorios, sin listado).
+    location ~ "^/api/files/([A-Za-z0-9_-]+/)?[A-Za-z0-9@._-]{1,200}$" {
+        limit_req zone=waha_gateway burst=120 nodelay;
+        if ($gateway_denied) { return 401; }
+        limit_except GET { deny all; }
+        proxy_pass http://waha:3000;
+    }
+
+    # Resolver un LID (identificador oculto) al teléfono, solo en la sesión del asistente.
+    location ~ "^/api/${WAHA_SESSION}/lids/[0-9]{1,30}(%40|@)lid$" {
+        limit_req zone=waha_gateway burst=20 nodelay;
+        if ($gateway_denied) { return 401; }
+        limit_except GET { deny all; }
+        proxy_pass http://waha:3000;
+    }
+
+    # Estado de la sesión del asistente (sin poder arrancarla, pararla ni cerrarla).
+    location = /api/sessions/${WAHA_SESSION} {
+        if ($gateway_denied) { return 401; }
+        limit_except GET { deny all; }
+        proxy_pass http://waha:3000;
+    }
+
+    location / { return 404; }
+}

@@ -2,7 +2,8 @@ import type { Env } from '../../index'
 import { listTelegramMemberships, type Membership, type StoreRole } from '../../tenancy/access'
 import { PRIMARY_STORE_ID } from '../../tenancy/stores'
 import { escapeHtml } from './tools'
-import { sendTelegramMessage, sendTelegramPhoto, type TelegramSendMessageResponse } from './telegramApi'
+import { downloadTelegramFile, sendChatAction, sendTelegramMessage, sendTelegramPhoto, type TelegramSendMessageResponse } from './telegramApi'
+import { downloadTelegramImage, type ValidatedTelegramImage } from '../telegramProductImages'
 
 export type AssistantStore = {
   id: number
@@ -13,7 +14,30 @@ export type AssistantStore = {
   planCode: string
 }
 
-/** Everything a single Telegram update needs, bound to exactly one store. */
+/** Parts of the assistant that depend on Telegram itself and are not offered on other channels yet. */
+export type ChannelFeature = 'batches' | 'team' | 'panel_password' | 'onboarding'
+
+/**
+ * Transport of a channel other than Telegram (WhatsApp). The engine never talks to it directly:
+ * say(), sayPhoto(), showTyping() and the fetch* helpers below route here when a context carries one.
+ * A context without a channel is Telegram and behaves exactly as before.
+ */
+export interface AssistantChannel {
+  name: 'whatsapp'
+  /** Proveedor del transporte (sin definir = Meta Cloud API). Solo separa costos; el motor no cambia. */
+  provider?: 'meta' | 'waha'
+  unsupported: ReadonlySet<ChannelFeature>
+  helpText?: string
+  accessHelpText?: string
+  send(html: string, replyMarkup?: Record<string, unknown>): Promise<TelegramSendMessageResponse>
+  sendPhoto(photo: string, caption: string, replyMarkup?: Record<string, unknown>): Promise<void>
+  typing(): Promise<void>
+  downloadImage(fileId: string): Promise<ValidatedTelegramImage>
+  downloadFile(fileId: string, maxBytes: number): Promise<Uint8Array>
+  downloadVoice(fileId: string): Promise<{ mimeType: 'audio/ogg'; data: string; seconds?: number }>
+}
+
+/** Everything a single update needs, bound to exactly one store. */
 export interface AssistantContext {
   db: D1Database
   env: Env['Bindings']
@@ -32,6 +56,31 @@ export interface AssistantContext {
   fingerprint?: string
   /** Quota notice (80 % / 100 %) to send after the reply of this update, so it never comes before the answer. */
   quotaNotice?: string
+  /** Set only for channels other than Telegram. */
+  channel?: AssistantChannel
+  /** Conversational layer: when present, say()/sayPhoto() keep the message here instead of sending it, so the
+   * layer can run the existing engine and answer once, in its own words. Never set by the transports. */
+  capture?: Array<{ text: string; markup?: Record<string, unknown>; photo?: string }>
+  /** A short reminder to send after the answer of this update (photos still waiting for their description). */
+  afterNote?: string
+}
+
+/** State of the conversational layer (agent). Lives inside the session, so it expires and resets with it. */
+export type AgentState = {
+  /** SKUs of the last numbered list shown, in order: «la 2» points here. */
+  options?: string[]
+  /** Several changes summarised in one message, waiting for a single confirmation. */
+  batch?: { items: Array<{ intent: import('./commerce/intent').CommerceIntent; sku: string; line: string }>; at: number }
+  /** A new request arrived while a change was waiting: the merchant decides what happens to the pending one. */
+  deferred?: string
+  deferredOp?: string
+  deferredIntents?: Array<import('./commerce/intent').CommerceIntent>
+  /** «súbele el precio a las sandalias»: the amount was asked; the next message answers it. */
+  bump?: { mode: 'increase' | 'decrease'; sku: string; at: number }
+  /** Step 2: questions of the media layer and a description kept for a photo batch that is still being organised. */
+  media?: import('./agent/media').MediaState
+  /** Step 3: an order change waiting for «sí», a missing datum and the last numbered list of orders. */
+  orders?: import('./agent/orders').OrdersState
 }
 
 export type SessionState = {
@@ -53,13 +102,14 @@ export type SessionState = {
   commerce?: CommerceState
   /** A new request received while a product draft was open, kept until the owner decides. */
   deferredText?: string
+  agent?: AgentState
   updatedAt?: number
 }
 
 export type CommerceState = {
   intent: import('./commerce/intent').CommerceIntent
   sku?: string
-  ask?: 'product' | 'product_name' | 'mode' | 'distribution' | 'color' | 'amount' | 'duplicate_sku'
+  ask?: 'product' | 'product_name' | 'mode' | 'distribution' | 'color' | 'amount' | 'duplicate_sku' | 'new_product' | 'reference'
   options?: number[]
   missing?: number
   operationId?: string
@@ -107,11 +157,48 @@ export async function loadAssistantStore(db: D1Database, storeId: number, fallba
 
 /** Sends a message with the environment banner and, for multi-store users, the store name. */
 export async function say(ctx: AssistantContext, text: string, replyMarkup?: Record<string, unknown>): Promise<TelegramSendMessageResponse> {
+  if (ctx.capture) { ctx.capture.push({ text, markup: replyMarkup }); return { ok: true } as TelegramSendMessageResponse }
+  if (ctx.channel) return ctx.channel.send(`${banner(ctx, isMainMenu(replyMarkup))}${text}`, usableMarkup(replyMarkup))
   return sendTelegramMessage(ctx.botToken, ctx.chatId, `${banner(ctx, isMainMenu(replyMarkup))}${text}`, 'HTML', usableMarkup(replyMarkup))
 }
 
 export async function sayPhoto(ctx: AssistantContext, photo: string, caption: string, replyMarkup?: Record<string, unknown>): Promise<void> {
+  if (ctx.capture) { ctx.capture.push({ text: caption, markup: replyMarkup, photo }); return }
+  if (ctx.channel) { await ctx.channel.sendPhoto(photo, `${banner(ctx)}${caption}`, usableMarkup(replyMarkup)); return }
   await sendTelegramPhoto(ctx.botToken, ctx.chatId, photo, `${banner(ctx)}${caption}`, usableMarkup(replyMarkup))
+}
+
+/** Who did it, for the audit trail: `telegram:<id>` or `whatsapp:<linked identity>`. */
+export function actorOf(ctx: Pick<AssistantContext, 'telegramUserId' | 'channel'>): string {
+  return ctx.channel ? `${ctx.channel.name}:${ctx.telegramUserId.replace(/^wa:/, '')}` : `telegram:${ctx.telegramUserId}`
+}
+
+/** Channel written in the audit trail. Only these two literals exist, so it is safe inside SQL text. */
+export function sourceOf(ctx: Pick<AssistantContext, 'channel'>): 'telegram' | 'whatsapp' {
+  return ctx.channel ? 'whatsapp' : 'telegram'
+}
+
+/** "Typing…" while a slower step runs. Cosmetic: failures are ignored. */
+export async function showTyping(ctx: AssistantContext): Promise<void> {
+  if (ctx.channel) { await ctx.channel.typing().catch(() => undefined); return }
+  await sendChatAction(ctx.botToken, ctx.chatId)
+}
+
+/** Photo sent by the merchant, validated as a raster image, from whichever channel it came. */
+export async function fetchImage(ctx: AssistantContext, fileId: string): Promise<ValidatedTelegramImage> {
+  return ctx.channel ? ctx.channel.downloadImage(fileId) : downloadTelegramImage(ctx.botToken, fileId)
+}
+
+/** File sent by the merchant, with a strict size bound. */
+export async function fetchFile(ctx: AssistantContext, fileId: string, maxBytes: number): Promise<Uint8Array> {
+  return ctx.channel ? ctx.channel.downloadFile(fileId, maxBytes) : (await downloadTelegramFile(ctx.botToken, fileId, maxBytes)).bytes
+}
+
+/** True (after telling the merchant) when this part of the assistant is not offered on the current channel. */
+export async function unavailableHere(ctx: AssistantContext, feature: ChannelFeature): Promise<boolean> {
+  if (!ctx.channel?.unsupported.has(feature)) return false
+  await say(ctx, 'Eso todavía no está disponible por WhatsApp. Puedes hacerlo desde el panel de tu tienda o desde el asistente de Telegram.')
+  return true
 }
 
 /** The main menu always names the active store, even for single-store owners. */
