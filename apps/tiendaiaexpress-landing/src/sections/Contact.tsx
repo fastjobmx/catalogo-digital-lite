@@ -89,7 +89,7 @@ export function Contact() {
           <p className="mt-6 max-w-lg text-lg leading-relaxed text-mist md:text-[1.2rem]">Pruébala gratis con tus productos o cuéntanos de tu negocio y la armamos contigo. Te respondemos por WhatsApp.</p>
           <div className="mt-8 rounded-2xl bg-white/5 p-5 ring-1 ring-inset ring-white/10 md:p-6">
             <p className="font-display text-[1.1rem] font-bold">¿Primero quieres ver cómo queda?</p>
-            <p className="mt-1.5 text-[0.96rem] text-mist">Crea una mini tienda de prueba sin correo ni contraseña: hasta {site.trial.products} productos con foto, durante {site.trial.days} días. Para quedarte con tu tienda eliges un plan y la activamos contigo.</p>
+            <p className="mt-1.5 text-[0.96rem] text-mist">Prueba gratis durante {site.trial.days} días, sin tarjeta de crédito: crea hasta {site.trial.products} productos y administra tu tienda desde el primer día. Si contratas un plan, conservas tus productos y configuración.</p>
             <div className="mt-5"><Button href={site.trialUrl} variant="lime" icon="arrowUpRight" external>Probar gratis</Button></div>
           </div>
           <div className="mt-8 space-y-4">

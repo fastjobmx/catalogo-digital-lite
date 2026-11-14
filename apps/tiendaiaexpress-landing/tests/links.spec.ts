@@ -8,7 +8,7 @@ test.describe.configure({ mode: 'serial' })
 const MUST_WORK = [
   `${APP}/`,
   `${APP}/admin/login`,
-  `${APP}/prueba`,
+  `${APP}/registro`,
 ]
 // Social networks often answer bots with redirects to a login page or 4xx: reported, not asserted.
 const REPORT_ONLY = [

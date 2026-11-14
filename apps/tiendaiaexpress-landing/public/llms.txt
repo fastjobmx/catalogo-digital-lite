@@ -17,7 +17,7 @@ Tres planes (Emprendedor, Negocio y Mayorista), con pago mensual más un pago in
 
 ## Prueba gratis
 
-Mini tienda de prueba sin correo ni contraseña, temporal y privada: https://app.tiendiaexpres.com/prueba
+Prueba gratis durante 7 días, sin tarjeta de crédito, con hasta 7 productos y el panel completo; si contratas un plan conservas la misma tienda: https://app.tiendiaexpres.com/registro
 
 ## Enlaces
 

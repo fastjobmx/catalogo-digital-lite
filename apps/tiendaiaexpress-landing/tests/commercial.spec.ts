@@ -85,7 +85,7 @@ test.describe('real stores', () => {
     expect(links).not.toContain(`${APP}/t/sneakerhub-premium`)
     expect(links).toContain(`${APP}/t/altogramaje-twin`)
     // Only public stores, plus the free trial invitation at the end of the section.
-    for (const href of links) expect(href.startsWith(`${APP}/t/`) || href === `${APP}/prueba`, href).toBe(true)
+    for (const href of links) expect(href.startsWith(`${APP}/t/`) || href === `${APP}/registro`, href).toBe(true)
   })
 })
 

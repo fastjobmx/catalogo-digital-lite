@@ -1007,3 +1007,56 @@ export const creativePiecesApi = {
   createVideoAi: (input: VideoAiInput & { confirmCredits: number }, key: string, token: string) =>
     fetchApi<{ job: CreativeJobApi | null; piece: CreativePieceApi | null; reused: boolean; replayed: boolean }>('/api/creative/creatives/video-ai', creativeJson(token, input, key)),
 }
+
+// ---- real free trial (store with temporary rights) ------------------------------------
+
+export interface SignupConfig { enabled: boolean; days: number; products: number; creditCard: boolean; captcha: boolean }
+export interface SignupPayload { businessName: string; email: string; ownerName?: string; whatsapp?: string; acceptTerms: boolean; website?: string; turnstileToken?: string }
+export interface UpgradePlan { code: string; name: string; setupPrice: number; monthlyPrice: number; annualPrice: number; currency: string; maxProducts: number | null; features: string[]; amounts: { mensual: number; anual: number } }
+export interface PlanRequestView { code: string; planCode: string; planName: string; cycle: 'mensual' | 'anual'; amount: number; currency: string; status: 'pendiente_pago' | 'activada' | 'cancelada'; createdAt: string | null; activatedAt?: string | null }
+export interface TrialMessage { purpose: string; subject: string; status: string; deliveryStatus: string | null; createdAt: string | null }
+export interface StoreTrialStatus {
+  trial: null | {
+    status: 'pendiente' | 'activa' | 'vencida' | 'convertida'; startedAt: string | null; expiresAt: string | null; retainUntil: string | null
+    daysLeft: number | null; hoursLeft: number | null; productLimit: number; productCount: number; durationDays: number; extendedDays: number
+    convertedAt: string | null; convertedPlanCode: string | null; emailVerified: boolean; ownerEmail: string | null
+    openRequest: PlanRequestView | null; requests: PlanRequestView[]; messages: TrialMessage[]
+  }
+  plans?: UpgradePlan[]
+  ai?: { included: boolean; note: string }
+}
+
+export const signupApi = {
+  config: () => fetchApi<SignupConfig>('/api/signup/config'),
+  create: (payload: SignupPayload) => fetchApi<{ ok: true }>('/api/signup', { method: 'POST', body: JSON.stringify(payload) }),
+  resend: (email: string) => fetchApi<{ ok: true }>('/api/signup/resend', { method: 'POST', body: JSON.stringify({ email }) }),
+}
+
+export const storeTrialApi = {
+  status: (token: string) => fetchApi<StoreTrialStatus>('/api/admin/trial', { headers: bearer(token) }),
+  requestPlan: (planCode: string, cycle: 'mensual' | 'anual', token: string) => fetchApi<{ request: PlanRequestView; replayed: boolean }>('/api/admin/trial/plan-request', { method: 'POST', headers: bearer(token), body: JSON.stringify({ planCode, cycle }) }),
+}
+
+export interface TrialStoreItem {
+  id: number; slug: string; name: string; storeStatus: string; planCode: string; status: 'pendiente' | 'activa' | 'vencida' | 'convertida'
+  startedAt: string | null; expiresAt: string | null; retainUntil: string | null; createdAt: string | null; daysLeft: number | null; extendedDays: number
+  retentionReached: boolean; convertedAt: string | null; convertedPlanCode: string | null; products: number; orders: number
+  ownerEmail: string | null; ownerVerified: boolean
+  openRequest: { id: number; code: string; planCode: string; cycle: string; amount: number } | null
+  lastEmail: { purpose: string; status: string; deliveryStatus: string | null; createdAt: string | null } | null
+}
+export interface TrialStoreSummary { total: number; pendingEmail: number; active: number; expired: number; converted: number; started: number; expiringSoon: number; conversionRate: number; pendingPayments: { count: number; amount: number }; emails: Array<{ status: string; delivery: string | null; count: number }> }
+export interface PlanRequestAdminItem { id: number; code: string; status: string; planCode: string; planName: string | null; cycle: string; amount: number; currency: string; invoiceId: number | null; invoiceStatus: string | null; requestedBy: string; paymentReference: string | null; verifiedBy: string | null; activatedAt: string | null; cancelledReason: string | null; createdAt: string | null; slug: string; storeName: string }
+export interface TrialIncident { kind: string; slug: string | null; detail: string; at: string | null }
+export interface StoreEmailItem { id: number; purpose: string; toEmail: string; subject: string; status: string; deliveryStatus: string | null; errorCode: string | null; attempts: number; createdAt: string }
+
+export const trialStoresAdminApi = {
+  list: (token: string, status?: string) => fetchApi<{ items: TrialStoreItem[] }>(`/api/platform/trial-stores${status ? `?status=${encodeURIComponent(status)}` : ''}`, { headers: bearer(token) }),
+  summary: (token: string) => fetchApi<TrialStoreSummary>('/api/platform/trial-stores/summary', { headers: bearer(token) }),
+  incidents: (token: string) => fetchApi<{ items: TrialIncident[] }>('/api/platform/trial-stores/incidents', { headers: bearer(token) }),
+  emails: (slug: string, token: string) => fetchApi<{ items: StoreEmailItem[] }>(`/api/platform/trial-stores/${encodeURIComponent(slug)}/emails`, { headers: bearer(token) }),
+  extend: (slug: string, days: number, reason: string, token: string) => fetchApi<{ slug: string; expiresAt: string; extendedDays: number }>(`/api/platform/trial-stores/${encodeURIComponent(slug)}/extend`, { method: 'POST', headers: bearer(token), body: JSON.stringify({ days, reason }) }),
+  requests: (token: string, status?: string) => fetchApi<{ items: PlanRequestAdminItem[] }>(`/api/platform/plan-requests${status ? `?status=${encodeURIComponent(status)}` : ''}`, { headers: bearer(token) }),
+  activate: (id: number, paymentReference: string, token: string) => fetchApi<{ status: string; replayed: boolean; storeId: number; planCode: string; code: string }>(`/api/platform/plan-requests/${id}/activate`, { method: 'POST', headers: bearer(token), body: JSON.stringify({ confirm: true, paymentReference }) }),
+  cancel: (id: number, reason: string, token: string) => fetchApi<{ status: string }>(`/api/platform/plan-requests/${id}/cancel`, { method: 'POST', headers: bearer(token), body: JSON.stringify({ reason }) }),
+}

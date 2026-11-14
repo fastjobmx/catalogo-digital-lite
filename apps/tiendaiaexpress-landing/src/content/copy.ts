@@ -19,7 +19,7 @@ const [emprendedor, negocio, mayorista] = plans
 export const faq = [
   {
     q: '¿Cómo funciona la prueba gratis?',
-    a: `Creas una mini tienda de prueba sin correo ni contraseña: le pones el nombre de tu negocio, eliges una plantilla y subes hasta ${site.trial.products} productos con foto. Dura ${site.trial.days} días y, si agregas tu WhatsApp, puedes recibir pedidos reales. Para quedarte con tu tienda eliges un plan y la activamos contigo; la prueba no se convierte en tienda por sí sola.`,
+    a: `Escribes el nombre de tu negocio y tu correo, confirmas el correo con el enlace que te enviamos y entras al panel de tu tienda. Durante ${site.trial.days} días puedes crear hasta ${site.trial.products} productos con fotos, precios y variantes, personalizar tu tienda, compartir el enlace y recibir pedidos por WhatsApp, sin tarjeta de crédito. Si contratas un plan, conservas la misma tienda con tus productos, pedidos y configuración. Las funciones de IA se activan con el plan.`,
   },
   {
     q: '¿Cuánto cuesta tener mi tienda?',

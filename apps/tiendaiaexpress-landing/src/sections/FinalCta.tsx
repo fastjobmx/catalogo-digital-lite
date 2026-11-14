@@ -1,6 +1,6 @@
 // Closing call to action before the footer. Sits on night (continuous with Contacto and the footer),
 // inside a card with a moving violet/cyan neon border; the assistant stands on the pedestal and
-// steps out of the card. Trial conditions come from site.trial (same as /prueba in production).
+// steps out of the card. Trial conditions come from site.trial (enforced by the backend in production).
 import type { CSSProperties } from 'react'
 import { site, whatsappLink } from '../config/site'
 import { Button } from '../components/ui/primitives'
@@ -10,7 +10,7 @@ import { Mascot, Sparks, Swoosh } from '../components/brand/Decor'
 const i = (n: number) => ({ '--i': n }) as CSSProperties
 
 export function FinalCta() {
-  const facts = [`Prueba de ${site.trial.days} días`, 'Sin correo ni contraseña', `Hasta ${site.trial.products} productos con foto`]
+  const facts = [`Prueba gratis durante ${site.trial.days} días`, 'Sin tarjeta de crédito', `Crea hasta ${site.trial.products} productos`, 'Conservas todo si contratas un plan']
   return (
     <section aria-labelledby="cierre-title" className="on-dark relative bg-night pb-20 pt-10 text-porcelain md:pb-28 md:pt-16">
       <div className="wrap">

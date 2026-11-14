@@ -117,7 +117,7 @@ export function Hero() {
             <a href="#planes" className="font-bold text-porcelain underline decoration-violet decoration-2 underline-offset-4 hover:text-violet-soft">Conocer planes</a>
           </p>
           <ul className="hero-in mt-5 flex flex-wrap gap-x-6 gap-y-2 text-[0.92rem] text-mist" style={i(4)} aria-label="Condiciones de la prueba gratis">
-            {[`Prueba de ${site.trial.days} días`, 'Sin correo ni contraseña', `Hasta ${site.trial.products} productos con foto`].map((item) => (
+            {[`Prueba gratis durante ${site.trial.days} días`, 'Sin tarjeta de crédito', `Crea hasta ${site.trial.products} productos`].map((item) => (
               <li key={item} className="flex items-center gap-2"><span className="grid size-5 place-items-center rounded-full bg-lime/15 text-lime"><Icon name="check" size={13} /></span>{item}</li>
             ))}
           </ul>

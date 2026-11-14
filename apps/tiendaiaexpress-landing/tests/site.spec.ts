@@ -4,7 +4,7 @@ const APP = (process.env.VITE_APP_URL || 'https://catalogo-digital-ia.catalogo-l
 
 const DEMO = `${APP}/`
 const ADMIN = `${APP}/admin/login`
-const TRIAL = `${APP}/prueba`
+const TRIAL = `${APP}/registro`
 
 test.describe('page', () => {
   test('loads without console errors, with one h1 and prerendered content', async ({ page, request }) => {
@@ -92,12 +92,14 @@ test.describe('page', () => {
     for (const id of ['inicio', 'funciones', 'como-funciona', 'tiendas', 'demo', 'estudio', 'administracion', 'planes', 'preguntas', 'contacto']) await expect(page.locator(`#${id}`)).toHaveCount(1)
   })
 
-  test('copy uses Colombian "tú" (no voseo) and the trial conditions of the live /prueba page', async ({ request }) => {
+  test('copy uses Colombian "tú" (no voseo) and the trial conditions enforced by the backend (/registro)', async ({ request }) => {
     const raw = await (await request.get('/')).text()
     const text = raw.replace(/<script[\s\S]*?<\/script>/g, ' ').replace(/<[^>]+>/g, ' ')
     const voseo = text.match(/(?<![\p{L}])(vos|tenés|querés|podés|sabés|hacés|vendés|creá|mostrá|administrá|organizá|vendé|subís|compartís|elegí|escribí|contanos|escribinos|mirá|explorá|probalo|armá|pagás|ahorrás|recordá|revisá|consultá|solicitá|descubrí|conocé|empezá|cambiá|cargá|sumá|seguí|importá|mejorá|pidás)(?![\p{L}])/giu)
     expect(voseo ?? []).toEqual([])
-    expect(text).toContain('Sin correo ni contraseña')
+    expect(text).toContain('Sin tarjeta de crédito')
+    expect(text).toContain('conservas tus productos y configuración')
+    expect(text).not.toMatch(/no se convierte en tienda|sin correo ni contraseña/i)
     expect(text).not.toMatch(/48 horas|sin registrarte|12 productos/i)
   })
 })

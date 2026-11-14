@@ -15,12 +15,11 @@ export const site = {
   demoStoreUrl: `${__APP_URL__}/`,
   /** Store owners' panel login. Accounts with several stores choose the store after signing in. */
   adminLoginUrl: `${__APP_URL__}/admin/login`,
-  /** Free trial without sign-up: a temporary mini store (platform route /prueba). */
-  trialUrl: `${__APP_URL__}/prueba`,
+  /** Free trial: a real store of the platform with its full panel (route /registro). Only an e-mail is asked. */
+  trialUrl: `${__APP_URL__}/registro`,
   /**
-   * Trial conditions as the live /prueba page states them (read on 2026-11-12): no e-mail or
-   * password, up to 7 products with a photo, 7 days. The superadministrator can change them in
-   * /plataforma/pruebas: update these two figures when that happens.
+   * Trial conditions enforced by the backend (worker/src/services/freeTrial.ts): 7 days, up to 7 products,
+   * no credit card. Choosing a plan keeps the same store with its products and settings.
    */
   trial: { days: 7, products: 7 },
 

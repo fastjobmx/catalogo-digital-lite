@@ -25,10 +25,13 @@ const CreativePhotoStudio = lazy(() => import('./admin/pages/creative/PhotoStudi
 const CreativeLibrary = lazy(() => import('./admin/pages/creative/Library'))
 const CreativeFactory = lazy(() => import('./admin/pages/creative/Factory'))
 const TrialPage = lazy(() => import('./pages/TrialPage'))
+const SignupPage = lazy(() => import('./pages/SignupPage'))
+const AdminActivateStore = lazy(() => import('./admin/pages/ActivateStore'))
 const AdminUsers = lazy(() => import('./admin/pages/Users'))
 const VerifyEmailPage = lazy(() => import('./admin/VerifyEmailPage'))
 const PlatformEmailPage = lazy(() => import('./admin/PlatformEmailPage'))
 const PlatformTrialsPage = lazy(() => import('./admin/PlatformTrialsPage'))
+const PlatformTrialStoresPage = lazy(() => import('./admin/PlatformTrialStoresPage'))
 const ResetPasswordPage = lazy(() => import('./admin/ResetPasswordPage'))
 const PlatformPage = lazy(() => import('./admin/PlatformPage'))
 // The store owners' panel is not needed by shoppers: it loads only when someone opens /admin.
@@ -78,7 +81,9 @@ export default function App() {
           <CartProvider>
             <Routes>
               {/* Catalogue trial without an account (temporary, unpublished, noindex) */}
-              <Route path="/prueba" element={<Suspense fallback={null}><TrialPage /></Suspense>} />
+              {/* Real free trial: a normal store with temporary rights. The old temporary mini-store stays only for existing links. */}
+              <Route path="/registro" element={<Suspense fallback={null}><SignupPage /></Suspense>} />
+              <Route path="/prueba" element={<Navigate to="/registro" replace />} />
               <Route path="/prueba/:id" element={<Suspense fallback={null}><TrialPage /></Suspense>} />
               {/* Public store routes */}
               <Route element={<StoreLayout />}>
@@ -104,6 +109,7 @@ export default function App() {
                   <Route path="/plataforma" element={<Suspense fallback={null}><PlatformPage /></Suspense>} />
                   <Route path="/plataforma/correos" element={<Suspense fallback={null}><PlatformEmailPage /></Suspense>} />
                   <Route path="/plataforma/pruebas" element={<Suspense fallback={null}><PlatformTrialsPage /></Suspense>} />
+                  <Route path="/plataforma/prueba-gratis" element={<Suspense fallback={null}><PlatformTrialStoresPage /></Suspense>} />
 
                   {/* Admin routes (protected) */}
                   <Route
@@ -133,6 +139,7 @@ export default function App() {
                     <Route path="estudio-creativo/biblioteca" element={<Suspense fallback={null}><CreativeLibrary /></Suspense>} />
                     <Route path="estudio-creativo/creativos" element={<Suspense fallback={null}><CreativeFactory /></Suspense>} />
                     <Route path="orders" element={page(<AdminOrders />)} />
+                    <Route path="activar-tienda" element={page(<AdminActivateStore />)} />
                   </Route>
                 </>
               )}

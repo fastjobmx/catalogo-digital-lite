@@ -22,7 +22,7 @@ export default function ActivationPage() {
     if (!token) { setLoadError('El enlace de activación no es válido.'); return }
     getActivationInfo(token)
       .then(setInfo)
-      .catch(() => setLoadError('Este enlace ya se usó o venció. Pide uno nuevo al administrador de la plataforma.'))
+      .catch(() => setLoadError('Este enlace ya se usó o venció. Si creaste una tienda de prueba, pide un enlace nuevo; si te invitaron, pídelo a quien administra la tienda.'))
   }, [token])
 
   const submit = async (event: React.FormEvent) => {
@@ -52,7 +52,10 @@ export default function ActivationPage() {
     <PlatformAuthShell title="Activa tu cuenta" subtitle="Tienda IA Express · panel administrativo" storeName={info?.store.name ?? null}>
         <div className="card p-8">
           {loadError ? (
-            <p role="alert" className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-btn px-4 py-3">{loadError}</p>
+            <div className="space-y-3">
+              <p role="alert" className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-btn px-4 py-3">{loadError}</p>
+              <a href="/registro?reenviar=1" className="btn-ghost w-full">Pedir un enlace nuevo</a>
+            </div>
           ) : !info ? (
             <p className="text-sm text-muted flex items-center gap-2"><Loader2 size={16} className="animate-spin" /> Verificando enlace…</p>
           ) : (
