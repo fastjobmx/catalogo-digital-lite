@@ -36,10 +36,19 @@ export const site = {
     { key: 'tiktok', label: 'TikTok', url: 'https://www.tiktok.com/@tiendiaexpres' },
   ] as const,
 
-  /** Legal pages: add the URL when they exist. Empty entries are not rendered. */
+  /** Official mailboxes (confirmed by the owner on 2026-11-13). */
+  email: { support: 'soporte@tiendiaexpres.com', sales: 'ventas@tiendiaexpres.com' },
+  /** Office hours: days and hours still to be confirmed by the owner. Never invent them. */
+  hours: 'Horario de oficina, hora de Colombia.',
+
+  /** Terms and Conditions in force (src/legal/terminos-v1.1.md). */
+  terms: { version: '1.1', updated: '13 de noviembre de 2026', updatedIso: '2026-11-13' },
+
+  /** Legal pages: add the URL when they exist. Empty entries are not rendered. "#…" anchors point to the home page. */
   legal: [
     { label: 'Condiciones comerciales', url: '#condiciones' },
-    { label: 'Términos y condiciones', url: '' },
+    { label: 'Términos y condiciones', url: '/terminos-y-condiciones' },
+    { label: 'Servicios adicionales', url: '/servicios-adicionales' },
     { label: 'Política de privacidad', url: '' },
   ],
 } as const
