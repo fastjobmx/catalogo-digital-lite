@@ -652,6 +652,57 @@ export const platformCreditsApi = {
   grant: (slug: string, payload: { kind: 'recarga' | 'ajuste'; amount: number; reason: string }, idempotencyKey: string, token: string) => fetchApi<CreditTotals & { replayed: boolean }>(`/api/platform/stores/${slug}/credits`, { method: 'POST', headers: { ...auth(token), 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(payload) }),
 }
 
+// ---- inteligencia artificial: consultas, créditos artísticos y API propia ---------------
+
+export type OwnKeyState = {
+  connected: boolean
+  available: boolean
+  hint?: string
+  status?: 'activa' | 'invalida' | 'sin_cuota' | 'sin_permiso'
+  statusLabel?: string
+  useAssistant?: boolean
+  useStudio?: boolean
+  fallbackToPlatform?: boolean
+  modelsOk?: string[]
+  validatedAt?: string | null
+  lastErrorCode?: string | null
+  lastUsedAt?: string | null
+  connectedAt?: string
+  callsThisMonth: number
+  history: Array<{ action: string; result: string; errorCode: string | null; createdAt: string }>
+}
+
+export type AiOverview = {
+  plan: { code: string | null; name: string | null; metered: boolean; enforced: boolean }
+  session: { hours: number; limit: number | null; used: number; available: number | null; startedAt: string | null; resetsAt: string | null }
+  month: { limit: number | null; used: number; available: number | null; cycleStart: string; cycleEnd: string; provisional: boolean }
+  credits: {
+    balance: number
+    bySource: Record<'plan' | 'cortesia' | 'compra' | 'ajuste', number>
+    nextExpiry: { credits: number; at: string } | null
+    monthlyFromPlan: number | null
+    priceVersion: number
+    costs: Array<{ feature: string; credits: number; label: string; image: boolean }>
+    packs: Array<{ code: string; credits: number; priceCop: number; validMonths: number }>
+  }
+  ownKey: OwnKeyState
+  history: Array<{ at: string; task: string; channel: string; paidWith: string; units: number; result: string }>
+  byTask: Array<{ task: string; tasks: number; units: number }>
+  weights: Array<{ feature: string; units: number; perItem: boolean; label: string }>
+  policy: { sessionHours: number; concurrency: number; perMinute: number; attemptsPerTask: number; duplicateWindowMinutes: number; maxImageMb: number; maxAudioMinutes: number; maxDocumentMb: number }
+}
+
+export const aiApi = {
+  overview: (token: string) => fetchApi<AiOverview>('/api/admin/ai/overview', { headers: { Authorization: `Bearer ${token}` } }),
+  connectKey: (payload: { apiKey: string; useAssistant: boolean; useStudio: boolean; fallbackToPlatform: boolean }, token: string) =>
+    fetchApi<OwnKeyState>('/api/admin/ai/key', { method: 'PUT', headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(payload) }),
+  updateKey: (payload: { useAssistant?: boolean; useStudio?: boolean; fallbackToPlatform?: boolean }, token: string) =>
+    fetchApi<OwnKeyState>('/api/admin/ai/key', { method: 'PATCH', headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(payload) }),
+  validateKey: (token: string) => fetchApi<OwnKeyState>('/api/admin/ai/key/validate', { method: 'POST', headers: { Authorization: `Bearer ${token}` } }),
+  disconnectKey: (token: string) => fetchApi<OwnKeyState>('/api/admin/ai/key', { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }),
+  requestPack: (packCode: string, token: string) => fetchApi<CreditRequest>('/api/admin/credits/requests', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify({ packCode }) }),
+}
+
 // ---- bulk product import ----------------------------------------------------------
 
 export type ImportAction = 'create' | 'update' | 'skip' | 'invalid'

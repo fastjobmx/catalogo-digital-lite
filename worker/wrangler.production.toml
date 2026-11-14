@@ -23,6 +23,10 @@ AI_MESSAGE_QUOTA_MODE = "shadow"
 # Control de gasto IA (src/ai/spendGuard.ts): 'shadow' reserva, concilia y alerta sin bloquear. Pasar a 'enforce'
 # SOLO con la aprobación del propietario y los límites aprobados cargados (docs/BLINDAJE_ECONOMICO_IA.md).
 AI_SPEND_GUARD_MODE = "shadow"
+# IA por plan (consultas, créditos y API propia): AI_FX_COP_PER_USD convierte el presupuesto interno de cada plan.
+# La API propia necesita el SECRETO AI_KEYS_MASTER_KEY (32 bytes en base64, `wrangler secret put`); sin él la sección
+# «Mi API» queda deshabilitada. Nunca escribirlo aquí.
+AI_FX_COP_PER_USD = "4000"
 # Plataforma 3.0: base pública para enlaces de tiendas (/t/<dirección>) y activaciones.
 PUBLIC_STORE_BASE_URL = "https://app.tiendiaexpres.com"
 # Correo transaccional (Resend). La clave va como secreto RESEND_API_KEY, nunca aquí.

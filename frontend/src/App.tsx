@@ -35,6 +35,7 @@ const PlatformPage = lazy(() => import('./admin/PlatformPage'))
 const AdminOnboarding = lazy(() => import('./admin/pages/Onboarding'))
 const AdminSimulator = lazy(() => import('./admin/pages/Simulator'))
 const AdminCredits = lazy(() => import('./admin/pages/Credits'))
+const AdminAiSettings = lazy(() => import('./admin/pages/AiSettings'))
 const AdminStorePreview = lazy(() => import('./admin/pages/StorePreview'))
 const AdminOrders = lazy(() => import('./admin/pages/Orders'))
 const LoginPage = lazy(() => import('./admin/LoginPage'))
@@ -125,6 +126,7 @@ export default function App() {
                     <Route path="onboarding" element={page(<AdminOnboarding />)} />
                     <Route path="simulator" element={page(<AdminSimulator />)} />
                     <Route path="creditos" element={page(<AdminCredits />)} />
+                    <Route path="ia" element={page(<AdminAiSettings />)} />
                     <Route path="usuarios" element={<Suspense fallback={null}><AdminUsers /></Suspense>} />
                     <Route path="estudio" element={<Suspense fallback={null}><AdminStudio /></Suspense>} />
                     <Route path="estudio-creativo" element={<Suspense fallback={null}><CreativeHome /></Suspense>} />
