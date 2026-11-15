@@ -1037,6 +1037,13 @@ export const storeTrialApi = {
   requestPlan: (planCode: string, cycle: 'mensual' | 'anual', token: string) => fetchApi<{ request: PlanRequestView; replayed: boolean }>('/api/admin/trial/plan-request', { method: 'POST', headers: bearer(token), body: JSON.stringify({ planCode, cycle }) }),
 }
 
+export interface LaunchChecklistItem { key: string; label: string; hint: string; done: boolean; path: string }
+export interface LaunchChecklist { items: LaunchChecklistItem[]; done: number; total: number; ready: boolean; published?: boolean }
+/** «Listo para vender»: steps computed by the backend from the store's real data. */
+export const launchChecklistApi = {
+  get: (token: string) => fetchApi<LaunchChecklist>('/api/admin/launch-checklist', { headers: bearer(token) }),
+}
+
 export interface TrialStoreItem {
   id: number; slug: string; name: string; storeStatus: string; planCode: string; status: 'pendiente' | 'activa' | 'vencida' | 'convertida'
   startedAt: string | null; expiresAt: string | null; retainUntil: string | null; createdAt: string | null; daysLeft: number | null; extendedDays: number

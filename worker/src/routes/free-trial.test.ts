@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createHarness, createStoreUser, seedCatalog, seedStore, superadminToken, userToken, type Harness } from '../testing/harness'
-import { processTrialLifecycle } from '../services/freeTrial'
+import { processTrialLifecycle, TRIAL_DAYS, TRIAL_PRODUCTS } from '../services/freeTrial'
 import { generateInvoices } from '../services/billing'
 
 type Sent = { to: string; subject: string; html: string; text: string; replyTo: string | null; idempotencyKey: string | null }
@@ -65,7 +65,7 @@ describe('1-3 · sign-up, email verification and access to the normal panel', ()
     const { store, link } = await createTrial()
     expect(link).toMatch(new RegExp(`^https://tiendas\\.test/t/${store.slug}/admin/activar\\?token=`))
     const row = q(`SELECT s.status, s.plan_code AS plan, s.ai_enabled AS ai, s.ai_monthly_budget_micros AS budget, s.trial_ends_at AS ends, t.status AS trial, t.product_limit AS lim FROM stores s JOIN store_trials t ON t.store_id = s.id WHERE s.id = ?`, store.id)[0]
-    expect(row).toEqual({ status: 'draft', plan: 'prueba', ai: 0, budget: 0, ends: null, trial: 'pendiente', lim: 7 })
+    expect(row).toEqual({ status: 'draft', plan: 'prueba', ai: 0, budget: 0, ends: null, trial: 'pendiente', lim: TRIAL_PRODUCTS })
     expect(q(`SELECT COUNT(*) AS n FROM store_services WHERE store_id = ?`, store.id)).toEqual([{ n: 0 }])
     expect(q(`SELECT status, password_hash FROM platform_users WHERE email = 'ana@flores.co'`)).toEqual([{ status: 'invited', password_hash: null }])
     expect(sent).toHaveLength(1)
@@ -78,7 +78,7 @@ describe('1-3 · sign-up, email verification and access to the normal panel', ()
     expect((await h.request('/api/store', { store: store.slug })).status).toBe(404)
   })
 
-  it('confirming the email sets the password, verifies the address, starts 7 days, publishes the store and opens the same panel', async () => {
+  it('confirming the email sets the password, verifies the address, starts the trial days, publishes the store and opens the same panel', async () => {
     const { store, link } = await createTrial()
     const { response, body } = await activate(link)
     expect(response.status).toBe(200)
@@ -88,14 +88,14 @@ describe('1-3 · sign-up, email verification and access to the normal panel', ()
     expect(row).toMatchObject({ status: 'active', trial: 'activa', verified: 1 })
     expect(row.ends).toBe(row.expires)
     const days = (Date.parse(`${row.expires.replace(' ', 'T')}Z`) - Date.now()) / 86_400_000
-    expect(days).toBeGreaterThan(6.9)
-    expect(days).toBeLessThanOrEqual(7)
-    expect(sent.map((item) => item.subject)).toContain('Tu prueba gratis de 7 días empezó | TiendIA Exprés')
+    expect(days).toBeGreaterThan(TRIAL_DAYS - 0.1)
+    expect(days).toBeLessThanOrEqual(TRIAL_DAYS)
+    expect(sent.map((item) => item.subject)).toContain(`Tu prueba gratis de ${TRIAL_DAYS} días empezó | TiendIA Exprés`)
     // Same panel endpoints as paying merchants.
     const session = await json(await h.request('/api/admin/session', { token: body.token, store: store.slug }))
     expect(session).toMatchObject({ role: 'owner', store: { id: store.id, slug: store.slug, planCode: 'prueba' } })
     const status = await json(await h.request('/api/admin/trial', { token: body.token, store: store.slug }))
-    expect(status.trial).toMatchObject({ status: 'activa', daysLeft: 7, productLimit: 7, productCount: 0, emailVerified: true })
+    expect(status.trial).toMatchObject({ status: 'activa', daysLeft: TRIAL_DAYS, productLimit: TRIAL_PRODUCTS, productCount: 0, emailVerified: true })
     expect(status.plans.map((plan: any) => [plan.code, plan.amounts])).toEqual([
       ['emprendedor', { mensual: 208900, anual: 599000 }], ['negocio', { mensual: 298900, anual: 999000 }], ['mayorista', { mensual: 468900, anual: 1699000 }],
     ])
@@ -154,31 +154,31 @@ describe('1-3 · sign-up, email verification and access to the normal panel', ()
 })
 
 describe('4-8 · products, configuration and orders during the trial', () => {
-  it('allows 7 products, rejects the 8th in the backend, and lets the merchant edit, archive and restore within the limit', async () => {
+  it('allows the trial products, rejects the next one in the backend, and lets the merchant edit, archive and restore within the limit', async () => {
     const { store, token } = await readyTrial()
-    for (let i = 1; i <= 7; i++) expect((await createProduct(token, store.slug, i)).status).toBe(201)
-    const eighth = await createProduct(token, store.slug, 8)
+    for (let i = 1; i <= TRIAL_PRODUCTS; i++) expect((await createProduct(token, store.slug, i)).status).toBe(201)
+    const eighth = await createProduct(token, store.slug, 100)
     expect(eighth.status).toBe(409)
-    expect(await json(eighth)).toMatchObject({ code: 'TRIAL_PRODUCT_LIMIT', limit: 7, count: 7 })
+    expect(await json(eighth)).toMatchObject({ code: 'TRIAL_PRODUCT_LIMIT', limit: TRIAL_PRODUCTS, count: TRIAL_PRODUCTS })
     const ids = q<{ id: number }>(`SELECT id FROM products WHERE store_id = ? ORDER BY id`, store.id).map((row) => row.id)
     expect((await h.request(`/api/admin/products/${ids[0]}`, { method: 'PUT', token, store: store.slug, body: { name: 'Ramo editado', price: 55000 } })).status).toBe(200)
     expect((await h.request(`/api/admin/products/${ids[1]}`, { method: 'DELETE', token, store: store.slug })).status).toBe(200)
-    expect((await createProduct(token, store.slug, 9)).status).toBe(201)
+    expect((await createProduct(token, store.slug, 101)).status).toBe(201)
     const restore = await h.request(`/api/admin/products/${ids[1]}/restore`, { method: 'POST', token, store: store.slug })
     expect(restore.status).toBe(409)
-    expect(q(`SELECT COUNT(*) AS n FROM products WHERE store_id = ? AND is_archived = 0`, store.id)).toEqual([{ n: 7 }])
+    expect(q(`SELECT COUNT(*) AS n FROM products WHERE store_id = ? AND is_archived = 0`, store.id)).toEqual([{ n: TRIAL_PRODUCTS }])
     // The browser cannot change the limit: it lives in the backend.
     expect((await h.request('/api/admin/store', { method: 'PUT', token, store: store.slug, body: { product_limit: 50, plan_code: 'mayorista' } })).status).toBeLessThan(500)
     expect(q(`SELECT plan_code FROM stores WHERE id = ?`, store.id)).toEqual([{ plan_code: 'prueba' }])
-    expect((await createProduct(token, store.slug, 10)).status).toBe(409)
+    expect((await createProduct(token, store.slug, 102)).status).toBe(409)
   })
 
   it('a parallel burst at the last slot creates at most one product', async () => {
     const { store, token } = await readyTrial()
-    for (let i = 1; i <= 6; i++) await createProduct(token, store.slug, i)
+    for (let i = 1; i <= TRIAL_PRODUCTS - 1; i++) await createProduct(token, store.slug, i)
     const results = await Promise.all([createProduct(token, store.slug, 50), createProduct(token, store.slug, 51), createProduct(token, store.slug, 52)])
     expect(results.filter((response) => response.status === 201)).toHaveLength(1)
-    expect(q(`SELECT COUNT(*) AS n FROM products WHERE store_id = ?`, store.id)).toEqual([{ n: 7 }])
+    expect(q(`SELECT COUNT(*) AS n FROM products WHERE store_id = ?`, store.id)).toEqual([{ n: TRIAL_PRODUCTS }])
   })
 
   it('configures the store, takes real orders and keeps premium AI and credits off', async () => {
@@ -268,7 +268,7 @@ describe('12-19 · from trial to plan: same store, nothing lost', () => {
   async function trialWithData() {
     const { store, token } = await readyTrial()
     await h.request('/api/admin/categories', { method: 'POST', token, store: store.slug, body: { name: 'Ramos', slug: 'ramos' } })
-    for (let i = 1; i <= 7; i++) {
+    for (let i = 1; i <= TRIAL_PRODUCTS; i++) {
       await h.request('/api/admin/products', { method: 'POST', token, store: store.slug, body: { ...product(i), imageUrls: [`/api/assets/stores/${store.id}/products/foto-${i}.jpg`], variants: [{ size: 'S', stock: 3 }, { size: 'M', stock: 4 }] } })
     }
     await h.request('/api/admin/store', { method: 'PUT', token, store: store.slug, body: { primary_color: '#A414CF', logo_url: `/api/assets/stores/${store.id}/logo.png` } })
@@ -290,7 +290,7 @@ describe('12-19 · from trial to plan: same store, nothing lost', () => {
   it('requests a plan (pending invoice, no rights yet), then the verified payment converts the SAME store keeping everything', async () => {
     const { store, token } = await trialWithData()
     const before = snapshot(store.id)
-    expect(before.products).toHaveLength(7)
+    expect(before.products).toHaveLength(TRIAL_PRODUCTS)
     expect(before.orders).toHaveLength(1)
     const request = await h.request('/api/admin/trial/plan-request', { method: 'POST', token, store: store.slug, body: { planCode: 'emprendedor', cycle: 'mensual' } })
     expect(request.status).toBe(201)
@@ -305,7 +305,7 @@ describe('12-19 · from trial to plan: same store, nothing lost', () => {
     expect((await h.request('/api/admin/trial/plan-request', { method: 'POST', token, store: store.slug, body: { planCode: 'emprendedor', cycle: 'mensual' } })).status).toBe(200)
     expect(q(`SELECT COUNT(*) AS n FROM store_plan_requests`)).toEqual([{ n: 1 }])
     expect(q(`SELECT plan_code FROM stores WHERE id = ?`, store.id)).toEqual([{ plan_code: 'prueba' }])
-    expect((await createProduct(token, store.slug, 8)).status).toBe(409)
+    expect((await createProduct(token, store.slug, 300)).status).toBe(409)
     // Only the platform verifies payments, with an explicit confirmation and a reference.
     const id = q<{ id: number }>(`SELECT id FROM store_plan_requests`)[0]!.id
     expect((await h.request(`/api/platform/plan-requests/${id}/activate`, { method: 'POST', token, body: { confirm: true, paymentReference: 'yo pagué' } })).status).toBe(403)
@@ -323,7 +323,7 @@ describe('12-19 · from trial to plan: same store, nothing lost', () => {
     expect(q(`SELECT status FROM store_invoices WHERE store_id = ?`, store.id)).toEqual([{ status: 'pagada' }])
     expect(sent.filter((item) => /Pago confirmado/.test(item.subject))).toHaveLength(1)
     // New capabilities: the trial limit is gone (Emprendedor allows 150 products).
-    expect((await createProduct(token, store.slug, 8)).status).toBe(201)
+    expect((await createProduct(token, store.slug, 301)).status).toBe(201)
     const status = await json(await h.request('/api/admin/trial', { token, store: store.slug }))
     expect(status.trial.status).toBe('convertida')
     expect(status.plans).toEqual([])

@@ -21,6 +21,7 @@ import { CreditError, createCreditRequest, creditSummary, listCreditCosts, listC
 import { getTelegramBatchPhoto, getTelegramBatchReview, listTelegramBatches, updateTelegramBatchReviewItem } from '../services/telegramProductBatches'
 import type { Context } from 'hono'
 import { getTrialStatus, requestPlan, TrialFlowError } from '../services/freeTrial'
+import { launchChecklist } from '../services/launchChecklist'
 
 const app = new Hono<Env>()
 
@@ -326,6 +327,8 @@ app.get('/credits', adminAuth, requireRole('admin'), async (c) => {
 
 // Free trial: status, limits, days left, plans and the history of important messages (own store only).
 app.get('/trial', adminAuth, async (c) => c.json(await getTrialStatus(c.env.DB, c.get('storeId')!)))
+// «Listo para vender»: steps computed from the store's real data (own store only).
+app.get('/launch-checklist', adminAuth, async (c) => c.json(await launchChecklist(c.env.DB, c.get('storeId')!)))
 // «Activar mi tienda»: only the owner contracts. The plan is enabled after the platform verifies the payment.
 app.post('/trial/plan-request', adminAuth, requireRole('owner'), async (c) => {
  const body = await c.req.json().catch(() => null) as Record<string, unknown> | null

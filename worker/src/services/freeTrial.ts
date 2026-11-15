@@ -16,8 +16,9 @@ import { isSuperadminEmail } from './auth'
 import { isEmail, sendEmail } from '../email/send'
 import { adminStoreUrl, getStoreBySlug, isTrialExpired, publicStoreUrl } from '../tenancy/stores'
 
-export const TRIAL_DAYS = 7
-export const TRIAL_PRODUCTS = 7
+/** Free trial (decided by the owner on 2026-11-15): 14 days and up to 20 products. The platform can extend up to 30 days. */
+export const TRIAL_DAYS = 14
+export const TRIAL_PRODUCTS = 20
 /** Proposed recoverable retention after the trial ends (subject to the legal policy). Nothing is deleted. */
 export const TRIAL_RETENTION_DAYS = 30
 export const TRIAL_TERMS_VERSION = 'v1.2'

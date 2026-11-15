@@ -18,10 +18,10 @@ export const site = {
   /** Free trial: a real store of the platform with its full panel (route /registro). Only an e-mail is asked. */
   trialUrl: `${__APP_URL__}/registro`,
   /**
-   * Trial conditions enforced by the backend (worker/src/services/freeTrial.ts): 7 days, up to 7 products,
+   * Trial conditions enforced by the backend (worker/src/services/freeTrial.ts): 14 days, up to 20 products,
    * no credit card. Choosing a plan keeps the same store with its products and settings.
    */
-  trial: { days: 7, products: 7 },
+  trial: { days: 14, products: 20 },
 
   whatsapp: {
     /** International format, digits only. */

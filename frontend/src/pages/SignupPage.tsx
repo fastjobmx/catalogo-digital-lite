@@ -76,7 +76,8 @@ export default function SignupPage() {
           <ul className="space-y-1.5 text-muted">
             <li>· El enlace sirve una sola vez y vence en 72 horas.</li>
             <li>· Allí creas tu contraseña y entras a tu panel.</li>
-            <li>· Si no lo ves, revisa Promociones o Spam.</li>
+            <li>· Llega desde <b>notificaciones@tiendiaexpres.com</b> con el asunto «Confirma tu correo y entra a…». Búscalo así en tu correo.</li>
+            <li>· Si no lo ves en la bandeja principal, revisa <b>Promociones</b>, <b>Spam</b> o <b>Correo no deseado</b> y márcalo como «No es spam».</li>
           </ul>
           {resent && <p className="rounded-btn border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-900">Listo: si tu registro está pendiente, enviamos un enlace nuevo. El anterior deja de funcionar.</p>}
           {error && <p role="alert" className="text-red-700">{error}</p>}
@@ -105,7 +106,7 @@ export default function SignupPage() {
   }
 
   return (
-    <PlatformAuthShell title="Prueba gratis durante 7 días" subtitle="Crea tu tienda online en minutos · Sin tarjeta de crédito"
+    <PlatformAuthShell title={`Prueba gratis durante ${days} días`} subtitle="Crea tu tienda online en minutos · Sin tarjeta de crédito"
       below={<p className="text-xs">¿Ya tienes cuenta? <Link className="font-bold underline" to="/admin/login">Inicia sesión</Link> · <Link className="font-bold underline" to="/registro?reenviar=1">Reenviar enlace</Link></p>}>
       <form onSubmit={submit} className="card space-y-4 p-7" noValidate>
         <ul className="grid gap-1.5 rounded-btn bg-brand/5 p-3 text-[13px] text-ink">
