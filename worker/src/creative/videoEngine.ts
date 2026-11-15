@@ -194,7 +194,7 @@ export async function createVideoAiJob(env: EngineEnv, ctx: CreativeContext, bod
 }
 
 const GATE_ERROR: Record<string, string> = {
-  ai_unavailable: 'AI_UNAVAILABLE', disabled: 'AI_DISABLED', feature_disabled: 'FEATURE_PAUSED', budget_exhausted: 'BUDGET_EXHAUSTED',
+  ai_unavailable: 'AI_UNAVAILABLE', disabled: 'AI_DISABLED', feature_disabled: 'FEATURE_PAUSED', budget_exhausted: 'BUDGET_EXHAUSTED', own_key_failed: 'OWN_KEY_FAILED',
   store_unavailable: 'STORE_UNAVAILABLE', platform_cap: 'PLATFORM_CAP', no_credits: 'NO_CREDITS', duplicate: 'DUPLICATE',
 }
 

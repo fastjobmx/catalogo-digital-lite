@@ -245,7 +245,8 @@ export async function ownKeyCovers(db: D1Database, env: Bindings, storeId: numbe
 
 export async function markOwnKeyResult(db: D1Database, storeId: number, outcome: { ok: true } | { ok: false; status: OwnKeyStatus; code: string }) {
   if (outcome.ok) {
-    await db.prepare(`UPDATE store_ai_keys SET last_used_at = datetime('now') WHERE store_id = ?`).bind(storeId).run().catch(() => undefined)
+    // A call that works proves the key is usable again (for example after the owner enabled billing).
+    await db.prepare(`UPDATE store_ai_keys SET last_used_at = datetime('now'), status = 'activa', last_error_code = NULL WHERE store_id = ?`).bind(storeId).run().catch(() => undefined)
     return
   }
   await db.prepare(`UPDATE store_ai_keys SET status = ?, last_error_code = ?, updated_at = datetime('now') WHERE store_id = ?`).bind(outcome.status, outcome.code, storeId).run().catch(() => undefined)

@@ -5,6 +5,7 @@ import type { Env } from '../index'
 import { classifyGeminiError, GeminiRequestError, UNTRUSTED_CONTENT_RULE } from './geminiClient'
 import type { InlineImage } from './productVision'
 import type { TokenUsage } from './usage'
+import { usageFromMetadata } from './pricing'
 import { guardedGeminiFetch } from './spendGuard'
 
 export const STUDIO_PRESETS = {
@@ -73,10 +74,9 @@ export async function editPhotoWithInstruction(
     candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { mimeType?: string; data?: string } }> }; finishReason?: string }>
     usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; thoughtsTokenCount?: number }
   }
-  const usage: TokenUsage = {
-    promptTokens: Number(body.usageMetadata?.promptTokenCount || 0),
-    outputTokens: Number(body.usageMetadata?.candidatesTokenCount || 0) + Number(body.usageMetadata?.thoughtsTokenCount || 0),
-  }
+  // Same breakdown the spend guard uses (image tokens at the image price, the rest as text), so the cost saved with
+  // the result matches the cost settled in the spend ledger.
+  const usage: TokenUsage = usageFromMetadata(body.usageMetadata)
   const part = body.candidates?.[0]?.content?.parts?.find((item) => item.inlineData?.data)
   const mimeType = part?.inlineData?.mimeType || ''
   if (!part?.inlineData?.data || !/^image\/(png|jpeg|webp)$/.test(mimeType)) {

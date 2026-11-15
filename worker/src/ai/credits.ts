@@ -94,7 +94,7 @@ export async function settleReservation(db: D1Database, reservationId: number, o
 
 // ---- running an AI action -----------------------------------------------------
 
-export type CreditGateReason = 'ai_unavailable' | 'disabled' | 'feature_disabled' | 'budget_exhausted' | 'store_unavailable' | 'platform_cap' | 'no_credits' | 'duplicate'
+export type CreditGateReason = 'ai_unavailable' | 'disabled' | 'feature_disabled' | 'budget_exhausted' | 'store_unavailable' | 'platform_cap' | 'no_credits' | 'duplicate' | 'own_key_failed'
 export const CREDIT_GATE_MESSAGES: Record<CreditGateReason, string> = {
   ai_unavailable: 'La IA todavía no está activada en esta plataforma.',
   disabled: 'La IA está desactivada para esta tienda. Todo lo demás sigue funcionando.',
@@ -104,6 +104,7 @@ export const CREDIT_GATE_MESSAGES: Record<CreditGateReason, string> = {
   platform_cap: 'La IA de la plataforma alcanzó su límite por hoy. Inténtalo más tarde.',
   no_credits: 'No tienes créditos de IA suficientes. Puedes pedir una recarga en «Créditos IA».',
   duplicate: 'Esta solicitud ya se procesó. Vuelve a intentarlo desde el botón.',
+  own_key_failed: 'Tu API de Gemini no respondió bien. Revisa tu clave o la facturación de tu proyecto en Google. No se cobraron créditos.',
 }
 
 export type CreditRun<T> =
@@ -162,7 +163,9 @@ export async function runWithCredits<T extends { usage?: TokenUsage; model?: str
       // Spend limit reached before calling the model: nothing was generated, so no credits are charged.
       if (reservationId) await settleReservation(db, reservationId, 'liberacion', 'Límite de gasto de IA alcanzado')
       await recordAiUsage(db, env, { storeId: input.storeId, feature: input.feature, status: 'blocked' })
-      return { ok: false, reason: error.reason.startsWith('global') ? 'platform_cap' : 'budget_exhausted', message: error.userMessage }
+      // The store's own key failed (and it may not fall back to the platform key): say so, never «budget exhausted».
+      const reason: CreditGateReason = error.reason === 'own_key_failed' ? 'own_key_failed' : error.reason.startsWith('global') ? 'platform_cap' : 'budget_exhausted'
+      return { ok: false, reason, message: error.userMessage }
     }
     if (reservationId) await settleReservation(db, reservationId, 'liberacion', 'La acción de IA falló')
     await recordAiUsage(db, env, { storeId: input.storeId, feature: input.feature, status: 'error' })

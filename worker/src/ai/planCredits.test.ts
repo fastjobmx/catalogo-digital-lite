@@ -278,6 +278,21 @@ describe('API propia del comercio', () => {
     expect(units(emp)).toBe(1)
   })
 
+  it('Estudio con API propia sin cuota para imágenes (caso de staging): falla con su propio código, sin créditos ni clave de TiendIA', async () => {
+    await connect({ useStudio: true })
+    modelReply = (call) => call.key === OWN_KEY ? new Response('{"error":{"status":"RESOURCE_EXHAUSTED"}}', { status: 429 }) : imageOk()
+    const run = await runWithCredits(h.db, h.env, { storeId: emp, feature: 'foto_premium', key: 'estudio-sin-cuota-1', actor: 'prueba' }, () => editPhotoWithInstruction(h.env, fetch, png(), 'Fondo blanco'))
+    expect(run).toMatchObject({ ok: false, reason: 'own_key_failed' })
+    expect(run.ok ? '' : run.message).toContain('sin cuota')
+    expect(calls.filter((call) => call.key === PLATFORM_KEY)).toHaveLength(0)
+    expect((await creditSummary(h.db, emp)).balance).toBe(30)
+    // A later call that works puts the key back to «activa».
+    modelReply = () => ok()
+    await ask(emp, 'texto-con-propia')
+    expect(calls.at(-1)?.key).toBe(OWN_KEY)
+    expect(await (await api('GET', adminEmp)).json()).toMatchObject({ status: 'activa', lastErrorCode: null })
+  })
+
   it('reemplazar y desconectar quedan en el historial; después vuelve el cupo del plan', async () => {
     await connect()
     expect((await api('PUT', ownerEmp, 'emp', { apiKey: 'AIzaSyOtraClaveOtraClaveOtraClave99999' })).status).toBe(200)

@@ -13,6 +13,7 @@ const JOB_ERRORS: Record<string, string> = {
   AI_UNAVAILABLE: 'La IA de imágenes no está activada en la plataforma.',
   BUDGET_EXHAUSTED: 'Tu tienda alcanzó el límite mensual de IA.',
   PLATFORM_CAP: 'La IA de la plataforma alcanzó su límite por ahora.',
+  OWN_KEY_FAILED: 'Tu API de Gemini no respondió (sin cuota, sin facturación o sin acceso al modelo de imagen). Revísala en Configuración → Inteligencia artificial. No se cobraron créditos.',
   FEATURE_PAUSED: 'Esta función está pausada por la plataforma.',
   GEMINI_QUOTA: 'El servicio de IA está saturado. Reinténtalo en unos minutos. No se cobró.',
   GEMINI_SERVICE: 'El servicio de IA falló. Reinténtalo. No se cobró.',
