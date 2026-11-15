@@ -81,6 +81,14 @@ describe('consultas por sesión de 5 horas y por mes', () => {
     expect(units(emp)).toBe(31)
   })
 
+  it('si la tarea pesa más de lo que queda (voz = 4 con 3 libres) lo dice así, no «usaste todas»', async () => {
+    h.db.query('UPDATE stores SET ai_session_units_override = 3 WHERE id = ?', emp)
+    const error = await ask(emp, 'voz-grande', 'voz').then(() => null, (e) => e as AiSpendBlockedError)
+    expect(error?.reason).toBe('session_units')
+    expect(error?.userMessage).toContain('Esta tarea necesita 4 consultas de IA y te quedan 3 en esta sesión')
+    expect(await reason(ask(emp, 'texto-cabe'))).toBeNull()
+  })
+
   it('el límite mensual aplica aunque la sesión tenga consultas', async () => {
     h.db.query('UPDATE stores SET ai_monthly_units_override = 3 WHERE id = ?', emp)
     for (let i = 0; i < 3; i++) await ask(emp, `mes-${i}`)

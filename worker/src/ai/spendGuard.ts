@@ -49,7 +49,7 @@ export type BlockReason =
   | 'operation_max' | 'attempts' | 'duplicate' | 'unguarded' | 'guard_unavailable'
   | 'session_units' | 'monthly_units' | 'concurrency' | 'burst' | 'duplicate_request' | 'too_large' | 'own_key_failed' | 'own_key_slow' | 'model_timeout'
 
-export type BlockDetail = { limit?: number; resetAt?: string; ownKeyStatus?: OwnKeyStatus }
+export type BlockDetail = { limit?: number; resetAt?: string; ownKeyStatus?: OwnKeyStatus; left?: number; needed?: number }
 
 const OWN_API_HINT = 'También puedes conectar tu propia API de Gemini en el panel: Configuración → Inteligencia artificial → Mi API.'
 const KEEPS_WORKING = 'El catálogo, los pedidos, los botones y los comandos siguen funcionando.'
@@ -78,6 +78,11 @@ const USER_MESSAGES: Record<BlockReason, string> = {
 }
 
 function messageFor(reason: BlockReason, detail: BlockDetail): string {
+  // The task weighs more than what is left (e.g. a voice note = 4 with 3 left): say so instead of «you used them all».
+  if ((reason === 'session_units' || reason === 'monthly_units') && detail.resetAt && detail.left && detail.needed) {
+    const when = reason === 'session_units' ? `Vuelven a las ${bogotaTime(detail.resetAt)} (hora de Colombia)` : `Se renuevan el ${bogotaDate(detail.resetAt)}`
+    return `⏳ Esta tarea necesita ${detail.needed} consultas de IA y te quedan ${detail.left} ${reason === 'session_units' ? 'en esta sesión' : 'este mes'}. ${when}. Mientras tanto puedes hacer tareas más pequeñas (un mensaje de texto usa 1). ${KEEPS_WORKING} ${OWN_API_HINT}`
+  }
   if (reason === 'session_units' && detail.resetAt) return `⏳ Usaste las ${detail.limit ?? ''} consultas de IA de esta sesión. Vuelven a las ${bogotaTime(detail.resetAt)} (hora de Colombia). ${KEEPS_WORKING} ${OWN_API_HINT}`
   if (reason === 'monthly_units' && detail.resetAt) return `📅 Usaste las ${detail.limit ?? ''} consultas de IA de este mes. Se renuevan el ${bogotaDate(detail.resetAt)}. ${KEEPS_WORKING} ${OWN_API_HINT}`
   if (reason === 'own_key_failed' && detail.ownKeyStatus) return `Tu API de Gemini respondió: ${STATUS_LABELS[detail.ownKeyStatus]}. Revisa tu clave o la facturación de tu proyecto en Google. No usamos el cupo de TiendIA porque así está configurado (puedes cambiarlo en Configuración → Inteligencia artificial → Mi API). ${KEEPS_WORKING}`
@@ -385,11 +390,13 @@ async function diagnose(db: D1Database, context: SpendContext, limits: ResolvedL
     if (context.scope === 'trial' && await sum(`scope = 'trial' AND day_key = ?`, input.day) + input.amount > limits.trialDay) return found('trial_day')
   }
   if (input.units > 0 && input.storeId) {
-    if (input.sessionLimit !== null && await count(`SELECT ${COUNTED_UNITS} AS v FROM ai_spend_reservations WHERE session_id = ? AND id <> ?`, input.sessionId, ex) + input.units > input.sessionLimit) {
-      return found('session_units', { limit: input.sessionLimit, resetAt: input.sessionEnds ?? undefined })
+    const sessionUsed = input.sessionLimit !== null ? await count(`SELECT ${COUNTED_UNITS} AS v FROM ai_spend_reservations WHERE session_id = ? AND id <> ?`, input.sessionId, ex) : 0
+    if (input.sessionLimit !== null && sessionUsed + input.units > input.sessionLimit) {
+      return found('session_units', { limit: input.sessionLimit, resetAt: input.sessionEnds ?? undefined, left: Math.max(0, input.sessionLimit - sessionUsed), needed: input.units })
     }
-    if (limits.monthlyUnits !== null && await count(`SELECT ${COUNTED_UNITS} AS v FROM ai_spend_reservations WHERE store_id = ? AND cycle_key = ? AND id <> ?`, input.storeId, input.cycleKey, ex) + input.units > limits.monthlyUnits) {
-      return found('monthly_units', { limit: limits.monthlyUnits, resetAt: input.cycleEnd ?? undefined })
+    const monthUsed = limits.monthlyUnits !== null ? await count(`SELECT ${COUNTED_UNITS} AS v FROM ai_spend_reservations WHERE store_id = ? AND cycle_key = ? AND id <> ?`, input.storeId, input.cycleKey, ex) : 0
+    if (limits.monthlyUnits !== null && monthUsed + input.units > limits.monthlyUnits) {
+      return found('monthly_units', { limit: limits.monthlyUnits, resetAt: input.cycleEnd ?? undefined, left: Math.max(0, limits.monthlyUnits - monthUsed), needed: input.units })
     }
   }
   return input.excludeId === undefined ? found('duplicate') : null
@@ -576,14 +583,17 @@ export async function guardedGeminiFetch(
     response = await fetcher(url, deadline ? { ...request, signal: deadline } : request)
   } catch (error) {
     await settle({ outcome: 'network_error', model: info.model })
-    if (deadline?.aborted) {
-      console.warn(`Gemini call timed out after ${timeoutMs} ms (${own ? 'own key' : 'platform key'}, ${context.feature})`)
+    // Our deadline, or the caller's own (the planner gives the model a few seconds): either way the call was too slow.
+    const callerGaveUp = Boolean(init.signal?.aborted)
+    if (deadline?.aborted || callerGaveUp) {
+      console.warn(`Gemini call timed out (${callerGaveUp ? 'caller deadline' : `${timeoutMs} ms`}, ${own ? 'own key' : 'platform key'}, ${context.feature})`)
       if (own && storeId) {
         await markOwnKeyResult(context.db, storeId, { ok: false, status: 'activa', code: 'TIMEOUT' })
-        if (own.fallbackToPlatform && !context.creditsWaived) return guardedGeminiFetch(env, fetcher, url, init, info, { forcePlatform: true })
+        // A retry with the platform key only makes sense while the caller is still waiting.
+        if (!callerGaveUp && own.fallbackToPlatform && !context.creditsWaived) return guardedGeminiFetch(env, fetcher, url, init, info, { forcePlatform: true })
         throw new AiSpendBlockedError('own_key_slow')
       }
-      throw new AiSpendBlockedError('model_timeout')
+      if (deadline?.aborted) throw new AiSpendBlockedError('model_timeout')
     }
     throw error
   }
