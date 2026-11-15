@@ -3,23 +3,24 @@
 import { formatCycleDate, getConsumption, quotaMode } from '../../ai/messageQuota'
 import { say, type AssistantContext } from './context'
 import { aiOverview } from '../../ai/aiOverview'
-import { bogotaDate, bogotaTime } from '../../ai/planUsage'
+import { bogotaDate } from '../../ai/planUsage'
 import { backToMenu } from './menus'
 
 export const CONSUMPTION_INTENT = /^\s*(?:¿\s*)?(?:cu[aá]ntos?\s+mensajes(?:\s+(?:con\s+ia\s+)?(?:me\s+)?(?:quedan|llevo|he\s+usado|tengo))?|mi\s+consumo|consumo(?:\s+de\s+(?:ia|mensajes))?|mensajes\s+(?:me\s+)?quedan|cu[aá]nto\s+he\s+usado)\b/i
 
 export async function showConsumption(ctx: AssistantContext): Promise<void> {
-  // Plans with smart queries (Emprendedor, Negocio, Mayorista): session of 5 hours, month and artistic credits.
+  // Plans with smart queries (Emprendedor, Negocio, Mayorista): monthly allowance, artistic credits and own API.
   const overview = await aiOverview(ctx.db, ctx.env, ctx.store.id)
   if (overview.plan.metered) {
-    const lines = ['📊 <b>Tu IA</b>', `Plan: <b>${overview.plan.name || 'Tu plan'}</b>`]
-    if (overview.session.limit !== null) {
-      lines.push(`Consultas de esta sesión: <b>${overview.session.available}</b> disponibles de <b>${overview.session.limit}</b>`)
-      lines.push(overview.session.resetsAt ? `Se restablecen a las ${bogotaTime(overview.session.resetsAt)} (sesiones de ${overview.session.hours} horas).` : `La sesión de ${overview.session.hours} horas empieza con tu próxima consulta de IA.`)
+    const month = overview.month
+    const lines = ['📊 <b>Tu IA este mes</b>', `Plan: <b>${overview.plan.name || 'Tu plan'}</b>`]
+    if (month.limit !== null) {
+      lines.push(`Consultas usadas: <b>${month.used}</b> de <b>${month.limit}</b> (${month.percent} %)`)
+      lines.push(`Te quedan: <b>${month.available}</b> · se renuevan el ${bogotaDate(month.cycleEnd)}`)
     }
-    if (overview.month.limit !== null) lines.push(`Consultas del mes: <b>${overview.month.used}</b> de <b>${overview.month.limit}</b> · se renuevan el ${bogotaDate(overview.month.cycleEnd)}`)
     lines.push(`Créditos artísticos: <b>${overview.credits.balance}</b>`)
-    if (overview.ownKey.connected) lines.push(`Mi API de Gemini: ${'statusLabel' in overview.ownKey ? overview.ownKey.statusLabel : 'conectada'}`)
+    const key = overview.ownKey
+    lines.push(key.connected ? `Mi API de Gemini: ${'statusLabel' in key ? key.statusLabel : 'conectada'} — las tareas que procese no gastan tus consultas.` : 'Mi API de Gemini: no conectada.')
     lines.push('', 'Ver existencias, cambiar un precio exacto, confirmar, deshacer y el menú no gastan consultas. Detalle e historial en el panel: Configuración → Inteligencia artificial.')
     await say(ctx, lines.join('\n'), backToMenu())
     return

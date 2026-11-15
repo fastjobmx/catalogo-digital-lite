@@ -72,7 +72,7 @@ export async function decryptApiKey(env: Bindings, storeId: number, row: { ciphe
 
 // ---- validation --------------------------------------------------------------------
 
-export type Validation = { status: OwnKeyStatus; modelsOk: string[]; errorCode: string | null }
+export type Validation = { status: OwnKeyStatus; modelsOk: string[]; errorCode: string | null; imageListed?: boolean }
 
 /** Lists the models the key can use (free: no tokens). Needs the text model for the assistant and the image model
  * for the studio. Throws only when Google itself is unavailable (nothing is saved then). */
@@ -92,8 +92,9 @@ export async function validateGeminiKey(env: Bindings, fetcher: typeof fetch, ap
   const available = new Set((body.models || []).map((model) => String(model.name || '').replace(/^models\//, '')))
   const needed = [...(uses.assistant ? [geminiModel(env)] : []), ...(uses.studio && studioModel(env) ? [studioModel(env)!] : [])]
   const modelsOk = needed.filter((model) => available.has(model))
-  if (modelsOk.length < needed.length) return { status: 'sin_permiso', modelsOk, errorCode: 'MODEL_NOT_AVAILABLE' }
-  return { status: 'activa', modelsOk, errorCode: null }
+  const imageListed = Boolean(studioModel(env) && available.has(studioModel(env)!))
+  if (modelsOk.length < needed.length) return { status: 'sin_permiso', modelsOk, errorCode: 'MODEL_NOT_AVAILABLE', imageListed }
+  return { status: 'activa', modelsOk, errorCode: null, imageListed }
 }
 
 /** Key state from an HTTP error of Google, or null when it is a service problem (not the key's fault). */
@@ -102,6 +103,53 @@ export function statusFromHttp(status: number, body: string): OwnKeyStatus | nul
   if (status === 401 || (status === 400 && /API_KEY_INVALID|API key not valid|INVALID_ARGUMENT/i.test(body))) return 'invalida'
   if (status === 403) return /billing|BILLING/i.test(body) ? 'sin_cuota' : 'sin_permiso'
   return null
+}
+
+export type OwnKeyTier = 'desconocido' | 'gratuito' | 'facturacion'
+export type ImageCapability = 'sin_verificar' | 'disponible' | 'no_disponible'
+export const TIER_LABELS: Record<OwnKeyTier, string> = {
+  desconocido: 'sin confirmar',
+  gratuito: 'nivel gratuito de Google',
+  facturacion: 'con facturación activa',
+}
+
+/** Operations that carry buyers' personal data (names, phones, addresses in orders and shipping guides). They are
+ * never sent to an own key unless that key is confirmed with billing: on Google's free tier the provider may use and
+ * review the content to improve its products, which does not match our privacy commitment to buyers. */
+export const BUYER_DATA_FEATURES = new Set(['pedidos', 'leer_guia_envio'])
+
+/** What Google said when it refused or limited a call, in plain terms (never the key). */
+export type ProviderErrorDetail = { http: number; status: string | null; quotaMetric: string | null; quotaValue: string | null; retryAfter: string | null; freeTier: boolean }
+
+export function parseProviderError(http: number, body: string): ProviderErrorDetail {
+  let parsed: { error?: { status?: string; details?: Array<{ violations?: Array<{ quotaMetric?: string; quotaValue?: string }>; retryDelay?: string }> } } = {}
+  try { parsed = JSON.parse(body) } catch { parsed = {} }
+  const details = parsed.error?.details || []
+  const violation = details.flatMap((detail) => detail.violations || [])[0]
+  const metric = violation?.quotaMetric ? String(violation.quotaMetric).split('/').pop()!.slice(0, 80) : null
+  return {
+    http,
+    status: parsed.error?.status ? String(parsed.error.status).slice(0, 40) : null,
+    quotaMetric: metric,
+    quotaValue: violation?.quotaValue ? String(violation.quotaValue).slice(0, 20) : null,
+    retryAfter: details.find((detail) => detail.retryDelay)?.retryDelay?.slice(0, 20) ?? null,
+    freeTier: /free_tier/i.test(body),
+  }
+}
+
+/** «Límite gratuito de solicitudes por minuto (15). Reintentar en 37s» */
+export function describeProviderError(detail: ProviderErrorDetail | null): string | null {
+  if (!detail) return null
+  const metric = detail.quotaMetric || ''
+  const what = /per_day|PerDay/i.test(metric) ? 'por día' : /per_minute|PerMinute/i.test(metric) ? 'por minuto' : ''
+  const kind = /token/i.test(metric) ? 'tokens' : 'solicitudes'
+  if (detail.http === 429) {
+    const base = detail.freeTier ? `Límite del nivel gratuito de Google (${kind}${what ? ` ${what}` : ''})` : `Límite de cuota de Google (${kind}${what ? ` ${what}` : ''})`
+    return `${base}${detail.quotaValue ? `: ${detail.quotaValue}` : ''}${detail.retryAfter ? `. Google sugiere esperar ${detail.retryAfter}` : ''}.`
+  }
+  if (detail.http === 401 || detail.http === 400) return 'Google rechazó la clave (inválida o revocada).'
+  if (detail.http === 403) return 'Google negó el acceso (permisos del proyecto o facturación).'
+  return `Google respondió con el código ${detail.http}${detail.status ? ` (${detail.status})` : ''}.`
 }
 
 export const STATUS_LABELS: Record<OwnKeyStatus, string> = {
@@ -117,6 +165,7 @@ type Row = {
   store_id: number; ciphertext: string; iv: string; key_version: number; hint: string; use_assistant: number; use_studio: number
   status: OwnKeyStatus; models_ok: string; fallback_to_platform: number; validated_at: string | null; last_error_code: string | null
   last_used_at: string | null; created_at: string; updated_at: string
+  tier: OwnKeyTier; image_capability: ImageCapability; last_error_detail: string | null
 }
 
 async function event(db: D1Database, storeId: number, action: string, result: string, errorCode: string | null, actor: string) {
@@ -130,6 +179,14 @@ const publicView = (row: Row | null, env: Bindings) => row
       useAssistant: Boolean(row.use_assistant), useStudio: Boolean(row.use_studio), fallbackToPlatform: Boolean(row.fallback_to_platform),
       modelsOk: JSON.parse(row.models_ok || '[]') as string[], validatedAt: row.validated_at, lastErrorCode: row.last_error_code,
       lastUsedAt: row.last_used_at, connectedAt: row.created_at, available: vaultAvailable(env),
+      tier: row.tier, tierLabel: TIER_LABELS[row.tier],
+      // What it can do for TiendIA today: text (assistant) is verified on connect; images only after a real generation.
+      capabilities: {
+        text: (JSON.parse(row.models_ok || '[]') as string[]).some((model) => !/image/.test(model)),
+        images: row.image_capability,
+        buyerData: row.tier === 'facturacion',
+      },
+      lastErrorText: describeProviderError(row.last_error_detail ? JSON.parse(row.last_error_detail) as ProviderErrorDetail : null),
     }
   : { connected: false, available: vaultAvailable(env) }
 
@@ -165,12 +222,13 @@ export async function connectOwnKey(db: D1Database, env: Bindings, fetcher: type
   const sealed = await encryptApiKey(env, storeId, apiKey)
   const fallback = flag(body.fallbackToPlatform, Boolean(existing?.fallback_to_platform)) ? 1 : 0
   await db.prepare(
-    `INSERT INTO store_ai_keys (store_id, ciphertext, iv, key_version, hint, use_assistant, use_studio, status, models_ok, fallback_to_platform, validated_at, last_error_code, created_by)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'activa', ?8, ?9, datetime('now'), NULL, ?10)
+    `INSERT INTO store_ai_keys (store_id, ciphertext, iv, key_version, hint, use_assistant, use_studio, status, models_ok, fallback_to_platform, validated_at, last_error_code, created_by, image_capability)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'activa', ?8, ?9, datetime('now'), NULL, ?10, ?11)
      ON CONFLICT(store_id) DO UPDATE SET ciphertext = excluded.ciphertext, iv = excluded.iv, key_version = excluded.key_version, hint = excluded.hint,
        use_assistant = excluded.use_assistant, use_studio = excluded.use_studio, status = 'activa', models_ok = excluded.models_ok,
-       fallback_to_platform = excluded.fallback_to_platform, validated_at = excluded.validated_at, last_error_code = NULL, updated_at = datetime('now')`,
-  ).bind(storeId, sealed.ciphertext, sealed.iv, sealed.version, hintOf(apiKey), uses.assistant ? 1 : 0, uses.studio ? 1 : 0, JSON.stringify(validation.modelsOk), fallback, actor.slice(0, 160)).run()
+       fallback_to_platform = excluded.fallback_to_platform, validated_at = excluded.validated_at, last_error_code = NULL, updated_at = datetime('now'),
+       tier = 'desconocido', image_capability = excluded.image_capability, last_error_detail = NULL`,
+  ).bind(storeId, sealed.ciphertext, sealed.iv, sealed.version, hintOf(apiKey), uses.assistant ? 1 : 0, uses.studio ? 1 : 0, JSON.stringify(validation.modelsOk), fallback, actor.slice(0, 160), validation.imageListed ? 'sin_verificar' : 'no_disponible').run()
   await event(db, storeId, action, 'activa', null, actor)
   await audit(db, storeId, `ai_own_key_${action === 'conectar' ? 'connected' : 'replaced'}`, { hint: hintOf(apiKey), uses, fallback: Boolean(fallback) }, actor)
   return ownKeyStatus(db, env, storeId)
@@ -222,10 +280,14 @@ export type ResolvedOwnKey = { apiKey: string; fallbackToPlatform: boolean; stat
 
 /** The store's own key for this use and model, or null when it does not apply (not connected, use off, model not
  * verified for that key). A key in an error state still resolves (so the failure is reported, not hidden). */
-export async function resolveOwnKey(db: D1Database, env: Bindings, storeId: number, use: OwnKeyUse, model: string): Promise<ResolvedOwnKey | null> {
+export async function resolveOwnKey(db: D1Database, env: Bindings, storeId: number, use: OwnKeyUse, model: string, feature = ''): Promise<ResolvedOwnKey | null> {
   if (!vaultAvailable(env)) return null
   const row = await db.prepare('SELECT * FROM store_ai_keys WHERE store_id = ?').bind(storeId).first<Row>().catch(() => null)
   if (!row || !(use === 'assistant' ? row.use_assistant : row.use_studio)) return null
+  // Not compatible: this key cannot generate images (Google refused them before). The operation is not sent to it.
+  if (/image/.test(model) && row.image_capability === 'no_disponible') return null
+  // Privacy: buyers' personal data only goes to an own key confirmed with billing (see BUYER_DATA_FEATURES).
+  if (BUYER_DATA_FEATURES.has(feature) && row.tier !== 'facturacion') return null
   const models = JSON.parse(row.models_ok || '[]') as string[]
   if (row.status === 'activa' && !models.includes(model)) return null
   try {
@@ -239,16 +301,29 @@ export async function resolveOwnKey(db: D1Database, env: Bindings, storeId: numb
 /** True when an operation of this feature would be paid with the store's own key (decided before credits are held). */
 export async function ownKeyCovers(db: D1Database, env: Bindings, storeId: number, feature: string, kind: 'text' | 'image' | 'video'): Promise<boolean> {
   const model = kind === 'text' ? geminiModel(env) : studioModel(env) || ''
-  const key = await resolveOwnKey(db, env, storeId, useFor(feature, kind), model)
+  const key = await resolveOwnKey(db, env, storeId, useFor(feature, kind), model, feature)
   return Boolean(key && key.status === 'activa')
 }
 
-export async function markOwnKeyResult(db: D1Database, storeId: number, outcome: { ok: true } | { ok: false; status: OwnKeyStatus; code: string }) {
+export async function markOwnKeyResult(
+  db: D1Database, storeId: number,
+  outcome: { ok: true; kind?: 'text' | 'image' | 'video' } | { ok: false; status: OwnKeyStatus; code: string; kind?: 'text' | 'image' | 'video'; detail?: ProviderErrorDetail },
+) {
   if (outcome.ok) {
-    // A call that works proves the key is usable again (for example after the owner enabled billing).
-    await db.prepare(`UPDATE store_ai_keys SET last_used_at = datetime('now'), status = 'activa', last_error_code = NULL WHERE store_id = ?`).bind(storeId).run().catch(() => undefined)
+    // A call that works proves the key is usable again (for example after the owner enabled billing). A generated
+    // image proves both the image capability and billing (images have no free tier).
+    const image = outcome.kind === 'image'
+    await db.prepare(
+      `UPDATE store_ai_keys SET last_used_at = datetime('now'), status = 'activa', last_error_code = NULL, last_error_detail = NULL
+         ${image ? ", image_capability = 'disponible', tier = 'facturacion'" : ''} WHERE store_id = ?`,
+    ).bind(storeId).run().catch(() => undefined)
     return
   }
-  await db.prepare(`UPDATE store_ai_keys SET status = ?, last_error_code = ?, updated_at = datetime('now') WHERE store_id = ?`).bind(outcome.status, outcome.code, storeId).run().catch(() => undefined)
+  const detail = outcome.detail ?? null
+  const imageRefused = outcome.kind === 'image' && (outcome.status === 'sin_cuota' || outcome.status === 'sin_permiso')
+  await db.prepare(
+    `UPDATE store_ai_keys SET status = ?, last_error_code = ?, last_error_detail = ?, updated_at = datetime('now')
+       ${detail?.freeTier ? ", tier = 'gratuito'" : ''}${imageRefused ? ", image_capability = 'no_disponible'" : ''} WHERE store_id = ?`,
+  ).bind(outcome.status, outcome.code, detail ? JSON.stringify(detail) : null, storeId).run().catch(() => undefined)
   await event(db, storeId, 'uso', outcome.status, outcome.code, 'system').catch(() => undefined)
 }

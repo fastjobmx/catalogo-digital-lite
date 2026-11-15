@@ -314,13 +314,15 @@ describe('/consumo', () => {
     await needsAi(); await needsAi()
     const before = geminiCalls
     await say('/consumo')
-    // Smart queries of the new plan: session (5 h) and month, plus the plan's artistic credits.
+    // Smart queries of the new plan: the month only (no sessions), plus the plan's artistic credits and own API.
     expect(last()).toContain('Emprendedor')
-    expect(last()).toContain('<b>28</b> disponibles de <b>30</b>')
-    expect(last()).toContain('Consultas del mes: <b>2</b> de <b>300</b>')
+    expect(last()).toContain('Consultas usadas: <b>2</b> de <b>300</b> (0 %)')
+    expect(last()).toContain('Te quedan: <b>298</b>')
     expect(last()).toContain('Créditos artísticos: <b>30</b>')
+    expect(last()).toContain('Mi API de Gemini: no conectada')
+    expect(last()).not.toMatch(/sesi[oó]n/)
     await say('¿cuántos mensajes me quedan?')
-    expect(last()).toContain('<b>28</b> disponibles de <b>30</b>')
+    expect(last()).toContain('Te quedan: <b>298</b>')
     expect(geminiCalls).toBe(before)
     expect(consumed()).toBe(2)
   })
@@ -332,8 +334,7 @@ describe('/consumo', () => {
     h.env.AI_MESSAGE_QUOTA_MODE = 'shadow'
     h.db.query("UPDATE stores SET plan_code = 'negocio' WHERE id = ?", a)
     await say('/consumo')
-    expect(last()).toContain('Consultas del mes: <b>0</b> de <b>1000</b>')
-    expect(last()).toContain('La sesión de 5 horas empieza con tu próxima consulta de IA')
+    expect(last()).toContain('Consultas usadas: <b>0</b> de <b>1000</b>')
     expect(last()).not.toMatch(/shadow|ledger|enforce|micros/i)
   })
 

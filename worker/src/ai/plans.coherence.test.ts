@@ -29,11 +29,11 @@ describe('the commercial offer is what the plan rows say', () => {
         session: plan.ai_session_units, monthly: plan.ai_monthly_units, budgetCop: plan.ai_monthly_budget_cop, credits: plan.ai_monthly_credits,
       }
     }
-    // Since 0030 the new plans count smart queries (session of 5 h + month) instead of messages, with an internal
-    // budget in COP and monthly artistic credits (approved model of 2026-11-13).
-    expect(pick('emprendedor')).toEqual({ active: 0, products: 150, unlimited: 0, messages: null, usage: 'none', session: 30, monthly: 300, budgetCop: 6000, credits: 30 })
-    expect(pick('negocio')).toEqual({ active: 0, products: 500, unlimited: 0, messages: null, usage: 'none', session: 80, monthly: 1000, budgetCop: 15000, credits: 80 })
-    expect(pick('mayorista')).toMatchObject({ active: 0, unlimited: 1, messages: null, usage: 'none', session: 200, monthly: 2500, budgetCop: 35000, credits: 180 })
+    // Since 0030 the new plans count smart queries instead of messages, with an internal budget in COP and monthly
+    // artistic credits. Since 0034 (decision of 2026-11-15) there are no 5-hour sessions: only the monthly allowance.
+    expect(pick('emprendedor')).toEqual({ active: 0, products: 150, unlimited: 0, messages: null, usage: 'none', session: null, monthly: 300, budgetCop: 6000, credits: 30 })
+    expect(pick('negocio')).toEqual({ active: 0, products: 500, unlimited: 0, messages: null, usage: 'none', session: null, monthly: 1000, budgetCop: 15000, credits: 80 })
+    expect(pick('mayorista')).toMatchObject({ active: 0, unlimited: 1, messages: null, usage: 'none', session: null, monthly: 2500, budgetCop: 35000, credits: 180 })
   })
 
   it('the existing plans keep their limits and their cost protection', () => {

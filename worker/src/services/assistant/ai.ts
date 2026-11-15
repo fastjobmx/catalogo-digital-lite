@@ -6,6 +6,8 @@ import { completeMessage, QUOTA_BLOCKED_MESSAGE, quotaAlertText, releaseMessage,
 import { conversationContext, say, type AssistantContext } from './context'
 import { suggestProductFromPhotos, type VisionSuggestion } from '../../ai/productVision'
 import { isSpendBlocked, newOperationKey, runWithSpend } from '../../ai/spendGuard'
+import { planQuota } from '../../ai/planUsage'
+import { takeQuotaNotice } from '../../ai/quotaNotices'
 
 /** Canal del registro de IA: Telegram/panel (sin canal), WhatsApp oficial o WAHA, cada uno por separado. */
 export function aiChannelOf(ctx: Pick<AssistantContext, 'channel'>): 'whatsapp' | 'whatsapp_waha' | undefined {
@@ -67,7 +69,14 @@ export async function withAiBudget<T extends { usage?: TokenUsage; model?: strin
         .catch((error) => { console.error('AI message counter failed:', error instanceof Error ? error.message : 'unknown'); return { alert: null } })
       if (completed.alert) ctx.quotaNotice = quotaAlertText(completed.alert)
     }
-    if (recorded.crossedWarning) {
+    // Plans with a monthly allowance of queries: notices at 50/75/90/100 % of the allowance (once each per cycle).
+    // Their internal money budget is never shown to the merchant.
+    const metered = (await planQuota(ctx.db, ctx.store.id).catch(() => null))?.metered ?? false
+    if (metered) {
+      const ownKey = await ctx.db.prepare('SELECT 1 AS ok FROM store_ai_keys WHERE store_id = ?').bind(ctx.store.id).first().catch(() => null)
+      const notice = await takeQuotaNotice(ctx.db, ctx.store.id, Boolean(ownKey)).catch(() => null)
+      if (notice) ctx.quotaNotice = notice.text
+    } else if (recorded.crossedWarning) {
       await say(ctx, `ℹ️ Tu tienda ya usó cerca del ${recorded.status.percent}% de su presupuesto mensual de IA. Cuando se agote, los botones seguirán funcionando.`)
     }
     return { ok: true, value }

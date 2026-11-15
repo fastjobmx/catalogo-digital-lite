@@ -18,8 +18,8 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import type { Env } from '../index'
 import { costOf, estimateRequestMicros, PRICING_VERSION, usageFromMetadata, type GeminiUsage } from './pricing'
-import { bogotaDate, bogotaTime, copToMicros, COUNTED_UNITS, cycleOf, ensureSession, planQuota, unitsFor } from './planUsage'
-import { markOwnKeyResult, resolveOwnKey, statusFromHttp, STATUS_LABELS, useFor, type OwnKeyStatus } from './ownKey'
+import { bogotaDate, copToMicros, COUNTED_UNITS, cycleOf, planQuota, unitsFor } from './planUsage'
+import { markOwnKeyResult, parseProviderError, resolveOwnKey, statusFromHttp, STATUS_LABELS, useFor, type OwnKeyStatus } from './ownKey'
 
 type Bindings = Partial<Env['Bindings']>
 
@@ -47,7 +47,7 @@ export type BillingSource = 'plan' | 'own_key' | 'platform' | 'trial'
 export type BlockReason =
   | 'global_day' | 'global_month' | 'store_day' | 'store_month' | 'images_month' | 'trial_day'
   | 'operation_max' | 'attempts' | 'duplicate' | 'unguarded' | 'guard_unavailable'
-  | 'session_units' | 'monthly_units' | 'concurrency' | 'burst' | 'duplicate_request' | 'too_large' | 'own_key_failed' | 'own_key_slow' | 'model_timeout'
+  | 'monthly_units' | 'concurrency' | 'burst' | 'duplicate_request' | 'too_large' | 'own_key_failed' | 'own_key_slow' | 'model_timeout'
 
 export type BlockDetail = { limit?: number; resetAt?: string; ownKeyStatus?: OwnKeyStatus; left?: number; needed?: number }
 
@@ -66,7 +66,6 @@ const USER_MESSAGES: Record<BlockReason, string> = {
   duplicate: 'Esta solicitud ya se está procesando. Espera un momento.',
   unguarded: 'La IA no está disponible en este momento. Todo lo demás sigue funcionando.',
   guard_unavailable: 'La IA no está disponible en este momento. Todo lo demás sigue funcionando.',
-  session_units: `Usaste las consultas de IA de esta sesión. ${KEEPS_WORKING} ${OWN_API_HINT}`,
   monthly_units: `Usaste las consultas de IA de este mes. ${KEEPS_WORKING} ${OWN_API_HINT}`,
   concurrency: 'Hay varias tareas de IA en curso en tu tienda. Espera unos segundos y vuelve a intentarlo.',
   burst: 'Llegaron muchas solicitudes de IA seguidas. Espera un minuto y vuelve a intentarlo.',
@@ -79,12 +78,11 @@ const USER_MESSAGES: Record<BlockReason, string> = {
 
 function messageFor(reason: BlockReason, detail: BlockDetail): string {
   // The task weighs more than what is left (e.g. a voice note = 4 with 3 left): say so instead of «you used them all».
-  if ((reason === 'session_units' || reason === 'monthly_units') && detail.resetAt && detail.left && detail.needed) {
-    const when = reason === 'session_units' ? `Vuelven a las ${bogotaTime(detail.resetAt)} (hora de Colombia)` : `Se renuevan el ${bogotaDate(detail.resetAt)}`
-    return `⏳ Esta tarea necesita ${detail.needed} consultas de IA y te quedan ${detail.left} ${reason === 'session_units' ? 'en esta sesión' : 'este mes'}. ${when}. Mientras tanto puedes hacer tareas más pequeñas (un mensaje de texto usa 1). ${KEEPS_WORKING} ${OWN_API_HINT}`
+  // The task weighs more than what is left (e.g. a voice note = 4 with 3 left): say so instead of «you used them all».
+  if (reason === 'monthly_units' && detail.resetAt && detail.left && detail.needed) {
+    return `⏳ Esta tarea necesita ${detail.needed} consultas de IA y te quedan ${detail.left} de las incluidas este mes. Se renuevan el ${bogotaDate(detail.resetAt)}. Puedes hacer tareas más pequeñas (un mensaje de texto usa 1). ${KEEPS_WORKING} ${OWN_API_HINT}`
   }
-  if (reason === 'session_units' && detail.resetAt) return `⏳ Usaste las ${detail.limit ?? ''} consultas de IA de esta sesión. Vuelven a las ${bogotaTime(detail.resetAt)} (hora de Colombia). ${KEEPS_WORKING} ${OWN_API_HINT}`
-  if (reason === 'monthly_units' && detail.resetAt) return `📅 Usaste las ${detail.limit ?? ''} consultas de IA de este mes. Se renuevan el ${bogotaDate(detail.resetAt)}. ${KEEPS_WORKING} ${OWN_API_HINT}`
+  if (reason === 'monthly_units' && detail.resetAt) return `⛔ Usaste las ${detail.limit ?? ''} consultas de IA incluidas en tu plan este mes. Se renuevan el ${bogotaDate(detail.resetAt)}. ${KEEPS_WORKING} ${OWN_API_HINT}`
   if (reason === 'own_key_failed' && detail.ownKeyStatus) return `Tu API de Gemini respondió: ${STATUS_LABELS[detail.ownKeyStatus]}. Revisa tu clave o la facturación de tu proyecto en Google. No usamos el cupo de TiendIA porque así está configurado (puedes cambiarlo en Configuración → Inteligencia artificial → Mi API). ${KEEPS_WORKING}`
   return USER_MESSAGES[reason]
 }
@@ -147,6 +145,8 @@ export const MAX_ATTEMPTS_PER_OPERATION = 3
 export const RESERVATION_TTL_MINUTES = 10
 /** Technical limits per store, also with its own key (they protect the platform's infrastructure). */
 export const DEFAULT_STORE_CONCURRENCY = 3
+/** Money ceiling of a metered plan = this many times its internal budget (stops anomalies, never the allowance). */
+export const ANOMALY_BUDGET_FACTOR = 3
 export const DEFAULT_STORE_BURST_PER_MINUTE = 60
 /** Longest wait for one call (ms), so a slow provider never outlives the webhook that asked for it (Telegram and
  * WhatsApp drop the request and the Worker is cancelled, leaving no answer). AI_CALL_TIMEOUT_MS overrides text. */
@@ -173,8 +173,9 @@ export type ResolvedLimits = {
   trialDay: number
   operationMax: number
   maxAttempts: number
-  sessionUnits: number | null
   monthlyUnits: number | null
+  /** Internal monthly budget of a metered plan (alert only; the money ceiling is an anomaly guard above it). */
+  storeBudget: number | null
   concurrency: number
   burstPerMinute: number
 }
@@ -196,7 +197,10 @@ export async function resolveLimits(db: D1Database, env: Bindings, _scope: Spend
   const storeLimit = (period: 'day' | 'month', metric: 'micros' | 'images', fallback: number) =>
     pick('store', period, metric) ?? pick('plan', period, metric) ?? fallback
   // New plans: the internal monthly budget in COP is the store's money ceiling (converted with AI_FX_COP_PER_USD).
-  const planMonth = quota?.budgetCop ? copToMicros(env, quota.budgetCop) : plan?.month ?? fallbackMonth
+  // Plans with a monthly allowance of queries: the queries ARE the limit. Money only stops an anomaly (3x the internal
+  // budget), never the included allowance, and there is no daily cap. Other plans keep their monthly budget.
+  const metered = Boolean(quota?.metered)
+  const planMonth = metered && quota?.budgetCop ? copToMicros(env, quota.budgetCop) * ANOMALY_BUDGET_FACTOR : quota?.budgetCop ? copToMicros(env, quota.budgetCop) : plan?.month ?? fallbackMonth
   const month = storeId ? storeLimit('month', 'micros', planMonth) : null
   return {
     environment,
@@ -204,12 +208,13 @@ export async function resolveLimits(db: D1Database, env: Bindings, _scope: Spend
     globalMonth: pick('global', 'month', 'micros') ?? global.month,
     planCode,
     storeMonth: month,
-    storeDay: storeId ? storeLimit('day', 'micros', Math.min(plan?.day ?? Math.max(100_000, Math.ceil(month! / 8)), month!)) : null,
-    storeImages: storeId ? storeLimit('month', 'images', plan?.images ?? 20) : null,
+    storeDay: storeId ? storeLimit('day', 'micros', metered ? month! : Math.min(plan?.day ?? Math.max(100_000, Math.ceil(month! / 8)), month!)) : null,
+    // Metered plans pay images with credits: the credits are the limit (no hidden cap on bought credits).
+    storeImages: storeId ? storeLimit('month', 'images', metered ? 100_000 : plan?.images ?? 20) : null,
     trialDay: pick('trial', 'day', 'micros') ?? DEFAULT_TRIAL_DAY_MICROS,
     operationMax: OPERATION_MAX_MICROS[kind],
     maxAttempts: MAX_ATTEMPTS_PER_OPERATION,
-    sessionUnits: quota?.sessionUnits ?? null,
+    storeBudget: quota?.metered && quota.budgetCop ? copToMicros(env, quota.budgetCop) : null,
     monthlyUnits: quota?.monthlyUnits ?? null,
     concurrency: numberVar('AI_STORE_CONCURRENCY', DEFAULT_STORE_CONCURRENCY),
     burstPerMinute: numberVar('AI_STORE_BURST_PER_MINUTE', DEFAULT_STORE_BURST_PER_MINUTE),
@@ -246,7 +251,7 @@ export type ReserveInput = { model: string; kind: SpendKind; amountMicros: numbe
  *
  * One INSERT checks, atomically: attempts per operation, size per call, simultaneous and per-minute calls of the
  * store (always, also with its own key), the platform and store money (not when the store's own key pays), premium
- * images per month, free-trial money, and the plan's queries of the 5-hour session and of the month. */
+ * images per month, free-trial money, and the plan's queries of the month. */
 export async function reserveSpend(context: SpendContext, input: ReserveInput, now = new Date()): Promise<Reservation> {
   const { db, env } = context
   const mode = guardMode(env) === 'enforce' ? 'enforce' : 'shadow'
@@ -275,24 +280,15 @@ export async function reserveSpend(context: SpendContext, input: ReserveInput, n
     const held = Number((await db.prepare(`SELECT COUNT(*) AS n FROM ai_spend_reservations WHERE op_key = ? AND units > 0 AND status <> 'released'`).bind(context.opKey).first<{ n: number }>())?.n || 0)
     if (held > 0 || duplicates > 0) units = 0
   }
-  let sessionId: number | null = null
-  let sessionEnds: string | null = null
-  let sessionLimit: number | null = null
   let cycleKey: string | null = null
   let cycleEnd: string | null = null
   if (storeId && billingSource === 'plan') {
     const cycle = await cycleOf(db, storeId, now)
     cycleKey = cycle.key
     cycleEnd = cycle.end
-    if (units > 0) {
-      const session = await ensureSession(db, storeId, limits.sessionUnits, now)
-      sessionId = session.id
-      sessionEnds = session.endsAt
-      sessionLimit = session.unitsLimit ?? limits.sessionUnits
-    }
   }
-  const unitsChecked = units > 0 && (sessionLimit !== null || limits.monthlyUnits !== null) ? 1 : 0
-  const facts: DiagnoseInput = { amount, kind: input.kind, day, month, storeId, ownKey: Boolean(ownKey), units, sessionId, sessionEnds, sessionLimit, cycleKey, cycleEnd, duplicates }
+  const unitsChecked = units > 0 && limits.monthlyUnits !== null ? 1 : 0
+  const facts: DiagnoseInput = { amount, kind: input.kind, day, month, storeId, ownKey: Boolean(ownKey), units, cycleKey, cycleEnd, duplicates }
 
   const row = enforce && duplicates >= DUPLICATE_BLOCK_AT ? null : await db.prepare(
     `INSERT OR IGNORE INTO ai_spend_reservations (op_key, attempt, environment, scope, store_id, plan_code, feature, model, kind, day_key, month_key, reserved_micros, mode,
@@ -317,14 +313,13 @@ export async function reserveSpend(context: SpendContext, input: ReserveInput, n
          AND (? <> 'trial' OR (SELECT ${COMMITTED} FROM ai_spend_reservations WHERE environment = ? AND scope = 'trial' AND day_key = ?) + ? <= ?)
        ))
        AND (? = 0 OR (
-         (? IS NULL OR (SELECT ${COUNTED_UNITS} FROM ai_spend_reservations WHERE session_id = ?) + ? <= ?)
-         AND (? IS NULL OR (SELECT ${COUNTED_UNITS} FROM ai_spend_reservations WHERE store_id = ? AND cycle_key = ?) + ? <= ?)
+         (? IS NULL OR (SELECT ${COUNTED_UNITS} FROM ai_spend_reservations WHERE store_id = ? AND cycle_key = ?) + ? <= ?)
        ))
      )
      RETURNING id, attempt`,
   ).bind(
     context.opKey, context.opKey, env_, context.scope, storeId, limits.planCode, context.feature, input.model.slice(0, 80), input.kind, day, month, amount, mode,
-    units, sessionId, cycleKey, billingSource, fingerprint,
+    units, null, cycleKey, billingSource, fingerprint,
     enforce,
     context.opKey, limits.maxAttempts,
     amount, limits.operationMax,
@@ -340,7 +335,6 @@ export async function reserveSpend(context: SpendContext, input: ReserveInput, n
     input.kind, env_, storeId, month, limits.storeImages ?? 0,
     context.scope, env_, day, amount, limits.trialDay,
     unitsChecked,
-    sessionLimit, sessionId, units, sessionLimit ?? 0,
     limits.monthlyUnits, storeId, cycleKey, units, limits.monthlyUnits ?? 0,
   ).first<{ id: number; attempt: number }>()
 
@@ -360,7 +354,7 @@ export async function reserveSpend(context: SpendContext, input: ReserveInput, n
 
 type DiagnoseInput = {
   amount: number; kind: SpendKind; day: string; month: string; storeId: number | null; ownKey: boolean; units: number
-  sessionId: number | null; sessionEnds: string | null; sessionLimit: number | null; cycleKey: string | null; cycleEnd: string | null
+  cycleKey: string | null; cycleEnd: string | null
   duplicates: number; excludeId?: number
 }
 
@@ -390,10 +384,6 @@ async function diagnose(db: D1Database, context: SpendContext, limits: ResolvedL
     if (context.scope === 'trial' && await sum(`scope = 'trial' AND day_key = ?`, input.day) + input.amount > limits.trialDay) return found('trial_day')
   }
   if (input.units > 0 && input.storeId) {
-    const sessionUsed = input.sessionLimit !== null ? await count(`SELECT ${COUNTED_UNITS} AS v FROM ai_spend_reservations WHERE session_id = ? AND id <> ?`, input.sessionId, ex) : 0
-    if (input.sessionLimit !== null && sessionUsed + input.units > input.sessionLimit) {
-      return found('session_units', { limit: input.sessionLimit, resetAt: input.sessionEnds ?? undefined, left: Math.max(0, input.sessionLimit - sessionUsed), needed: input.units })
-    }
     const monthUsed = limits.monthlyUnits !== null ? await count(`SELECT ${COUNTED_UNITS} AS v FROM ai_spend_reservations WHERE store_id = ? AND cycle_key = ? AND id <> ?`, input.storeId, input.cycleKey, ex) : 0
     if (limits.monthlyUnits !== null && monthUsed + input.units > limits.monthlyUnits) {
       return found('monthly_units', { limit: limits.monthlyUnits, resetAt: input.cycleEnd ?? undefined, left: Math.max(0, limits.monthlyUnits - monthUsed), needed: input.units })
@@ -442,12 +432,12 @@ export async function expireStaleReservations(db: D1Database, minutes = RESERVAT
 /** Same keys as the 50/80 % alerts, so «100 %» means «limit reached» whether it was crossed or a call was refused. */
 const limitKey = (reason: BlockReason, context: SpendContext, storeId: number | null) => ({
   global_day: 'global:day', global_month: 'global:month', store_day: `store:${storeId}:day`, store_month: `store:${storeId}:month`, images_month: `store:${storeId}:images`,
-  session_units: `store:${storeId}:session_units`, monthly_units: `store:${storeId}:units`,
+  monthly_units: `store:${storeId}:units`,
 } as Partial<Record<BlockReason, string>>)[reason] ?? `${context.scope}:${reason}`
 const limitLabel = (reason: BlockReason, storeId: number | null) => ({
   global_day: 'IA de la plataforma hoy', global_month: 'IA de la plataforma este mes', store_day: `IA de la tienda ${storeId} hoy`,
   store_month: `IA de la tienda ${storeId} este mes`, images_month: `Fotos IA de la tienda ${storeId} este mes`,
-  session_units: `Consultas de IA de la tienda ${storeId} en la sesión`, monthly_units: `Consultas de IA de la tienda ${storeId} este mes`,
+  monthly_units: `Consultas de IA de la tienda ${storeId} este mes`,
 } as Partial<Record<BlockReason, string>>)[reason] ?? 'IA'
 const periodOf = (reason: BlockReason, day: string, month: string) => reason.endsWith('_month') ? month : day
 
@@ -554,7 +544,7 @@ export async function guardedGeminiFetch(
   const storeId = context.scope === 'store' && context.storeId ? context.storeId : null
 
   // Who pays: the store's own key when it applies to this use and model; otherwise the plan (or the platform).
-  const own = storeId && !options.forcePlatform ? await resolveOwnKey(context.db, context.env, storeId, useFor(context.feature, info.kind), info.model) : null
+  const own = storeId && !options.forcePlatform ? await resolveOwnKey(context.db, context.env, storeId, useFor(context.feature, info.kind), info.model, context.feature) : null
   const billingSource: BillingSource = own ? 'own_key' : context.scope === 'store' ? 'plan' : context.scope === 'trial' ? 'trial' : 'platform'
   const units = billingSource === 'plan' ? await unitsFor(context.db, context.feature, body).catch(() => 1) : 0
   const estimate = estimateRequestMicros(context.env, info.model, body, info.kind)
@@ -600,9 +590,10 @@ export async function guardedGeminiFetch(
   if (!response.ok) {
     await settle({ outcome: 'http_error', model: info.model })
     if (own && storeId) {
-      const keyStatus = statusFromHttp(response.status, await response.clone().text().catch(() => ''))
+      const errorBody = await response.clone().text().catch(() => '')
+      const keyStatus = statusFromHttp(response.status, errorBody)
       if (keyStatus) {
-        await markOwnKeyResult(context.db, storeId, { ok: false, status: keyStatus, code: `HTTP_${response.status}` })
+        await markOwnKeyResult(context.db, storeId, { ok: false, status: keyStatus, code: `HTTP_${response.status}`, kind: info.kind, detail: parseProviderError(response.status, errorBody) })
         // No silent fallback: the platform key is used only if the owner switched it on, and never for an
         // operation whose credits were waived because the own key was going to pay.
         if (own.fallbackToPlatform && !context.creditsWaived) return guardedGeminiFetch(env, fetcher, url, init, info, { forcePlatform: true })
@@ -611,7 +602,7 @@ export async function guardedGeminiFetch(
     }
     return response
   }
-  if (own && storeId) await markOwnKeyResult(context.db, storeId, { ok: true })
+  if (own && storeId) await markOwnKeyResult(context.db, storeId, { ok: true, kind: info.kind })
   const json = await response.clone().json().catch(() => null) as {
     usageMetadata?: unknown
     usage?: { total_input_tokens?: number; total_output_tokens?: number }

@@ -9,6 +9,7 @@ import { creditLots, expireCreditLots, grantPlanCredits, walletSummary } from '.
 import { decryptApiKey, encryptApiKey } from './ownKey'
 import { AiSpendBlockedError, runWithSpend, type SpendContext } from './spendGuard'
 import { aiOverview } from './aiOverview'
+import { noticeText, takeQuotaNotice } from './quotaNotices'
 
 const MASTER = btoa(String.fromCharCode(...new Uint8Array(32).map((_, i) => (i * 7 + 3) % 256)))
 const OWN_KEY = 'AIzaSyPropiaDeLaTiendaA_1234567890abcdEF'
@@ -63,38 +64,61 @@ beforeEach(async () => {
 })
 afterEach(() => vi.unstubAllGlobals())
 
-describe('consultas por sesión de 5 horas y por mes', () => {
-  it('la sesión empieza con la primera consulta de IA; al agotarse informa la hora de restablecimiento sin llamar al modelo', async () => {
+describe('cupo mensual de consultas (sin sesiones ni cupos diarios)', () => {
+  it('100 consultas en un mismo día: todas pasan (no hay cupo diario ni por sesión)', async () => {
+    // In real use they are spread over the day; here they run in seconds, so the anti-flood limit (60 per minute,
+    // tested on its own) is lifted for this test.
+    h.env.AI_STORE_BURST_PER_MINUTE = '1000'
+    for (let i = 0; i < 100; i++) expect(await reason(ask(emp, `dia-${i}`))).toBeNull()
+    expect(units(emp)).toBe(100)
     expect(h.db.query('SELECT COUNT(*) AS n FROM ai_sessions')).toEqual([{ n: 0 }])
-    for (let i = 0; i < 30; i++) await ask(emp, `m-${i}`)
-    expect(h.db.query('SELECT COUNT(*) AS n FROM ai_sessions WHERE store_id = ?', emp)).toEqual([{ n: 1 }])
+  })
+
+  it('las 300 consultas del plan Emprendedor se pueden usar; la 301 se pausa sin llamar al modelo y dice la fecha de renovación', async () => {
+    h.env.AI_STORE_BURST_PER_MINUTE = '1000'
+    for (let i = 0; i < 300; i++) await ask(emp, `mes-${i}`)
     const before = calls.length
-    const error = await ask(emp, 'm-30').then(() => null, (e) => e as AiSpendBlockedError)
-    expect(error?.reason).toBe('session_units')
-    expect(error?.userMessage).toMatch(/Usaste las 30 consultas de IA de esta sesión\. Vuelven a las \d{1,2}:\d{2}/)
+    const error = await ask(emp, 'mes-300').then(() => null, (e) => e as AiSpendBlockedError)
+    expect(error?.reason).toBe('monthly_units')
+    expect(error?.userMessage).toMatch(/Usaste las 300 consultas de IA incluidas en tu plan este mes\. Se renuevan el \d+ de \w+/)
     expect(error?.userMessage).toContain('Mi API')
     expect(calls.length).toBe(before)
-    // Five hours later a new session opens; the month keeps counting.
-    h.db.query("UPDATE ai_sessions SET ends_at = datetime('now', '-1 minute') WHERE store_id = ?", emp)
-    expect(await reason(ask(emp, 'm-31'))).toBeNull()
-    expect(h.db.query('SELECT COUNT(*) AS n FROM ai_sessions WHERE store_id = ?', emp)).toEqual([{ n: 2 }])
-    expect(units(emp)).toBe(31)
+    expect(units(emp)).toBe(300)
+  })
+
+  it('avisos al 50, 75, 90 y 100 %: cada uno una sola vez en el ciclo', async () => {
+    h.db.query('UPDATE stores SET ai_monthly_units_override = 20 WHERE id = ?', emp)
+    const said: Array<[number, number]> = []
+    for (let i = 1; i <= 20; i++) {
+      await ask(emp, `aviso-${i}`)
+      const notice = await takeQuotaNotice(h.db, emp, false)
+      if (notice) said.push([i, notice.threshold])
+    }
+    expect(said).toEqual([[10, 50], [15, 75], [18, 90], [20, 100]])
+    expect(await takeQuotaNotice(h.db, emp, false)).toBeNull()
+    const texts = [50, 75, 90, 100].map((threshold) => noticeText(threshold as 50, { limit: 20, used: 15, remaining: 5, cycleEnd: '2026-12-01' }, false))
+    expect(texts[1]).toContain('conectar tu propia API de Gemini')
+    expect(texts[3]).toContain('siguen funcionando')
   })
 
   it('si la tarea pesa más de lo que queda (voz = 4 con 3 libres) lo dice así, no «usaste todas»', async () => {
-    h.db.query('UPDATE stores SET ai_session_units_override = 3 WHERE id = ?', emp)
+    h.db.query('UPDATE stores SET ai_monthly_units_override = 3 WHERE id = ?', emp)
     const error = await ask(emp, 'voz-grande', 'voz').then(() => null, (e) => e as AiSpendBlockedError)
-    expect(error?.reason).toBe('session_units')
-    expect(error?.userMessage).toContain('Esta tarea necesita 4 consultas de IA y te quedan 3 en esta sesión')
+    expect(error?.reason).toBe('monthly_units')
+    expect(error?.userMessage).toContain('Esta tarea necesita 4 consultas de IA y te quedan 3')
     expect(await reason(ask(emp, 'texto-cabe'))).toBeNull()
   })
 
-  it('el límite mensual aplica aunque la sesión tenga consultas', async () => {
-    h.db.query('UPDATE stores SET ai_monthly_units_override = 3 WHERE id = ?', emp)
-    for (let i = 0; i < 3; i++) await ask(emp, `mes-${i}`)
-    const error = await ask(emp, 'mes-3').then(() => null, (e) => e as AiSpendBlockedError)
-    expect(error?.reason).toBe('monthly_units')
-    expect(error?.userMessage).toMatch(/Usaste las 3 consultas de IA de este mes\. Se renuevan el \d+ de \w+/)
+  it('renovación mensual: el ciclo nuevo trae todo el cupo y los avisos vuelven a empezar', async () => {
+    h.db.query('UPDATE stores SET ai_monthly_units_override = 2 WHERE id = ?', emp)
+    await ask(emp, 'r-1'); await ask(emp, 'r-2')
+    await takeQuotaNotice(h.db, emp, false)
+    expect(await reason(ask(emp, 'r-3'))).toBe('monthly_units')
+    // The previous cycle is over: its rows and notices belong to an older cycle key.
+    h.db.query("UPDATE ai_spend_reservations SET cycle_key = '2000-01-01' WHERE store_id = ?", emp)
+    h.db.query("UPDATE ai_quota_notices SET cycle_key = '2000-01-01' WHERE store_id = ?", emp)
+    expect(await reason(ask(emp, 'r-4'))).toBeNull()
+    expect((await takeQuotaNotice(h.db, emp, false))?.threshold).toBe(50)
   })
 
   it('pesos por complejidad: mensaje 1, pedidos 2, voz 4, organizar fotos 2 por foto; si el modelo falla se devuelven', async () => {
@@ -122,13 +146,12 @@ describe('consultas por sesión de 5 horas y por mes', () => {
     expect(await reason(ask(emp, 'dup-8', 'interpretacion', 'el mismo mensaje'))).toBe('duplicate_request')
   })
 
-  it('concurrencia: 50 consultas simultáneas con 3 libres → exactamente 3; dos primeras consultas abren una sola sesión', async () => {
+  it('simultáneas: 50 consultas a la vez con 3 libres en el mes → exactamente 3', async () => {
     h.env.AI_STORE_CONCURRENCY = '100'
-    h.db.query('UPDATE stores SET ai_session_units_override = 3 WHERE id = ?', neg)
+    h.db.query('UPDATE stores SET ai_monthly_units_override = 3 WHERE id = ?', neg)
     const results = await Promise.all(Array.from({ length: 50 }, (_, i) => reason(ask(neg, `c-${String(i).padStart(2, '0')}`))))
     expect(results.filter((value) => value === null)).toHaveLength(3)
-    expect(results.filter((value) => value === 'session_units')).toHaveLength(47)
-    expect(h.db.query('SELECT COUNT(*) AS n FROM ai_sessions WHERE store_id = ?', neg)).toEqual([{ n: 1 }])
+    expect(results.filter((value) => value === 'monthly_units')).toHaveLength(47)
   })
 
   it('límites técnicos: tareas simultáneas por tienda y tamaño de archivos', async () => {
@@ -145,18 +168,31 @@ describe('consultas por sesión de 5 horas y por mes', () => {
     expect(await reason(runWithSpend(spend(neg, 'grande', 'fotos_ia'), () => callGeminiJson(h.env, fetch, { system: ['x'], parts: [big], schema: { type: 'object' } })))).toBe('too_large')
   })
 
-  it('el presupuesto interno en COP del plan es el tope de dinero de la tienda', async () => {
-    h.env.AI_FX_COP_PER_USD = '4000'
-    // 6.000 COP = US$ 1,50 → 1.500.000 micros: lo que ya gastó la tienda cuenta.
-    h.db.query(`INSERT INTO ai_spend_reservations (op_key, attempt, environment, scope, store_id, feature, model, kind, day_key, month_key, reserved_micros, actual_micros, status, mode, billing_source)
-      VALUES ('previo', 1, 'test', 'store', ?, 'voz', 'gemini-3.8-flash', 'text', date('now', '-1 day'), strftime('%Y-%m', 'now'), 1500000, 1499900, 'settled', 'enforce', 'plan')`, emp)
-    expect(await reason(ask(emp, 'sin-plata'))).toBe('store_month')
+  it('freno anti-ráfaga (técnico, también con API propia): más de 60 tareas en un minuto se pausan un momento', async () => {
+    for (let i = 0; i < 60; i++) await ask(neg, `rafaga-${i}`)
+    const error = await ask(neg, 'rafaga-61').then(() => null, (e) => e as AiSpendBlockedError)
+    expect(error?.reason).toBe('burst')
+    expect(error?.userMessage).toContain('Espera un minuto')
   })
 
-  it('contratos anteriores: sin sesión ni cupo de consultas; se registran para conocer su uso', async () => {
+  it('el presupuesto interno no recorta el cupo: el dinero solo frena una anomalía (3 veces el presupuesto)', async () => {
+    h.env.AI_FX_COP_PER_USD = '4000'
+    // Platform ceilings out of the way: this test is about the store's own ceiling.
+    h.db.query("INSERT INTO ai_spend_limits (scope, scope_ref, period, metric, limit_value) VALUES ('global', '*', 'day', 'micros', 100000000), ('global', '*', 'month', 'micros', 100000000)")
+    const spent = (micros: number) => h.db.query(`INSERT INTO ai_spend_reservations (op_key, attempt, environment, scope, store_id, feature, model, kind, day_key, month_key, reserved_micros, actual_micros, status, mode, billing_source)
+      VALUES (?, 1, 'test', 'store', ?, 'voz', 'gemini-3.8-flash', 'text', date('now'), strftime('%Y-%m', 'now'), ?, ?, 'settled', 'enforce', 'plan')`, `previo-${micros}`, emp, micros, micros)
+    // 6.000 COP = US$ 1,50 spent: the allowance is still served.
+    spent(1_500_000)
+    expect(await reason(ask(emp, 'sigue-con-cupo'))).toBeNull()
+    // 3 x 6.000 COP = US$ 4,50: anomaly guard.
+    spent(3_000_000)
+    expect(await reason(ask(emp, 'anomalia'))).toBe('store_month')
+  })
+
+  it('contratos anteriores: sin cupo de consultas; se registran para conocer su uso', async () => {
     for (let i = 0; i < 40; i++) await ask(legacy, `ant-${i}`)
     expect(units(legacy)).toBe(40)
-    expect(h.db.query('SELECT units_limit FROM ai_sessions WHERE store_id = ?', legacy)).toEqual([{ units_limit: null }])
+    expect(await takeQuotaNotice(h.db, legacy, false)).toBeNull()
   })
 })
 
@@ -322,6 +358,39 @@ describe('API propia del comercio', () => {
     expect(units(emp)).toBe(1)
   })
 
+  it('API gratuita: Google la marca con free_tier; las imágenes dejan de enviarse a ella y los pedidos nunca van', async () => {
+    await connect({ useStudio: true })
+    const freeTier = JSON.stringify({ error: { status: 'RESOURCE_EXHAUSTED', details: [{ violations: [{ quotaMetric: 'generativelanguage.googleapis.com/generate_content_free_tier_requests', quotaValue: '0' }] }, { retryDelay: '37s' }] } })
+    modelReply = (call) => call.key === OWN_KEY && /image/.test(call.url) ? new Response(freeTier, { status: 429 }) : /image/.test(call.url) ? imageOk() : ok()
+    const first = await runWithCredits(h.db, h.env, { storeId: emp, feature: 'foto_premium', key: 'gratis-foto-1', actor: 'prueba' }, () => editPhotoWithInstruction(h.env, fetch, png(), 'Fondo blanco'))
+    expect(first).toMatchObject({ ok: false, reason: 'own_key_failed' })
+    const state = await (await api('GET', adminEmp)).json() as any
+    expect(state).toMatchObject({ tier: 'gratuito', capabilities: { text: true, images: 'no_disponible', buyerData: false } })
+    expect(state.lastErrorText).toContain('nivel gratuito')
+    // Next image: not compatible with the key → it is not tried there; it is paid with the store's credits.
+    const before = calls.filter((call) => call.key === OWN_KEY).length
+    const second = await runWithCredits(h.db, h.env, { storeId: emp, feature: 'foto_premium', key: 'gratis-foto-2', actor: 'prueba' }, () => editPhotoWithInstruction(h.env, fetch, png(), 'Fondo blanco'))
+    expect(second).toMatchObject({ ok: true, charged: 10 })
+    expect(calls.filter((call) => call.key === OWN_KEY).length).toBe(before)
+    // Text still goes to the free key (no queries); orders with buyers' data never do.
+    await ask(emp, 'texto-gratis')
+    expect(calls.at(-1)?.key).toBe(OWN_KEY)
+    await ask(emp, 'pedido-privado', 'pedidos')
+    expect(calls.at(-1)?.key).toBe(PLATFORM_KEY)
+    expect(units(emp)).toBe(2)
+  })
+
+  it('API con facturación: una imagen generada confirma imágenes y facturación; entonces también procesa pedidos', async () => {
+    await connect({ useStudio: true })
+    modelReply = (call) => /image/.test(call.url) ? imageOk() : ok()
+    const run = await runWithCredits(h.db, h.env, { storeId: emp, feature: 'foto_premium', key: 'pago-foto-1', actor: 'prueba' }, () => editPhotoWithInstruction(h.env, fetch, png(), 'Fondo blanco'))
+    expect(run).toMatchObject({ ok: true, charged: 0 })
+    expect(await (await api('GET', adminEmp)).json()).toMatchObject({ tier: 'facturacion', capabilities: { images: 'disponible', buyerData: true } })
+    await ask(emp, 'pedido-con-pago', 'pedidos')
+    expect(calls.at(-1)?.key).toBe(OWN_KEY)
+    expect(units(emp)).toBe(0)
+  })
+
   it('reemplazar y desconectar quedan en el historial; después vuelve el cupo del plan', async () => {
     await connect()
     expect((await api('PUT', ownerEmp, 'emp', { apiKey: 'AIzaSyOtraClaveOtraClaveOtraClave99999' })).status).toBe(200)
@@ -348,7 +417,7 @@ describe('API propia del comercio', () => {
 })
 
 describe('panel: Configuración → Inteligencia artificial', () => {
-  it('resume sesión, mes, créditos, API propia, historial y política sin datos sensibles', async () => {
+  it('resume el consumo mensual, créditos, API propia, historial y política sin datos sensibles', async () => {
     const admin = await userToken(await createStoreUser(h.db, { email: 'panel@emp.test', storeId: emp, role: 'admin' }), 'panel@emp.test')
     await ask(emp, 'panel-1')
     await ask(emp, 'panel-2', 'voz')
@@ -356,13 +425,12 @@ describe('panel: Configuración → Inteligencia artificial', () => {
     expect(response.status).toBe(200)
     const body = await response.json() as Awaited<ReturnType<typeof aiOverview>>
     expect(body.plan).toMatchObject({ code: 'emprendedor', name: 'Emprendedor', metered: true })
-    expect(body.session).toMatchObject({ limit: 30, used: 5, available: 25, hours: 5 })
-    expect(body.session.resetsAt).toBeTruthy()
-    expect(body.month).toMatchObject({ limit: 300, used: 5, available: 295 })
+    expect(body).not.toHaveProperty('session')
+    expect(body.month).toMatchObject({ limit: 300, used: 5, available: 295, percent: 1, level: null, notice: null })
     expect(body.credits).toMatchObject({ balance: 30, monthlyFromPlan: 30, priceVersion: 2 })
     expect(body.credits.packs.map((pack: any) => [pack.credits, pack.priceCop])).toEqual([[100, 12000], [300, 30000], [700, 63000]])
     expect(body.history[0]).toMatchObject({ task: 'Nota de voz (hasta 2 minutos)', paidWith: 'Plan', units: 4 })
     expect(body.weights.find((weight: any) => weight.feature === 'voz')).toMatchObject({ units: 4 })
-    expect(JSON.stringify(body)).not.toMatch(/panel-1|op_key|test-key/)
+    expect(JSON.stringify(body)).not.toMatch(/panel-1|op_key|test-key|sesi[oó]n/)
   })
 })

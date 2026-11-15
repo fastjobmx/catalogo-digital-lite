@@ -1,18 +1,16 @@
-/** Smart queries ("consultas inteligentes equivalentes") per plan: a 5-hour session that starts with the store's
- * first AI query, plus a monthly allowance per billing cycle.
+/** Smart queries ("consultas inteligentes equivalentes") per plan: one monthly allowance per billing cycle, which the
+ * store can use whenever it needs it (no daily, weekly or per-session caps — decision of 2026-11-15).
  *
  * Each AI operation weighs a fixed, visible number of queries (table `ai_unit_weights`), calibrated with measured
  * costs: 1 query ≈ US$ 0.0011–0.0013 at the 2026 price. What the deterministic rules answer weighs 0.
  * The counters live in `ai_spend_reservations` (one row per paid call), so the same atomic reservation that checks
- * money limits also checks the session and the month. Operations paid with the store's own API key or with
+ * money limits also checks the month. Operations paid with the store's own API key or with
  * artistic credits never count queries.
  */
 import type { Env } from '../index'
 import { resolveCycle, type BillingCycle } from './messageQuota'
 
 type Bindings = Partial<Env['Bindings']>
-
-export const SESSION_HOURS = 5
 
 /** Fallback weights (the table in D1 is the source of truth; these cover installations before 0030). */
 export const DEFAULT_UNIT_WEIGHTS: Record<string, { units: number; perItem: boolean; label: string }> = {
@@ -63,7 +61,6 @@ export async function unitsFor(db: D1Database, feature: string, body: unknown): 
 
 export type PlanQuota = {
   planCode: string | null
-  sessionUnits: number | null
   monthlyUnits: number | null
   monthlyCredits: number | null
   budgetCop: number | null
@@ -73,55 +70,31 @@ export type PlanQuota = {
 
 export async function planQuota(db: D1Database, storeId: number): Promise<PlanQuota> {
   const row = await db.prepare(
-    `SELECT s.plan_code AS planCode, s.ai_session_units_override AS sessionOverride, s.ai_monthly_units_override AS monthlyOverride,
-            p.ai_session_units AS sessionUnits, p.ai_monthly_units AS monthlyUnits, p.ai_monthly_credits AS monthlyCredits, p.ai_monthly_budget_cop AS budgetCop
+    `SELECT s.plan_code AS planCode, s.ai_monthly_units_override AS monthlyOverride,
+            p.ai_monthly_units AS monthlyUnits, p.ai_monthly_credits AS monthlyCredits, p.ai_monthly_budget_cop AS budgetCop
      FROM stores s LEFT JOIN plans p ON p.code = s.plan_code WHERE s.id = ?`,
   ).bind(storeId).first<Record<string, number | string | null>>()
   const num = (value: unknown) => value === null || value === undefined ? null : Number(value)
-  const sessionUnits = num(row?.sessionOverride) ?? num(row?.sessionUnits)
   const monthlyUnits = num(row?.monthlyOverride) ?? num(row?.monthlyUnits)
   return {
     planCode: (row?.planCode as string | null) ?? null,
-    sessionUnits, monthlyUnits,
+    monthlyUnits,
     monthlyCredits: num(row?.monthlyCredits),
     budgetCop: num(row?.budgetCop),
-    metered: sessionUnits !== null || monthlyUnits !== null,
+    metered: monthlyUnits !== null,
   }
 }
 
-const sqlTime = (date: Date) => date.toISOString().slice(0, 19).replace('T', ' ')
-
-export type OpenSession = { id: number; startedAt: string; endsAt: string; unitsLimit: number | null }
-
-/** The store's open session, opening one if there is none. One statement: two simultaneous first queries
- * cannot open two sessions. */
-export async function ensureSession(db: D1Database, storeId: number, unitsLimit: number | null, now = new Date()): Promise<OpenSession> {
-  const at = sqlTime(now)
-  const ends = sqlTime(new Date(now.getTime() + SESSION_HOURS * 3_600_000))
-  await db.prepare(
-    `INSERT INTO ai_sessions (store_id, started_at, ends_at, units_limit)
-     SELECT ?1, ?2, ?3, ?4 WHERE NOT EXISTS (SELECT 1 FROM ai_sessions WHERE store_id = ?1 AND ends_at > ?2)`,
-  ).bind(storeId, at, ends, unitsLimit).run()
-  return (await currentSession(db, storeId, now))!
-}
-
-export async function currentSession(db: D1Database, storeId: number, now = new Date()): Promise<OpenSession | null> {
-  const row = await db.prepare('SELECT id, started_at AS startedAt, ends_at AS endsAt, units_limit AS unitsLimit FROM ai_sessions WHERE store_id = ? AND ends_at > ? ORDER BY id DESC LIMIT 1')
-    .bind(storeId, sqlTime(now)).first<OpenSession>()
-  return row ?? null
-}
 
 export const cycleOf = (db: D1Database, storeId: number, now = new Date()): Promise<BillingCycle> => resolveCycle(db, storeId, now)
 
 /** Units that count: open or closed reservations of the plan (released ones gave their units back). */
 export const COUNTED_UNITS = `COALESCE(SUM(CASE WHEN billing_source = 'plan' AND status IN ('reserved', 'settled', 'expired') THEN units ELSE 0 END), 0)`
 
-export async function usedUnits(db: D1Database, storeId: number, input: { sessionId?: number | null; cycleKey: string }): Promise<{ session: number; month: number }> {
-  const row = await db.prepare(
-    `SELECT (SELECT ${COUNTED_UNITS} FROM ai_spend_reservations WHERE session_id = ?1) AS session,
-            (SELECT ${COUNTED_UNITS} FROM ai_spend_reservations WHERE store_id = ?2 AND cycle_key = ?3) AS month`,
-  ).bind(input.sessionId ?? -1, storeId, input.cycleKey).first<{ session: number; month: number }>()
-  return { session: Number(row?.session || 0), month: Number(row?.month || 0) }
+export async function usedUnits(db: D1Database, storeId: number, cycleKey: string): Promise<number> {
+  const row = await db.prepare(`SELECT ${COUNTED_UNITS} AS month FROM ai_spend_reservations WHERE store_id = ? AND cycle_key = ?`)
+    .bind(storeId, cycleKey).first<{ month: number }>()
+  return Number(row?.month || 0)
 }
 
 /** Colombian local time, e.g. «3:40 p. m.». */
