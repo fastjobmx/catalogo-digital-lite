@@ -52,7 +52,8 @@ export function classifyPath(pathname) {
   const tenant = pathname.match(/^\/t\/([a-z0-9][a-z0-9-]{1,39})(\/.*)?$/)
   const slug = tenant ? tenant[1] : null
   const rest = tenant ? (tenant[2] || '/') : pathname
-  if (/^\/(admin|plataforma)(\/|$)/.test(rest)) return { kind: 'private', slug, rest }
+  // /registro (free-trial sign-up) and /activar (account activation) are platform screens: never a store page.
+  if (/^\/(admin|plataforma|registro|activar)(\/|$)/.test(rest)) return { kind: 'private', slug, rest }
   if (/^\/prueba(\/|$)/.test(rest)) return { kind: 'trial', slug, rest }
   // Internal search results are useful to visitors but not to search engines.
   if (/^\/search(\/|$)/.test(rest)) return { kind: 'search', slug, rest }

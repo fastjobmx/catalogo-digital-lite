@@ -1,0 +1,40 @@
+# Staging AISLADO de la prueba gratis real (tiendia-prueba-staging). Solo recursos propios y datos ficticios.
+# No usa ningún recurso, secreto ni dato de producción ni del staging del asistente (sneakerhub-telegram-staging).
+# Telegram, Meta (WhatsApp) y WAHA quedan apagados: no hay secretos de esos servicios en este Worker.
+# Secretos exclusivos (wrangler secret put, nunca en este archivo): JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD,
+# RESEND_API_KEY y RESEND_WEBHOOK_SECRET (cuando se prepare el correo de pruebas).
+name = "tiendia-prueba-staging"
+main = "src/index.ts"
+compatibility_date = "2024-12-05"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+# Avisos de prueba por vencer / vencida (cada 15 minutos).
+[triggers]
+crons = ["*/15 * * * *"]
+
+[vars]
+ENVIRONMENT = "staging"
+STORE_NAME = "TiendIA Prueba (ficticio)"
+STORE_CURRENCY = "COP"
+STORE_COUNTRY = "CO"
+ALLOWED_ORIGIN = "https://tiendia-prueba-panel.catalogo-lite-worker.workers.dev"
+COMMERCE_ENABLED = "true"
+PUBLIC_STORE_BASE_URL = "https://tiendia-prueba-panel.catalogo-lite-worker.workers.dev"
+# Correo apagado hasta preparar mail-staging.tiendiaexpres.com y confirmar el buzón destinatario.
+EMAIL_PROVIDER = "none"
+# Lista de destinatarios autorizados: nada sale a nadie fuera de ella. Valor provisional que no coincide con ningún buzón real;
+# se reemplaza por el buzón que el propietario confirme.
+EMAIL_ALLOWED_RECIPIENTS = "@tiendia-prueba.invalid"
+AI_MESSAGE_QUOTA_MODE = "off"
+TELEGRAM_ENV_LABEL = "STAGING - PRUEBA GRATIS - DATOS FICTICIOS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "tiendia-prueba-staging-db"
+database_id = "1fb6e305-f012-444a-9b80-d58695980dba"
+migrations_dir = "../database/migrations"
+
+[[r2_buckets]]
+binding = "ASSETS"
+bucket_name = "tiendia-prueba-staging-assets"

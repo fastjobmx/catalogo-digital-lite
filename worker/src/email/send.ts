@@ -17,6 +17,16 @@ export function emailConfig(env: Partial<Env['Bindings']>): { provider: EmailPro
 
 export const isEmail = (value: unknown): value is string => typeof value === 'string' && value.length <= 320 && /^[^\s@<>"',;]+@[^\s@<>"',;]+\.[^\s@<>"',;]{2,}$/.test(value)
 
+/** Recipient allowlist for NON-production environments (EMAIL_ALLOWED_RECIPIENTS: comma separated addresses or "@domain"
+ * entries). When it is set, nothing is sent to anyone else, so a staging copy can never mail a real merchant.
+ * Unset (production) = no restriction. */
+export function recipientAllowed(env: Partial<Env['Bindings']>, email: string): boolean {
+  const entries = String(env.EMAIL_ALLOWED_RECIPIENTS || '').split(',').map((value) => value.trim().toLowerCase()).filter(Boolean)
+  if (!entries.length) return true
+  const address = email.trim().toLowerCase()
+  return entries.some((entry) => entry === address || (entry.startsWith('@') && address.endsWith(entry)))
+}
+
 /** Notification categories. Security messages are essential and can never be paused. */
 export const EMAIL_CATEGORIES = {
   seguridad: { label: 'Seguridad y acceso', essential: true },
@@ -160,7 +170,9 @@ export async function sendEmail(db: D1Database, env: Partial<Env['Bindings']>, i
     return { status: existing?.status || 'enviando', messageId: existing?.id || 0, replayed: true, configured: config.configured }
   }
   // Addresses that bounced permanently or reported spam are not contacted again.
-  const result: DeliveryResult = await isSuppressed(db, input.to)
+  const result: DeliveryResult = !recipientAllowed(env, input.to)
+    ? { ok: false, code: 'RECIPIENT_NOT_ALLOWED', attempts: 0 }
+    : await isSuppressed(db, input.to)
     ? { ok: false, code: 'SUPPRESSED', attempts: 0 }
     : await deliver(env, { to: input.to, ...rendered, idempotencyKey: input.idempotencyKey, tag: input.purpose, replyTo: replyToFor(env, template.system_key) }, fetcher, sleep)
   const status: EmailStatus = result.ok ? 'enviado' : result.code === 'NOT_CONFIGURED' ? 'no_configurado' : 'fallido'

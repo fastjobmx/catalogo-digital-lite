@@ -183,3 +183,22 @@ describe('delivery follow-up without webhook', () => {
     expect(h.db.query<any>('SELECT delivery_status FROM email_messages')).toEqual([{ delivery_status: null }])
   })
 })
+
+describe('recipient allowlist for non-production environments', () => {
+  it('sends only to allowed addresses or domains, records the refusal and never calls the provider', async () => {
+    h.env.EMAIL_ALLOWED_RECIPIENTS = 'buzon.prueba@example.test, @mail-staging.test'
+    const allowed = await sendEmail(h.db, h.env, welcome('Buzon.Prueba@example.test', 'allow-1'), fetcher, noSleep)
+    const domain = await sendEmail(h.db, h.env, welcome('otra@mail-staging.test', 'allow-2'), fetcher, noSleep)
+    const refused = await sendEmail(h.db, h.env, welcome('comerciante.real@gmail.com', 'allow-3'), fetcher, noSleep)
+    expect([allowed.status, domain.status, refused.status]).toEqual(['enviado', 'enviado', 'fallido'])
+    expect(calls).toHaveLength(2)
+    expect(h.db.query("SELECT to_email, status, error_code FROM email_messages WHERE idempotency_key = 'allow-3'")).toEqual([{ to_email: 'comerciante.real@gmail.com', status: 'fallido', error_code: 'RECIPIENT_NOT_ALLOWED' }])
+    // A look-alike domain is not allowed.
+    expect((await sendEmail(h.db, h.env, welcome('x@evil-mail-staging.test', 'allow-4'), fetcher, noSleep)).status).toBe('fallido')
+  })
+
+  it('without the variable (production) nothing is restricted', async () => {
+    h.env.EMAIL_ALLOWED_RECIPIENTS = undefined
+    expect((await sendEmail(h.db, h.env, welcome('cualquiera@example.test', 'free-1'), fetcher, noSleep)).status).toBe('enviado')
+  })
+})

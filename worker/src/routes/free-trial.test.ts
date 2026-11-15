@@ -424,3 +424,17 @@ describe('email templates of the trial and the contract', () => {
     expect(Object.keys(DEFAULT_TEMPLATES)).toEqual([...SYSTEM_TEMPLATE_KEYS])
   })
 })
+
+describe('purging a trial store (found in staging)', () => {
+  it('removes the trial, its plan request, invoice and data, and leaves other stores alone', async () => {
+    const { store, token } = await readyTrial('borrar@flores.co', 'Tienda para borrar', 31)
+    await createProduct(token, store.slug, 1)
+    expect((await h.request('/api/admin/trial/plan-request', { method: 'POST', token, store: store.slug, body: { planCode: 'emprendedor', cycle: 'mensual' } })).status).toBe(201)
+    expect(q('SELECT COUNT(*) AS n FROM store_plan_requests WHERE store_id = ?', store.id)).toEqual([{ n: 1 }])
+    expect((await h.request(`/api/platform/stores/${store.slug}/status`, { method: 'POST', token: admin, body: { status: 'suspended' } })).status).toBe(200)
+    const purge = await h.request(`/api/platform/stores/${store.slug}`, { method: 'DELETE', token: admin, body: { confirm: store.slug } })
+    expect(purge.status).toBe(200)
+    for (const table of ['store_trials', 'store_plan_requests', 'store_invoices', 'products']) expect(q(`SELECT COUNT(*) AS n FROM ${table} WHERE store_id = ?`, store.id)).toEqual([{ n: 0 }])
+    expect(q('SELECT COUNT(*) AS n FROM stores WHERE id = ?', otherStore)).toEqual([{ n: 1 }])
+  })
+})

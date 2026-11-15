@@ -82,6 +82,8 @@ export type Env = {
  RESEND_API_KEY?: string
  /** Extra addresses allowed to receive template test emails (comma separated). The superadmin email is always allowed. */
  EMAIL_TEST_RECIPIENTS?: string
+ /** Only for non-production environments: comma separated addresses or "@domain" entries; nothing is sent to anyone else. */
+ EMAIL_ALLOWED_RECIPIENTS?: string
  /** Reply-To for platform emails (an address with a real inbox or forwarding, e.g. soporte@<domain>). */
  EMAIL_REPLY_TO?: string
  /** Reply-To for commercial emails (trial notices, contract and plan activation), e.g. ventas@<domain>. Unset = EMAIL_REPLY_TO. */
