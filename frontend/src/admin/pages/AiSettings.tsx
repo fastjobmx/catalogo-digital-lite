@@ -1,29 +1,29 @@
 import { useCallback, useEffect, useState } from 'react'
-import { AlertCircle, BrainCircuit, CheckCircle2, Clock, Coins, KeyRound, Loader2, ShieldCheck, Unplug } from 'lucide-react'
+import { AlertCircle, BrainCircuit, CheckCircle2, Coins, Info, KeyRound, Loader2, ShieldAlert, ShieldCheck, Unplug } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { aiApi, type AiOverview, type OwnKeyState } from '../../services/api'
 
-/** Configuración → Inteligencia artificial: consultas de la sesión y del mes, créditos artísticos, API propia,
- * historial y cómo se cuenta. Las funciones sin IA (catálogo, pedidos, botones) siguen siempre disponibles. */
+/** Configuración → Inteligencia artificial: consultas del mes, créditos artísticos, API propia, historial y cómo se
+ * cuenta. El cupo es mensual (sin límites por día ni por sesión). Las funciones sin IA siguen siempre disponibles. */
 
 type Tab = 'consumo' | 'api' | 'politica'
 
-const timeFmt = new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', hour: 'numeric', minute: '2-digit' })
 const dateTimeFmt = new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })
 const dayFmt = new Intl.DateTimeFormat('es-CO', { timeZone: 'UTC', day: 'numeric', month: 'long' })
 const toDate = (value: string) => new Date(value.includes('T') ? value : `${value.replace(' ', 'T')}Z`)
-const time = (value: string) => timeFmt.format(toDate(value))
 const when = (value: string) => dateTimeFmt.format(toDate(value))
 const day = (key: string) => dayFmt.format(new Date(`${key.slice(0, 10)}T12:00:00Z`))
 const cop = (value: number) => `$${value.toLocaleString('es-CO')} COP`
-const untilText = (value: string) => {
-  const minutes = Math.max(0, Math.round((toDate(value).getTime() - Date.now()) / 60000))
-  return minutes >= 60 ? `${Math.floor(minutes / 60)} h ${minutes % 60} min` : `${minutes} min`
+
+const NOTICE_STYLE: Record<50 | 75 | 90 | 100, string> = {
+  50: 'border-sky-200 bg-sky-50',
+  75: 'border-violet-200 bg-violet-50',
+  90: 'border-amber-200 bg-amber-50',
+  100: 'border-red-200 bg-red-50',
 }
 
-function Meter({ used, limit }: { used: number; limit: number }) {
-  const percent = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0
-  return <div className="h-2 rounded-full bg-line overflow-hidden mt-3" role="progressbar" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}><div className={`h-full rounded-full ${percent >= 90 ? 'bg-amber-500' : 'bg-brand'}`} style={{ width: `${percent}%` }} /></div>
+function Meter({ percent }: { percent: number }) {
+  return <div className="h-2 rounded-full bg-line overflow-hidden mt-3" role="progressbar" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}><div className={`h-full rounded-full ${percent >= 100 ? 'bg-red-500' : percent >= 90 ? 'bg-amber-500' : 'bg-brand'}`} style={{ width: `${percent}%` }} /></div>
 }
 
 export default function AiSettings() {
@@ -71,53 +71,61 @@ export default function AiSettings() {
 }
 
 function Usage({ data, onGoToApi }: { data: AiOverview; onGoToApi: () => void }) {
-  const { session, month, credits, ownKey } = data
-  const sessionOut = session.limit !== null && session.available === 0
-  const monthOut = month.limit !== null && month.available === 0
+  const { month, credits, ownKey } = data
   return (
     <div className="space-y-6">
-      {(sessionOut || monthOut) && (
-        <div className="card p-5 border-amber-200 bg-amber-50 flex gap-3" role="status">
-          <Clock className="text-amber-600 shrink-0" size={20} />
+      {month.notice && month.level && (
+        <div className={`card p-5 flex gap-3 ${NOTICE_STYLE[month.level]}`} role="status">
+          <Info className="shrink-0 text-ink/70" size={20} />
           <div className="text-sm text-ink">
-            {monthOut
-              ? <p><b>Usaste las {month.limit} consultas de este mes.</b> Se renuevan el {day(month.cycleEnd)}.</p>
-              : <p><b>Usaste las {session.limit} consultas de esta sesión.</b> Se restablecen a las {time(session.resetsAt!)} (en {untilText(session.resetsAt!)}).{month.available !== null && ` Te quedan ${month.available} este mes.`}</p>}
-            <p className="text-muted mt-1">Mientras tanto puedes seguir usando el catálogo, los pedidos, los botones y los comandos.</p>
-            {!ownKey.connected && <button className="btn-brand mt-3" onClick={onGoToApi}>Conectar mi API</button>}
+            {/* The chat version starts with an emoji; the panel already shows its own icon. */}
+            <p>{month.notice.replace(/^[^\p{L}\p{N}]+\s/u, '')}</p>
+            {month.level >= 75 && !ownKey.connected && <button className="btn-brand mt-3" onClick={onGoToApi}>Conectar mi API</button>}
           </div>
         </div>
       )}
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <div className="card p-5">
-          <p className="text-xs font-bold uppercase tracking-widest text-muted">Consultas de esta sesión</p>
-          {session.limit === null
-            ? <p className="text-sm text-muted mt-2">Tu plan no tiene cupo por sesión.</p>
+          <p className="text-xs font-bold uppercase tracking-widest text-muted">Consultas de IA del mes</p>
+          {month.limit === null
+            ? <><p className="text-3xl font-black text-ink mt-1">{month.used}</p><p className="text-xs text-muted mt-2">Tu plan no tiene cupo de consultas: se registran para que conozcas tu uso.</p></>
             : <>
-                <p className="text-3xl font-black text-ink mt-1">{session.available} <span className="text-base font-semibold text-muted">disponibles de {session.limit}</span></p>
-                <Meter used={session.used} limit={session.limit} />
-                <p className="text-xs text-muted mt-2">{session.resetsAt ? <>Se restablecen a las <b>{time(session.resetsAt)}</b> (en {untilText(session.resetsAt)})</> : `La sesión de ${session.hours} horas empieza con tu próxima consulta de IA.`}</p>
+                <p className="text-3xl font-black text-ink mt-1">{month.used} <span className="text-base font-semibold text-muted">de {month.limit} · {month.percent} %</span></p>
+                <Meter percent={month.percent ?? 0} />
+                <p className="text-sm text-ink mt-2">Te quedan <b>{month.available}</b>. Se renuevan el <b>{day(month.cycleEnd)}</b>.</p>
+                {month.available ? <p className="text-xs text-muted mt-1">Úsalas cuando las necesites: no hay límite por día.</p> : <p className="text-xs text-muted mt-1">La IA del plan está en pausa hasta la renovación. Lo que no usa IA sigue funcionando.</p>}
               </>}
-        </div>
-        <div className="card p-5">
-          <p className="text-xs font-bold uppercase tracking-widest text-muted">Consultas del mes</p>
-          <p className="text-3xl font-black text-ink mt-1">{month.used}{month.limit !== null && <span className="text-base font-semibold text-muted"> usadas de {month.limit}</span>}</p>
-          {month.limit !== null && <Meter used={month.used} limit={month.limit} />}
-          <p className="text-xs text-muted mt-2">Ciclo hasta el {day(month.cycleEnd)}{month.provisional ? ' (mes calendario)' : ''}</p>
         </div>
         <div className="card p-5">
           <p className="text-xs font-bold uppercase tracking-widest text-muted">Créditos artísticos</p>
           <p className="text-3xl font-black text-ink mt-1">{credits.balance}</p>
           <p className="text-xs text-muted mt-2">Del plan {credits.bySource.plan} · cortesía {credits.bySource.cortesia} · comprados {credits.bySource.compra}</p>
           {credits.nextExpiry && <p className="text-xs text-muted mt-1">{credits.nextExpiry.credits} vencen el {day(credits.nextExpiry.at)}</p>}
+          <p className="text-xs text-muted mt-1">Solo para imágenes premium; no se mezclan con las consultas.</p>
         </div>
         <div className="card p-5">
           <p className="text-xs font-bold uppercase tracking-widest text-muted">Mi API de Gemini</p>
           <p className="mt-3">{ownKey.connected
             ? <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold ${ownKey.status === 'activa' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>● {ownKey.statusLabel}</span>
             : <span className="inline-flex rounded-full px-3 py-1 text-xs font-bold bg-line text-muted">● No conectada</span>}</p>
-          <p className="text-xs text-muted mt-2">{ownKey.connected ? `${ownKey.callsThisMonth} tareas con tu API este mes.` : 'Conéctala para que tus tareas no gasten tus consultas.'}</p>
+          <p className="text-xs text-muted mt-2">{ownKey.connected ? `${ownKey.callsThisMonth} ${ownKey.callsThisMonth === 1 ? 'tarea' : 'tareas'} con tu API este mes · nivel: ${ownKey.tierLabel}` : 'Las tareas que procese tu propia API no gastan tus consultas.'}</p>
+        </div>
+      </section>
+
+      <section className="card p-5">
+        <h2 className="text-base font-bold text-ink mb-3">Ampliar tu capacidad de IA</h2>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div>
+            <h3 className="text-sm font-bold text-ink flex items-center gap-2"><KeyRound size={15} className="text-brand" />Conecta tu API de Gemini</h3>
+            <p className="text-sm text-muted mt-1">Las tareas que procese tu API no descuentan consultas ni créditos. Google te las cobra (o las da gratis con sus límites) directamente.</p>
+            <button className="btn-ghost mt-2" onClick={onGoToApi}>{ownKey.connected ? 'Ver mi API' : 'Conectar mi API'}</button>
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-ink flex items-center gap-2"><Coins size={15} className="text-brand" />Créditos artísticos para imágenes</h3>
+            <ul className="text-sm mt-1 space-y-0.5">{credits.packs.map((pack) => <li key={pack.code}>{pack.credits} créditos · {cop(pack.priceCop)}</li>)}</ul>
+            <a href="/admin/creditos" className="text-sm font-bold text-brand mt-2 inline-block">Solicitar recarga →</a>
+          </div>
         </div>
       </section>
 
@@ -141,15 +149,16 @@ function Usage({ data, onGoToApi }: { data: AiOverview; onGoToApi: () => void })
               <tr key={row.task} className="border-t border-line first:border-0"><td className="py-2">{row.task} <span className="text-muted">({row.tasks})</span></td><td className="text-right tabular-nums">{row.units}</td></tr>
             ))}</tbody></table>
           )}
-          <div className="mt-5 border-t border-line pt-4">
-            <h3 className="text-sm font-bold text-ink flex items-center gap-2"><Coins size={15} className="text-brand" />Recargar créditos artísticos</h3>
-            <ul className="text-sm mt-2 space-y-1">{credits.packs.map((pack) => <li key={pack.code}>{pack.credits} créditos · {cop(pack.priceCop)}</li>)}</ul>
-            <a href="/admin/creditos" className="text-sm font-bold text-brand mt-2 inline-block">Solicitar recarga →</a>
-          </div>
         </div>
       </section>
     </div>
   )
+}
+
+const IMAGE_CAPABILITY: Record<string, string> = {
+  disponible: 'Sí (confirmado al generar una imagen)',
+  no_disponible: 'No: Google no la permite con esta clave (las imágenes no tienen nivel gratuito). Se usan tus créditos.',
+  sin_verificar: 'Por confirmar en la primera imagen',
 }
 
 function OwnApi({ state, token, isOwner, onChange }: { state: OwnKeyState; token: string; isOwner: boolean; onChange: () => Promise<void> }) {
@@ -171,53 +180,73 @@ function OwnApi({ state, token, isOwner, onChange }: { state: OwnKeyState; token
   if (!state.available) return <p className="card p-5 text-sm text-muted">La conexión de API propia todavía no está habilitada en esta plataforma.</p>
 
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      <form className="card p-5 space-y-3" onSubmit={(event) => { event.preventDefault(); void act(() => aiApi.connectKey({ apiKey: apiKey.trim(), useAssistant, useStudio, fallbackToPlatform: fallback }, token), 'Clave validada y guardada.') }}>
-        <h2 className="text-base font-bold text-ink flex items-center gap-2"><KeyRound size={16} className="text-brand" />{state.connected ? 'Reemplazar mi clave' : 'Conectar mi API de Gemini'}</h2>
-        <p className="text-sm text-muted">Con tu propia clave, Google te cobra directamente las tareas que se procesen con ella y no se descuentan tus consultas ni tus créditos. La guardamos cifrada y nunca se vuelve a mostrar.</p>
-        {!isOwner && <p className="text-sm text-amber-700">Solo el propietario de la tienda puede conectar o cambiar la clave.</p>}
-        <label className="block text-sm font-semibold text-ink">Clave de API de Gemini
-          <input type="password" autoComplete="off" spellCheck={false} className="input-field w-full mt-1.5" placeholder="Pega aquí tu clave (empieza por AIza…)" value={apiKey} onChange={(event) => setApiKey(event.target.value)} disabled={!isOwner || busy} />
-        </label>
-        <label className="flex gap-3 rounded-xl border border-line p-3 text-sm"><input type="checkbox" checked={useAssistant} onChange={(event) => setUseAssistant(event.target.checked)} disabled={!isOwner} /><span>Usar en el asistente (Telegram y WhatsApp)<small className="block text-muted">Mensajes, notas de voz, fotos a producto, pedidos</small></span></label>
-        <label className="flex gap-3 rounded-xl border border-line p-3 text-sm"><input type="checkbox" checked={useStudio} onChange={(event) => setUseStudio(event.target.checked)} disabled={!isOwner} /><span>Usar en el Estudio IA y la Fábrica de Publicidad<small className="block text-muted">Imágenes premium: tu clave debe tener acceso al modelo de imagen</small></span></label>
-        <label className="flex gap-3 rounded-xl border border-line p-3 text-sm"><input type="checkbox" checked={fallback} onChange={(event) => setFallback(event.target.checked)} disabled={!isOwner} /><span>Si mi API falla, usar mis consultas de TiendIA<small className="block text-muted">Desactivado: si tu API falla te avisamos y no usamos el cupo de TiendIA</small></span></label>
-        <div className="flex flex-wrap gap-2 pt-1">
-          <button type="submit" className="btn-brand" disabled={!isOwner || busy || apiKey.trim().length < 30}>{busy ? <Loader2 size={16} className="animate-spin" /> : 'Validar y guardar'}</button>
-          {state.connected && <button type="button" className="btn-ghost" disabled={!isOwner || busy} onClick={() => void act(() => aiApi.updateKey({ useAssistant, useStudio, fallbackToPlatform: fallback }, token), 'Usos actualizados.')}>Guardar usos</button>}
+    <div className="space-y-4">
+      <div className="card p-5 border-amber-200 bg-amber-50 flex gap-3">
+        <ShieldAlert size={20} className="text-amber-700 shrink-0" />
+        <div className="text-sm text-ink space-y-1">
+          <p><b>Antes de conectar una clave gratuita:</b> según las condiciones de Google, en el nivel gratuito Google puede usar y revisar el contenido que envías (mensajes, fotos) para mejorar sus productos. Con facturación activa, no.</p>
+          <p>Por eso, con una clave gratuita o sin confirmar, <b>los pedidos y las guías de envío (datos de tus compradores) se procesan siempre con TiendIA</b>, nunca con tu clave. El nivel gratuito tampoco genera imágenes premium y puede ser lento o tener límites por minuto.</p>
         </div>
-        <p className="text-xs text-muted">Validamos la clave consultando los modelos disponibles: no gasta tokens.</p>
-        {message && <p className={`text-sm flex items-center gap-2 ${message.ok ? 'text-emerald-700' : 'text-red-700'}`} role="status">{message.ok ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}{message.text}</p>}
-      </form>
+      </div>
 
-      <div className="card p-5">
-        <h2 className="text-base font-bold text-ink flex items-center gap-2 mb-3"><ShieldCheck size={16} className="text-brand" />Estado</h2>
-        {!state.connected ? <p className="text-sm text-muted">No hay una API propia conectada. Tus tareas de IA usan las consultas de tu plan.</p> : (
-          <>
-            <table className="w-full text-sm"><tbody>
-              <tr><td className="py-1.5 text-muted">Estado</td><td className="text-right font-bold">{state.statusLabel}</td></tr>
-              <tr><td className="py-1.5 text-muted">Clave</td><td className="text-right font-mono">{state.hint}</td></tr>
-              <tr><td className="py-1.5 text-muted">Uso</td><td className="text-right">{[state.useAssistant && 'Asistente', state.useStudio && 'Estudio IA'].filter(Boolean).join(' y ')}</td></tr>
-              <tr><td className="py-1.5 text-muted">Modelos verificados</td><td className="text-right">{state.modelsOk?.join(', ') || '—'}</td></tr>
-              {state.validatedAt && <tr><td className="py-1.5 text-muted">Última validación</td><td className="text-right">{when(state.validatedAt)}</td></tr>}
-              {state.lastUsedAt && <tr><td className="py-1.5 text-muted">Último uso</td><td className="text-right">{when(state.lastUsedAt)}</td></tr>}
-              <tr><td className="py-1.5 text-muted">Tareas con tu API este mes</td><td className="text-right">{state.callsThisMonth}</td></tr>
-            </tbody></table>
-            {state.status !== 'activa' && <p className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">Tu API respondió: {state.statusLabel}. Revisa tu clave o la facturación de tu proyecto en Google.{state.fallbackToPlatform ? ' Mientras tanto usamos las consultas de tu plan.' : ' Mientras tanto las tareas de IA quedan en pausa.'}</p>}
-            <div className="flex flex-wrap gap-2 mt-4">
-              <button className="btn-ghost" disabled={!isOwner || busy} onClick={() => void act(() => aiApi.validateKey(token), 'Validación hecha.')}>Validar de nuevo</button>
-              {confirming
-                ? <span className="flex flex-wrap items-center gap-2 text-sm">¿Desconectar tu API? Tus tareas volverán a usar las consultas del plan.
-                    <button className="btn-danger" disabled={!isOwner || busy} onClick={() => { setConfirming(false); void act(() => aiApi.disconnectKey(token), 'API desconectada.') }}>Sí, desconectar</button>
-                    <button className="btn-ghost" disabled={busy} onClick={() => setConfirming(false)}>Cancelar</button>
-                  </span>
-                : <button className="btn-danger" disabled={!isOwner || busy} onClick={() => setConfirming(true)}><Unplug size={15} />Desconectar</button>}
-            </div>
-            {state.history.length > 0 && (
-              <ul className="mt-4 border-t border-line pt-3 text-xs text-muted space-y-1">{state.history.map((item, index) => <li key={index}>{when(item.createdAt)} · {item.action} · {item.result}</li>)}</ul>
-            )}
-          </>
-        )}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <form className="card p-5 space-y-3" onSubmit={(event) => { event.preventDefault(); void act(() => aiApi.connectKey({ apiKey: apiKey.trim(), useAssistant, useStudio, fallbackToPlatform: fallback }, token), 'Clave validada y guardada.') }}>
+          <h2 className="text-base font-bold text-ink flex items-center gap-2"><KeyRound size={16} className="text-brand" />{state.connected ? 'Reemplazar mi clave' : 'Conectar mi API de Gemini'}</h2>
+          <ol className="text-sm text-ink list-decimal pl-5 space-y-1">
+            <li>Entra a <b>aistudio.google.com</b> con tu cuenta de Google.</li>
+            <li>Toca <b>Get API key</b> (Obtener clave de API) y luego <b>Create API key</b>.</li>
+            <li>Copia la clave completa (empieza por <code>AIza</code>).</li>
+            <li>Opcional: en <b>Billing</b> activa la facturación para usar imágenes y tener más velocidad y privacidad.</li>
+            <li>Pégala aquí, elige para qué la usas y toca <b>Validar y guardar</b>.</li>
+          </ol>
+          {!isOwner && <p className="text-sm text-amber-700">Solo el propietario de la tienda puede conectar o cambiar la clave.</p>}
+          <label className="block text-sm font-semibold text-ink">Clave de API de Gemini
+            <input type="password" autoComplete="off" spellCheck={false} className="input-field w-full mt-1.5" placeholder="Pega aquí tu clave (empieza por AIza…)" value={apiKey} onChange={(event) => setApiKey(event.target.value)} disabled={!isOwner || busy} />
+          </label>
+          <label className="flex gap-3 rounded-xl border border-line p-3 text-sm"><input type="checkbox" checked={useAssistant} onChange={(event) => setUseAssistant(event.target.checked)} disabled={!isOwner} /><span>Usar en el asistente (Telegram y WhatsApp)<small className="block text-muted">Mensajes, notas de voz, fotos a producto</small></span></label>
+          <label className="flex gap-3 rounded-xl border border-line p-3 text-sm"><input type="checkbox" checked={useStudio} onChange={(event) => setUseStudio(event.target.checked)} disabled={!isOwner} /><span>Usar en el Estudio IA y la Fábrica de Publicidad<small className="block text-muted">Imágenes premium: solo con facturación activa en Google</small></span></label>
+          <label className="flex gap-3 rounded-xl border border-line p-3 text-sm"><input type="checkbox" checked={fallback} onChange={(event) => setFallback(event.target.checked)} disabled={!isOwner} /><span>Si mi API falla, usar las consultas de mi plan<small className="block text-muted">Desactivado por defecto. Si lo activas, esas tareas descuentan consultas del plan.</small></span></label>
+          <div className="flex flex-wrap gap-2 pt-1">
+            <button type="submit" className="btn-brand" disabled={!isOwner || busy || apiKey.trim().length < 30}>{busy ? <Loader2 size={16} className="animate-spin" /> : 'Validar y guardar'}</button>
+            {state.connected && <button type="button" className="btn-ghost" disabled={!isOwner || busy} onClick={() => void act(() => aiApi.updateKey({ useAssistant, useStudio, fallbackToPlatform: fallback }, token), 'Usos actualizados.')}>Guardar usos</button>}
+          </div>
+          <p className="text-xs text-muted">Validamos la clave consultando los modelos disponibles: no gasta tokens. La guardamos cifrada y nunca se vuelve a mostrar.</p>
+          {message && <p className={`text-sm flex items-center gap-2 ${message.ok ? 'text-emerald-700' : 'text-red-700'}`} role="status">{message.ok ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}{message.text}</p>}
+        </form>
+
+        <div className="card p-5">
+          <h2 className="text-base font-bold text-ink flex items-center gap-2 mb-3"><ShieldCheck size={16} className="text-brand" />Estado y capacidades</h2>
+          {!state.connected ? <p className="text-sm text-muted">No hay una API propia conectada. Tus tareas de IA usan las consultas de tu plan.</p> : (
+            <>
+              <table className="w-full text-sm"><tbody>
+                <tr><td className="py-1.5 text-muted">Estado</td><td className="text-right font-bold">{state.statusLabel}</td></tr>
+                <tr><td className="py-1.5 text-muted">Clave</td><td className="text-right font-mono">{state.hint}</td></tr>
+                <tr><td className="py-1.5 text-muted">Nivel en Google</td><td className="text-right">{state.tierLabel}</td></tr>
+                <tr><td className="py-1.5 text-muted">Uso</td><td className="text-right">{[state.useAssistant && 'Asistente', state.useStudio && 'Estudio IA'].filter(Boolean).join(' y ')}</td></tr>
+                <tr><td className="py-1.5 text-muted">Mensajes, voz y fotos a producto</td><td className="text-right">{state.capabilities?.text ? 'Sí' : 'No'}</td></tr>
+                <tr><td className="py-1.5 text-muted align-top">Imágenes premium</td><td className="text-right">{IMAGE_CAPABILITY[state.capabilities?.images || 'sin_verificar']}</td></tr>
+                <tr><td className="py-1.5 text-muted align-top">Pedidos y guías (datos de compradores)</td><td className="text-right">{state.capabilities?.buyerData ? 'Sí (facturación confirmada)' : 'No: se procesan con TiendIA'}</td></tr>
+                <tr><td className="py-1.5 text-muted">Si falla</td><td className="text-right">{state.fallbackToPlatform ? 'Usa las consultas del plan' : 'Se pausa y te avisamos'}</td></tr>
+                {state.validatedAt && <tr><td className="py-1.5 text-muted">Última validación</td><td className="text-right">{when(state.validatedAt)}</td></tr>}
+                {state.lastUsedAt && <tr><td className="py-1.5 text-muted">Último uso</td><td className="text-right">{when(state.lastUsedAt)}</td></tr>}
+                <tr><td className="py-1.5 text-muted">Tareas con tu API este mes</td><td className="text-right">{state.callsThisMonth}</td></tr>
+              </tbody></table>
+              {state.lastErrorText && <p className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">Último aviso de Google: {state.lastErrorText}</p>}
+              <div className="flex flex-wrap gap-2 mt-4">
+                <button className="btn-ghost" disabled={!isOwner || busy} onClick={() => void act(() => aiApi.validateKey(token), 'Validación hecha.')}>Validar de nuevo</button>
+                {confirming
+                  ? <span className="flex flex-wrap items-center gap-2 text-sm">¿Desconectar tu API? Tus tareas volverán a usar las consultas del plan.
+                      <button className="btn-danger" disabled={!isOwner || busy} onClick={() => { setConfirming(false); void act(() => aiApi.disconnectKey(token), 'API desconectada.') }}>Sí, desconectar</button>
+                      <button className="btn-ghost" disabled={busy} onClick={() => setConfirming(false)}>Cancelar</button>
+                    </span>
+                  : <button className="btn-danger" disabled={!isOwner || busy} onClick={() => setConfirming(true)}><Unplug size={15} />Desconectar</button>}
+              </div>
+              {state.history.length > 0 && (
+                <ul className="mt-4 border-t border-line pt-3 text-xs text-muted space-y-1">{state.history.map((item, index) => <li key={index}>{when(item.createdAt)} · {item.action} · {item.result}{item.errorCode ? ` (${item.errorCode})` : ''}</li>)}</ul>
+              )}
+            </>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -246,17 +275,17 @@ function Policy({ data }: { data: AiOverview }) {
             <tr key={cost.feature} className="border-b border-line last:border-0"><td className="py-2">{cost.label}</td><td className="text-right tabular-nums whitespace-nowrap">{cost.credits} créditos{cost.feature === 'video_ia_segundo' ? ' por segundo' : ''}</td></tr>
           ))}
         </tbody></table>
+        <p className="text-xs text-muted mt-3"><b>Tareas complejas:</b> una tarea se cobra una sola vez por su peso, aunque la IA necesite varios pasos o un reintento (por ejemplo, leer tu mensaje y volver a intentarlo si la respuesta llega cortada). Organizar un lote cuenta por foto.</p>
       </div>
       <div className="card p-5">
         <h2 className="text-base font-bold text-ink mb-3">Uso razonable</h2>
         <ul className="text-sm space-y-2 list-disc pl-5">
-          <li>Sesión de {policy.sessionHours} horas desde tu primera consulta de IA; el cupo mensual aplica siempre.</li>
-          <li>Si una tarea falla, no se descuentan consultas ni créditos.</li>
-          <li>Una misma solicitud repetida en {policy.duplicateWindowMinutes} minutos no se cobra dos veces.</li>
-          <li>Hasta {policy.concurrency} tareas de IA a la vez y {policy.perMinute} por minuto por tienda (también con tu API).</li>
-          <li>Fotos de hasta {policy.maxImageMb} MB, audios de hasta {policy.maxAudioMinutes} minutos y documentos de hasta {policy.maxDocumentMb} MB.</li>
-          <li>Créditos: los del plan vencen con el ciclo; los comprados duran 12 meses. Siempre verás cuántos usa una imagen antes de generarla.</li>
-          <li>Con tu propia API, Google te cobra directamente las tareas que se procesen con ella.</li>
+          <li>Tu plan trae un cupo de consultas por mes que puedes usar cuando lo necesites: sin límites por día ni por semana.</li>
+          <li>Te avisamos al 50, 75 y 90 % del cupo. Al 100 % la IA del plan se pausa hasta la renovación; todo lo demás sigue funcionando.</li>
+          <li>Si una tarea falla, no se descuentan consultas ni créditos. Una misma solicitud repetida o un mensaje que llegue dos veces no se cobra dos veces.</li>
+          <li>Protección técnica (también con tu API): hasta {policy.concurrency} tareas de IA a la vez y {policy.perMinute} por minuto por tienda; fotos de hasta {policy.maxImageMb} MB, audios de hasta {policy.maxAudioMinutes} minutos y documentos de hasta {policy.maxDocumentMb} MB.</li>
+          <li>Créditos artísticos: solo para imágenes. Los del plan vencen con el ciclo; los comprados duran 12 meses. Siempre verás cuántos usa una imagen antes de generarla.</li>
+          <li>Con tu propia API, las tareas que procese no gastan tus consultas; Google te las cobra o las da con sus límites gratuitos.</li>
         </ul>
       </div>
     </div>

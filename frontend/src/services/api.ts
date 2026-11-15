@@ -668,14 +668,17 @@ export type OwnKeyState = {
   lastErrorCode?: string | null
   lastUsedAt?: string | null
   connectedAt?: string
+  tier?: 'desconocido' | 'gratuito' | 'facturacion'
+  tierLabel?: string
+  capabilities?: { text: boolean; images: 'sin_verificar' | 'disponible' | 'no_disponible'; buyerData: boolean }
+  lastErrorText?: string | null
   callsThisMonth: number
   history: Array<{ action: string; result: string; errorCode: string | null; createdAt: string }>
 }
 
 export type AiOverview = {
   plan: { code: string | null; name: string | null; metered: boolean; enforced: boolean }
-  session: { hours: number; limit: number | null; used: number; available: number | null; startedAt: string | null; resetsAt: string | null }
-  month: { limit: number | null; used: number; available: number | null; cycleStart: string; cycleEnd: string; provisional: boolean }
+  month: { limit: number | null; used: number; available: number | null; percent: number | null; level: 50 | 75 | 90 | 100 | null; notice: string | null; cycleStart: string; cycleEnd: string; provisional: boolean }
   credits: {
     balance: number
     bySource: Record<'plan' | 'cortesia' | 'compra' | 'ajuste', number>
@@ -689,7 +692,7 @@ export type AiOverview = {
   history: Array<{ at: string; task: string; channel: string; paidWith: string; units: number; credits: number | null; result: string }>
   byTask: Array<{ task: string; tasks: number; units: number }>
   weights: Array<{ feature: string; units: number; perItem: boolean; label: string }>
-  policy: { sessionHours: number; concurrency: number; perMinute: number; attemptsPerTask: number; duplicateWindowMinutes: number; maxImageMb: number; maxAudioMinutes: number; maxDocumentMb: number }
+  policy: { concurrency: number; perMinute: number; attemptsPerTask: number; duplicateWindowMinutes: number; maxImageMb: number; maxAudioMinutes: number; maxDocumentMb: number }
 }
 
 export const aiApi = {

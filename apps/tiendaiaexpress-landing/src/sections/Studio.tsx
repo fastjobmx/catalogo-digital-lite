@@ -121,7 +121,7 @@ export function Studio() {
           </div>
           <div data-reveal data-tilt="0.3" style={{ ...i(1), background: 'radial-gradient(30rem 20rem at 100% 0%, rgba(197,42,241,.5), transparent 65%), linear-gradient(160deg, #2b0b45, #12101f 70%)' }} className="relative overflow-hidden rounded-[1.75rem] p-7 ring-1 ring-inset ring-violet/40 md:p-9">
             <div className="flex flex-wrap items-center gap-3"><h3 className="font-display text-2xl font-extrabold tracking-tight">Fotografía con IA</h3><Badge kind="live" onDark label="Según las cuotas de tu plan" /></div>
-            <p className="mt-2 text-mist">Usa las mejoras de fotografía con IA de tu plan. Antes de procesar ves cuántas vas a usar.</p>
+            <p className="mt-2 text-mist">Las imágenes premium usan los créditos artísticos de tu plan (10 por imagen). Antes de procesar ves cuántos vas a usar.</p>
             <ul className="mt-7 space-y-3">
               {WITH_AI.map((t) => (
                 <li key={t.name} className="flex gap-3.5 rounded-2xl bg-white/5 p-4 ring-1 ring-inset ring-white/10">
