@@ -78,10 +78,12 @@ test.describe('whatsapp message tab', () => {
 })
 
 test.describe('real stores', () => {
-  test('only public store URLs are linked, SneakerHub included', async ({ page }) => {
+  // SneakerHub Premium is the demo store, not a merchant: it left "Tiendas reales" on 2026-11-13.
+  test('only public store URLs are linked, without the demo store', async ({ page }) => {
     await page.goto('/#tiendas')
     const links = await page.locator('#tiendas a[href^="http"]').evaluateAll((as) => as.map((a) => a.getAttribute('href')!))
-    expect(links).toContain(`${APP}/t/sneakerhub-premium`)
+    expect(links).not.toContain(`${APP}/t/sneakerhub-premium`)
+    expect(links).toContain(`${APP}/t/altogramaje-twin`)
     // Only public stores, plus the free trial invitation at the end of the section.
     for (const href of links) expect(href.startsWith(`${APP}/t/`) || href === `${APP}/prueba`, href).toBe(true)
   })

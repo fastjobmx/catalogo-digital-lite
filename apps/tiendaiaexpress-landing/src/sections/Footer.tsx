@@ -27,7 +27,9 @@ function Column({ title, items }: { title: string; items: Item[] }) {
   )
 }
 
-export function Footer() {
+/** On other pages (legal), the home page's "#section" anchors become "/#section". */
+export function Footer({ onHome = true }: { onHome?: boolean }) {
+  const at = (href: string) => (!onHome && href.startsWith('#') ? `/${href}` : href)
   const legal = site.legal.filter((l) => l.url)
   const product: Item[] = [
     { label: 'Funciones', href: '#funciones' },
@@ -84,9 +86,9 @@ export function Footer() {
             </ul>
           </div>
           <nav aria-label="Pie de página" className="contents">
-            <Column title="Producto" items={product} />
-            <Column title="Comercios" items={stores} />
-            <Column title="Ayuda" items={help} />
+            <Column title="Producto" items={product.map((i) => ({ ...i, href: at(i.href) }))} />
+            <Column title="Comercios" items={stores.map((i) => ({ ...i, href: at(i.href) }))} />
+            <Column title="Ayuda" items={help.map((i) => ({ ...i, href: at(i.href) }))} />
           </nav>
         </div>
 

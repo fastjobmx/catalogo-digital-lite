@@ -407,3 +407,239 @@ html.motion [data-tilt] .pop-z {
     scroll-behavior: auto !important;
   }
 }
+
+/* ---------------------------------------------------------------------------------------------
+ * Legal pages (/terminos-y-condiciones, /servicios-adicionales): sober long-form reading.
+ * ------------------------------------------------------------------------------------------- */
+@layer components {
+  .legal-main {
+    background: var(--color-porcelain);
+    scroll-margin-top: 5rem;
+  }
+  .legal-doc {
+    font-size: 1.04rem;
+    line-height: 1.75;
+    color: #26263a;
+  }
+  .legal-h2 {
+    margin-top: 3.25rem;
+    padding-top: 1.75rem;
+    border-top: 1px solid rgb(11 11 19 / 0.1);
+    font-family: var(--font-display);
+    font-size: clamp(1.35rem, 2.2vw, 1.6rem);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+    color: var(--color-night);
+    scroll-margin-top: 6rem;
+  }
+  .legal-doc > .legal-h2:first-of-type {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+  }
+  .legal-anchor {
+    color: inherit;
+    text-decoration: none;
+  }
+  .legal-anchor:hover {
+    color: var(--color-violet-ink);
+  }
+  .legal-h3 {
+    margin-top: 2rem;
+    font-family: var(--font-display);
+    font-size: 1.12rem;
+    font-weight: 700;
+    color: var(--color-night);
+    scroll-margin-top: 6rem;
+  }
+  .legal-p {
+    margin-top: 0.9rem;
+  }
+  .legal-ul {
+    margin-top: 0.9rem;
+    padding-left: 1.25rem;
+    list-style: disc;
+  }
+  .legal-ul li + li {
+    margin-top: 0.35rem;
+  }
+  .legal-ul li::marker {
+    color: var(--color-violet-ink);
+  }
+  .legal-link {
+    color: var(--color-violet-ink);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    overflow-wrap: anywhere;
+  }
+  .legal-table {
+    margin-top: 1.25rem;
+    overflow-x: auto;
+    border-radius: 1rem;
+    background: var(--color-paper);
+    box-shadow: inset 0 0 0 1px rgb(11 11 19 / 0.1);
+  }
+  .legal-table table {
+    width: 100%;
+    min-width: 32rem;
+    border-collapse: collapse;
+    font-size: 0.95rem;
+    line-height: 1.5;
+  }
+  .legal-table th,
+  .legal-table td {
+    padding: 0.8rem 1rem;
+    text-align: left;
+    vertical-align: top;
+    border-top: 1px solid rgb(11 11 19 / 0.08);
+  }
+  .legal-table thead th {
+    border-top: 0;
+    background: rgb(11 11 19 / 0.035);
+    font-size: 0.78rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-ink-soft);
+  }
+  .legal-table tbody th {
+    font-weight: 600;
+    color: var(--color-night);
+  }
+  .legal-table .text-right {
+    text-align: right;
+  }
+  .legal-toc {
+    counter-reset: none;
+    line-height: 1.35;
+  }
+  .legal-toc > li + li {
+    margin-top: 0.15rem;
+  }
+  .legal-toc a {
+    display: block;
+    border-radius: 0.5rem;
+    padding: 0.35rem 0.6rem;
+    color: var(--color-ink-soft);
+    text-decoration: none;
+  }
+  .legal-toc a:hover {
+    background: rgb(11 11 19 / 0.05);
+    color: var(--color-night);
+  }
+  .legal-toc ol {
+    margin: 0.1rem 0 0.4rem 0.75rem;
+    border-left: 1px solid rgb(11 11 19 / 0.1);
+    font-size: 0.92em;
+  }
+  .legal-details[open] summary svg {
+    transform: rotate(180deg);
+  }
+  .legal-header ul,
+  .legal-subnav ul {
+    scrollbar-width: none;
+  }
+  .legal-header ul::-webkit-scrollbar,
+  .legal-subnav ul::-webkit-scrollbar {
+    display: none;
+  }
+  .legal-faq summary::-webkit-details-marker,
+  .legal-details summary::-webkit-details-marker {
+    display: none;
+  }
+
+  /* Price tables: a table from 48rem, one card per service below it. */
+  @media (max-width: 47.99rem) {
+    .price-table thead {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+    }
+    .price-table table,
+    .price-table tbody,
+    .price-table tr,
+    .price-table th,
+    .price-table td {
+      display: block;
+      width: 100%;
+    }
+    .price-table tr {
+      padding: 1rem 1.25rem;
+    }
+    .price-table th[scope='row'],
+    .price-table td {
+      padding: 0.15rem 0 !important;
+    }
+    .price-table td[data-label]::before {
+      content: attr(data-label) ': ';
+      font-family: var(--font-body);
+      font-weight: 600;
+      font-size: 0.82rem;
+      color: var(--color-ink-soft);
+    }
+    .price-table td[data-label='Estado']::before {
+      content: none;
+    }
+    .price-table td[data-label='Estado'] {
+      padding-top: 0.6rem !important;
+    }
+  }
+}
+
+@media print {
+  html,
+  body {
+    background: #fff !important;
+  }
+  .legal-header,
+  .legal-footer,
+  .legal-aside,
+  .legal-actions,
+  .legal-subnav,
+  .sr-only-focusable {
+    display: none !important;
+  }
+  .legal-hero,
+  .legal-contact {
+    background: #fff !important;
+    color: #000 !important;
+  }
+  .legal-hero *,
+  .legal-contact * {
+    color: #000 !important;
+    box-shadow: none !important;
+  }
+  .legal-hero .wrap {
+    padding-block: 0 1rem !important;
+  }
+  .legal-doc {
+    max-width: none !important;
+    font-size: 11pt;
+    line-height: 1.5;
+    color: #000;
+  }
+  .legal-h2,
+  .legal-h3 {
+    break-after: avoid;
+  }
+  .legal-table,
+  .legal-table tr,
+  .legal-card,
+  .price-table tr {
+    break-inside: avoid;
+  }
+  .legal-table {
+    overflow: visible !important;
+  }
+  .legal-link[href^='mailto:']::after {
+    content: none;
+  }
+  details > *:not(summary) {
+    display: block !important;
+  }
+  @page {
+    margin: 18mm 16mm;
+  }
+}

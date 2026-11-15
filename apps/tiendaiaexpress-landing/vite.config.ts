@@ -1,7 +1,11 @@
 import { createHash } from 'node:crypto'
+import { resolve } from 'node:path'
 import { defineConfig, loadEnv, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+
+/** Legal pages: one HTML file each at the root of dist/, served by Cloudflare Pages without ".html". */
+const LEGAL_PAGES = ['terminos-y-condiciones', 'servicios-adicionales']
 
 // Runs before first paint: picks the cinematic or the still layout without layout shift.
 const MOTION_SCRIPT = "document.documentElement.classList.add(window.matchMedia('(prefers-reduced-motion: reduce)').matches?'still':'motion')"
@@ -36,7 +40,10 @@ function seo(siteUrl: string, allowIndexing: boolean, noindexHosts: string[]): P
       const preload = fonts.map((f) => `<link rel="preload" href="/${f}" as="font" type="font/woff2" crossorigin />`).join('\n    ')
       html = html.replace('</title>', `</title>\n    ${preload}`)
       const robots = allowIndexing ? 'index, follow, max-image-preview:large' : 'noindex, nofollow'
-      const canonical = allowIndexing ? `<link rel="canonical" href="${siteUrl}/" />\n    <meta property="og:url" content="${siteUrl}/" />` : ''
+      // Permanent URL of each page: "/" for the home page, "/terminos-y-condiciones" for terminos-y-condiciones.html.
+      const file = ctx.path.replace(/^\//, '')
+      const path = file === 'index.html' || file === '' ? '/' : `/${file.replace(/\.html$/, '')}`
+      const canonical = allowIndexing ? `<link rel="canonical" href="${siteUrl}${path}" />\n    <meta property="og:url" content="${siteUrl}${path}" />` : ''
       return html
         .replace('%MOTION_SCRIPT%', MOTION_SCRIPT)
         .replace('%ROBOTS%', robots)
@@ -53,7 +60,7 @@ function seo(siteUrl: string, allowIndexing: boolean, noindexHosts: string[]): P
         this.emitFile({
           type: 'asset',
           fileName: 'sitemap.xml',
-          source: `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>${siteUrl}/</loc><lastmod>${today}</lastmod></url>\n</urlset>\n`,
+          source: `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${['/', ...LEGAL_PAGES.map((p) => `/${p}`)].map((u) => `  <url><loc>${siteUrl}${u}</loc><lastmod>${today}</lastmod></url>`).join('\n')}\n</urlset>\n`,
         })
       }
       const headers = [
@@ -94,6 +101,9 @@ export default defineConfig(({ mode, isSsrBuild }) => {
       // Fonts are never inlined as data: URIs (the CSP allows font-src 'self' only).
       assetsInlineLimit: (file: string, content: Buffer) => !/\.woff2?$/.test(file) && content.length < 2048,
       chunkSizeWarningLimit: 900,
+      rollupOptions: isSsrBuild ? undefined : {
+        input: Object.fromEntries([['index', resolve(__dirname, 'index.html')], ...LEGAL_PAGES.map((p) => [p, resolve(__dirname, `${p}.html`)])]),
+      },
     },
   }
 })

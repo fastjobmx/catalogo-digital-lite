@@ -31,6 +31,8 @@ createServer(async (req, res) => {
   if (path.endsWith('/')) path += 'index.html'
   let file = join(root, path)
   let status = 200
+  // Like Cloudflare Pages: "/terminos-y-condiciones" serves terminos-y-condiciones.html.
+  if (!extname(path) && (await stat(`${file}.html`).then((s) => s.isFile()).catch(() => false))) file = `${file}.html`
   if (!file.startsWith(root) || !(await stat(file).then((s) => s.isFile()).catch(() => false))) { file = join(root, '404.html'); status = 404 }
   let body = await readFile(file)
   const ext = extname(file)
