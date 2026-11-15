@@ -30,3 +30,16 @@ Código: rama `feat/prueba-real` en `be02535`, que es `main` c8bfd5e más la pru
 2. `cd frontend` y `node ../worker/node_modules/wrangler/bin/wrangler.js rollback 952e7114-5582-42c2-8ba7-7c3fca98d4e1`
 3. Landing: en Cloudflare Pages, «Rollback» al despliegue `174c07fe`.
 4. Esquema solo después y si hace falta: `database/rollback/0033_trial_real_store.down.sql` (la reversión conserva las tiendas). No restaurar el D1 sin nueva autorización.
+
+## Actualización 2026-11-15: 20 productos, 14 días y checklist «listo para vender»
+
+| Pieza | Retorno | Nueva |
+|---|---|---|
+| API | `92f36985-ba7e-4438-ac29-694a4ba53636` | `b55fd691-e08c-4672-823d-dc1f46a24b02` |
+| Panel | `479934a3-be92-4127-84e2-555c3a6e62be` | `d1e2ad7f-5f6f-4f28-bb7c-991896d386bf` |
+| Landing | `376ebf39` | `df5a85da` |
+| D1 antes de 0034 | bookmark `000006bd-00000000-00005124-31b32d377a10d6240a35f047607d9ef5`, copia de 1.723.072 bytes (integridad ok) | — |
+
+Migración 0034 (ensayada antes en una copia de producción): plan `prueba` a 20 productos; la única prueba activa («Ositos y ositas») pasó a 20 productos y 14 días (vence el 29 de noviembre). Sin otros cambios: 10 tiendas, 595 productos, 30 pedidos, 0 violaciones. Humo: registro ofrece 14 días y 20 productos, landing actualizada, checklist protegido (401 sin sesión) y las 10 tiendas responden 200.
+
+Correos: los dos correos de confirmación de «Ositos y ositas» figuran como entregados por Resend; la prueba ya está activa, así que el enlace sí se abrió.
