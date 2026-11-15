@@ -159,6 +159,8 @@ function OwnApi({ state, token, isOwner, onChange }: { state: OwnKeyState; token
   const [fallback, setFallback] = useState(state.fallbackToPlatform ?? false)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
+  // Two-step confirmation in the page itself (browser dialogs can be blocked or dismissed silently).
+  const [confirming, setConfirming] = useState(false)
 
   const act = async (run: () => Promise<unknown>, done: string) => {
     setBusy(true); setMessage(null)
@@ -204,7 +206,12 @@ function OwnApi({ state, token, isOwner, onChange }: { state: OwnKeyState; token
             {state.status !== 'activa' && <p className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">Tu API respondió: {state.statusLabel}. Revisa tu clave o la facturación de tu proyecto en Google.{state.fallbackToPlatform ? ' Mientras tanto usamos las consultas de tu plan.' : ' Mientras tanto las tareas de IA quedan en pausa.'}</p>}
             <div className="flex flex-wrap gap-2 mt-4">
               <button className="btn-ghost" disabled={!isOwner || busy} onClick={() => void act(() => aiApi.validateKey(token), 'Validación hecha.')}>Validar de nuevo</button>
-              <button className="btn-danger" disabled={!isOwner || busy} onClick={() => { if (window.confirm('¿Desconectar tu API de Gemini? Tus tareas volverán a usar las consultas del plan.')) void act(() => aiApi.disconnectKey(token), 'API desconectada.') }}><Unplug size={15} />Desconectar</button>
+              {confirming
+                ? <span className="flex flex-wrap items-center gap-2 text-sm">¿Desconectar tu API? Tus tareas volverán a usar las consultas del plan.
+                    <button className="btn-danger" disabled={!isOwner || busy} onClick={() => { setConfirming(false); void act(() => aiApi.disconnectKey(token), 'API desconectada.') }}>Sí, desconectar</button>
+                    <button className="btn-ghost" disabled={busy} onClick={() => setConfirming(false)}>Cancelar</button>
+                  </span>
+                : <button className="btn-danger" disabled={!isOwner || busy} onClick={() => setConfirming(true)}><Unplug size={15} />Desconectar</button>}
             </div>
             {state.history.length > 0 && (
               <ul className="mt-4 border-t border-line pt-3 text-xs text-muted space-y-1">{state.history.map((item, index) => <li key={index}>{when(item.createdAt)} · {item.action} · {item.result}</li>)}</ul>

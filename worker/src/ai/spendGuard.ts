@@ -47,7 +47,7 @@ export type BillingSource = 'plan' | 'own_key' | 'platform' | 'trial'
 export type BlockReason =
   | 'global_day' | 'global_month' | 'store_day' | 'store_month' | 'images_month' | 'trial_day'
   | 'operation_max' | 'attempts' | 'duplicate' | 'unguarded' | 'guard_unavailable'
-  | 'session_units' | 'monthly_units' | 'concurrency' | 'burst' | 'duplicate_request' | 'too_large' | 'own_key_failed'
+  | 'session_units' | 'monthly_units' | 'concurrency' | 'burst' | 'duplicate_request' | 'too_large' | 'own_key_failed' | 'own_key_slow' | 'model_timeout'
 
 export type BlockDetail = { limit?: number; resetAt?: string; ownKeyStatus?: OwnKeyStatus }
 
@@ -73,6 +73,8 @@ const USER_MESSAGES: Record<BlockReason, string> = {
   duplicate_request: 'Ya procesé esta misma solicitud hace un momento. Si necesitas otro resultado, cámbiala un poco o espera dos minutos.',
   too_large: 'El archivo es demasiado grande para la IA: fotos de hasta 5 MB, audios de hasta 2 minutos y documentos de hasta 10 MB.',
   own_key_failed: 'Tu API de Gemini no respondió bien. Revisa tu clave o la facturación de tu proyecto en Google.',
+  own_key_slow: 'Tu API de Gemini tardó demasiado en responder y la detuvimos para no dejarte esperando. Las claves del nivel gratuito de Google pueden ser lentas o estar limitadas; con facturación activa suelen responder mejor. Inténtalo de nuevo en un momento.',
+  model_timeout: 'La IA tardó demasiado en responder y la detuvimos para no dejarte esperando. Inténtalo de nuevo en un momento. El catálogo, los pedidos, los botones y los comandos siguen funcionando.',
 }
 
 function messageFor(reason: BlockReason, detail: BlockDetail): string {
@@ -141,6 +143,11 @@ export const RESERVATION_TTL_MINUTES = 10
 /** Technical limits per store, also with its own key (they protect the platform's infrastructure). */
 export const DEFAULT_STORE_CONCURRENCY = 3
 export const DEFAULT_STORE_BURST_PER_MINUTE = 60
+/** Longest wait for one call (ms), so a slow provider never outlives the webhook that asked for it (Telegram and
+ * WhatsApp drop the request and the Worker is cancelled, leaving no answer). AI_CALL_TIMEOUT_MS overrides text. */
+export const DEFAULT_CALL_TIMEOUT_MS: Record<SpendKind, number> = { text: 25_000, image: 90_000, video: 120_000 }
+/** A call older than this cannot be alive any more (it timed out): it no longer counts as simultaneous. */
+export const CONCURRENCY_WINDOW_SECONDS = 150
 /** Same request (fingerprint) within this window: not charged again; from DUPLICATE_BLOCK_AT copies on, refused. */
 export const DUPLICATE_WINDOW_SECONDS = 120
 export const DUPLICATE_BLOCK_AT = 6
@@ -290,7 +297,7 @@ export async function reserveSpend(context: SpendContext, input: ReserveInput, n
        (SELECT COALESCE(MAX(attempt), 0) FROM ai_spend_reservations WHERE op_key = ?) < ?
        AND ? <= ?
        AND (? IS NULL OR (
-         (SELECT COUNT(*) FROM ai_spend_reservations WHERE store_id = ? AND status = 'reserved' AND created_at > datetime('now', '-${RESERVATION_TTL_MINUTES} minutes')) < ?
+         (SELECT COUNT(*) FROM ai_spend_reservations WHERE store_id = ? AND status = 'reserved' AND created_at > datetime('now', '-${CONCURRENCY_WINDOW_SECONDS} seconds')) < ?
          AND (SELECT COUNT(*) FROM ai_spend_reservations WHERE store_id = ? AND created_at > datetime('now', '-60 seconds')) < ?
        ))
        AND (? = 1 OR (
@@ -363,7 +370,7 @@ async function diagnose(db: D1Database, context: SpendContext, limits: ResolvedL
   if (await count('SELECT COALESCE(MAX(attempt), 0) AS v FROM ai_spend_reservations WHERE op_key = ? AND id <> ?', context.opKey, ex) >= limits.maxAttempts) return found('attempts')
   if (input.amount > limits.operationMax) return found('operation_max')
   if (input.storeId) {
-    if (await count(`SELECT COUNT(*) AS v FROM ai_spend_reservations WHERE store_id = ? AND id <> ? AND status = 'reserved' AND created_at > datetime('now', '-${RESERVATION_TTL_MINUTES} minutes')`, input.storeId, ex) >= limits.concurrency) return found('concurrency')
+    if (await count(`SELECT COUNT(*) AS v FROM ai_spend_reservations WHERE store_id = ? AND id <> ? AND status = 'reserved' AND created_at > datetime('now', '-${CONCURRENCY_WINDOW_SECONDS} seconds')`, input.storeId, ex) >= limits.concurrency) return found('concurrency')
     if (await count(`SELECT COUNT(*) AS v FROM ai_spend_reservations WHERE store_id = ? AND id <> ? AND created_at > datetime('now', '-60 seconds')`, input.storeId, ex) >= limits.burstPerMinute) return found('burst')
   }
   if (!input.ownKey) {
@@ -558,12 +565,26 @@ export async function guardedGeminiFetch(
     console.error('AI spend settlement failed:', error instanceof Error ? error.message : 'unknown')
     return 0
   })
+  // Every call has a deadline. A caller's own signal (the planner's) is respected; otherwise the default applies.
+  const configured = Number((env as Record<string, unknown>).AI_CALL_TIMEOUT_MS)
+  const timeoutMs = info.kind === 'text' && Number.isInteger(configured) && configured > 0 ? configured : DEFAULT_CALL_TIMEOUT_MS[info.kind]
+  const deadline = init.signal ? null : AbortSignal.timeout(timeoutMs)
   let response: Response
   try {
     // Only this store's key, only for this call. The platform key (set by the client) is never sent with it.
-    response = await fetcher(url, own ? withKey(init, own.apiKey) : init)
+    const request = own ? withKey(init, own.apiKey) : init
+    response = await fetcher(url, deadline ? { ...request, signal: deadline } : request)
   } catch (error) {
     await settle({ outcome: 'network_error', model: info.model })
+    if (deadline?.aborted) {
+      console.warn(`Gemini call timed out after ${timeoutMs} ms (${own ? 'own key' : 'platform key'}, ${context.feature})`)
+      if (own && storeId) {
+        await markOwnKeyResult(context.db, storeId, { ok: false, status: 'activa', code: 'TIMEOUT' })
+        if (own.fallbackToPlatform && !context.creditsWaived) return guardedGeminiFetch(env, fetcher, url, init, info, { forcePlatform: true })
+        throw new AiSpendBlockedError('own_key_slow')
+      }
+      throw new AiSpendBlockedError('model_timeout')
+    }
     throw error
   }
   if (!response.ok) {

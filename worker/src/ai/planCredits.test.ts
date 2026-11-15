@@ -293,6 +293,27 @@ describe('API propia del comercio', () => {
     expect(await (await api('GET', adminEmp)).json()).toMatchObject({ status: 'activa', lastErrorCode: null })
   })
 
+  it('API propia lenta (caso de staging): se corta a tiempo, avisa y no deja la tarea colgada ni bloqueando la tienda', async () => {
+    await connect()
+    h.env.AI_CALL_TIMEOUT_MS = '50'
+    const hang: typeof fetch = ((_: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+    })) as typeof fetch
+    const slow = (opKey: string) => runWithSpend(spend(emp, opKey), () => callGeminiJson(h.env, hang, { system: ['x'], parts: [{ text: opKey }], schema: { type: 'object' }, maxOutputTokens: 200 }))
+    for (const key of ['lenta-1', 'lenta-2', 'lenta-3', 'lenta-4']) {
+      const error = await slow(key).then(() => null, (e) => e as AiSpendBlockedError)
+      // Never «too many tasks»: a call that timed out is closed, so it does not occupy a slot.
+      expect(error?.reason).toBe('own_key_slow')
+    }
+    expect(h.db.query(`SELECT COUNT(*) AS n FROM ai_spend_reservations WHERE status = 'reserved'`)).toEqual([{ n: 0 }])
+    expect(units(emp)).toBe(0)
+    // With the owner's permission the platform key answers instead.
+    await api('PATCH', ownerEmp, 'emp', { fallbackToPlatform: true })
+    const platform = (async (input: RequestInfo | URL, init?: RequestInit) => new Headers(init?.headers).get('x-goog-api-key') === OWN_KEY ? hang(input, init) : ok()) as typeof fetch
+    await runWithSpend(spend(emp, 'lenta-respaldo'), () => callGeminiJson(h.env, platform, { system: ['x'], parts: [{ text: 'respaldo' }], schema: { type: 'object' }, maxOutputTokens: 200 }))
+    expect(units(emp)).toBe(1)
+  })
+
   it('reemplazar y desconectar quedan en el historial; después vuelve el cupo del plan', async () => {
     await connect()
     expect((await api('PUT', ownerEmp, 'emp', { apiKey: 'AIzaSyOtraClaveOtraClaveOtraClave99999' })).status).toBe(200)

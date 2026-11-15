@@ -123,6 +123,8 @@ export type Env = {
  /** Límites técnicos por tienda (también con API propia): tareas de IA simultáneas y por minuto. */
  AI_STORE_CONCURRENCY?: string
  AI_STORE_BURST_PER_MINUTE?: string
+ /** Espera máxima de una llamada de texto a Gemini en ms (por defecto 25000). */
+ AI_CALL_TIMEOUT_MS?: string
  /** Pesos colombianos por dólar para convertir el presupuesto interno de cada plan (por defecto 4000). */
  AI_FX_COP_PER_USD?: string
  /** API propia por comercio: clave maestra (secreto, 32 bytes en base64) y su versión para rotación. */
