@@ -22,17 +22,30 @@ export async function aiOverview(db: D1Database, env: Bindings, storeId: number,
   const plan = quota.planCode ? await db.prepare('SELECT name FROM plans WHERE code = ?').bind(quota.planCode).first<{ name: string }>() : null
   const used = await usedUnits(db, storeId, { sessionId: session?.id, cycleKey: cycle.key })
   const label = new Map(weights.map((weight) => [weight.feature, weight.label]))
-  const history = ((await db.prepare(
-    `SELECT created_at AS at, feature, billing_source AS paidWith, units, status, outcome, op_key AS opKey FROM ai_spend_reservations WHERE store_id = ? ORDER BY id DESC LIMIT 40`,
-  ).bind(storeId).all<{ at: string; feature: string; paidWith: string; units: number; status: string; outcome: string | null; opKey: string }>()).results || [])
-    .map((row) => ({
+  const rows = (await db.prepare(
+    `SELECT created_at AS at, feature, kind, billing_source AS paidWith, units, status, outcome, op_key AS opKey FROM ai_spend_reservations WHERE store_id = ? ORDER BY id DESC LIMIT 40`,
+  ).bind(storeId).all<{ at: string; feature: string; kind: string; paidWith: string; units: number; status: string; outcome: string | null; opKey: string }>()).results || []
+  const history = await Promise.all(rows.map(async (row) => {
+    // Artistic generation is paid with credits: show the credits of its reservation (0 if they were given back).
+    let credits: number | null = null
+    if (row.paidWith !== 'own_key' && (row.kind === 'image' || row.kind === 'video')) {
+      const key = row.opKey.startsWith(`cr:${storeId}:`) ? row.opKey.slice(`cr:${storeId}:`.length) : null
+      const hold = key ? await db.prepare(
+        `SELECT -r.amount AS credits, EXISTS (SELECT 1 FROM ai_credit_ledger s WHERE s.reservation_id = r.id AND s.kind = 'liberacion') AS released
+         FROM ai_credit_ledger r WHERE r.store_id = ? AND r.kind = 'reserva' AND r.idempotency_key = ?`,
+      ).bind(storeId, key).first<{ credits: number; released: number }>() : null
+      credits = row.status === 'released' || hold?.released ? 0 : Number(hold?.credits ?? 0)
+    }
+    return {
       at: row.at, task: label.get(row.feature) || row.feature, channel: CHANNELS[row.opKey.split(':')[0] || ''] || 'Panel',
-      paidWith: PAID_WITH[row.paidWith] || row.paidWith, units: row.status === 'released' ? 0 : row.units,
+      paidWith: credits !== null ? 'Créditos' : PAID_WITH[row.paidWith] || row.paidWith,
+      units: row.status === 'released' ? 0 : row.units, credits,
       result: row.status === 'released' ? 'falló (no se descontó)' : row.outcome === 'truncated' ? 'respuesta incompleta' : row.status === 'reserved' ? 'en curso' : 'ok',
-    }))
+    }
+  }))
   const byTask = ((await db.prepare(
     `SELECT feature, COUNT(*) AS tasks, COALESCE(SUM(units), 0) AS units FROM ai_spend_reservations
-     WHERE store_id = ? AND cycle_key = ? AND billing_source = 'plan' AND status <> 'released' GROUP BY feature ORDER BY units DESC`,
+     WHERE store_id = ? AND cycle_key = ? AND billing_source = 'plan' AND kind = 'text' AND status <> 'released' GROUP BY feature ORDER BY units DESC`,
   ).bind(storeId, cycle.key).all<{ feature: string; tasks: number; units: number }>()).results || []).map((row) => ({ task: label.get(row.feature) || row.feature, tasks: row.tasks, units: row.units }))
   const credits = ((await db.prepare(
     `SELECT id, kind, amount, source, feature, reason, created_at AS at FROM ai_credit_ledger WHERE store_id = ? AND kind IN ('recarga', 'ajuste', 'reserva', 'liberacion') ORDER BY id DESC LIMIT 20`,

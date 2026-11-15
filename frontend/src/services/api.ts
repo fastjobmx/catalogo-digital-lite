@@ -686,7 +686,7 @@ export type AiOverview = {
     packs: Array<{ code: string; credits: number; priceCop: number; validMonths: number }>
   }
   ownKey: OwnKeyState
-  history: Array<{ at: string; task: string; channel: string; paidWith: string; units: number; result: string }>
+  history: Array<{ at: string; task: string; channel: string; paidWith: string; units: number; credits: number | null; result: string }>
   byTask: Array<{ task: string; tasks: number; units: number }>
   weights: Array<{ feature: string; units: number; perItem: boolean; label: string }>
   policy: { sessionHours: number; concurrency: number; perMinute: number; attemptsPerTask: number; duplicateWindowMinutes: number; maxImageMb: number; maxAudioMinutes: number; maxDocumentMb: number }

@@ -89,20 +89,20 @@ function Usage({ data, onGoToApi }: { data: AiOverview; onGoToApi: () => void })
         </div>
       )}
 
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div className="card p-5">
           <p className="text-xs font-bold uppercase tracking-widest text-muted">Consultas de esta sesión</p>
           {session.limit === null
             ? <p className="text-sm text-muted mt-2">Tu plan no tiene cupo por sesión.</p>
             : <>
-                <p className="text-3xl font-black text-ink mt-1">{session.available} <span className="text-base font-semibold text-muted">de {session.limit}</span></p>
+                <p className="text-3xl font-black text-ink mt-1">{session.available} <span className="text-base font-semibold text-muted">disponibles de {session.limit}</span></p>
                 <Meter used={session.used} limit={session.limit} />
                 <p className="text-xs text-muted mt-2">{session.resetsAt ? <>Se restablecen a las <b>{time(session.resetsAt)}</b> (en {untilText(session.resetsAt)})</> : `La sesión de ${session.hours} horas empieza con tu próxima consulta de IA.`}</p>
               </>}
         </div>
         <div className="card p-5">
           <p className="text-xs font-bold uppercase tracking-widest text-muted">Consultas del mes</p>
-          <p className="text-3xl font-black text-ink mt-1">{month.used}{month.limit !== null && <span className="text-base font-semibold text-muted"> de {month.limit}</span>}</p>
+          <p className="text-3xl font-black text-ink mt-1">{month.used}{month.limit !== null && <span className="text-base font-semibold text-muted"> usadas de {month.limit}</span>}</p>
           {month.limit !== null && <Meter used={month.used} limit={month.limit} />}
           <p className="text-xs text-muted mt-2">Ciclo hasta el {day(month.cycleEnd)}{month.provisional ? ' (mes calendario)' : ''}</p>
         </div>
@@ -127,9 +127,9 @@ function Usage({ data, onGoToApi }: { data: AiOverview; onGoToApi: () => void })
           {data.history.length === 0
             ? <p className="text-sm text-muted">Todavía no hay tareas de IA.</p>
             : <table className="w-full text-sm">
-                <thead><tr className="text-left text-xs text-muted"><th className="py-2 pr-2">Cuándo</th><th className="pr-2">Tarea</th><th className="pr-2">Canal</th><th className="pr-2">Pagado con</th><th className="text-right">Consultas</th></tr></thead>
+                <thead><tr className="text-left text-xs text-muted"><th className="py-2 pr-2">Cuándo</th><th className="pr-2">Tarea</th><th className="pr-2">Canal</th><th className="pr-2">Pagado con</th><th className="text-right">Uso</th></tr></thead>
                 <tbody>{data.history.map((row, index) => (
-                  <tr key={index} className="border-t border-line"><td className="py-2 pr-2 whitespace-nowrap">{when(row.at)}</td><td className="pr-2">{row.task}{row.result !== 'ok' && <span className="text-muted"> · {row.result}</span>}</td><td className="pr-2">{row.channel}</td><td className="pr-2">{row.paidWith}</td><td className="text-right tabular-nums">{row.units}</td></tr>
+                  <tr key={index} className="border-t border-line"><td className="py-2 pr-2 whitespace-nowrap">{when(row.at)}</td><td className="pr-2">{row.task}{row.result !== 'ok' && <span className="text-muted"> · {row.result}</span>}</td><td className="pr-2">{row.channel}</td><td className="pr-2">{row.paidWith}</td><td className="text-right tabular-nums whitespace-nowrap">{row.credits !== null ? `${row.credits} créditos` : row.units === 1 ? '1 consulta' : `${row.units} consultas`}</td></tr>
                 ))}</tbody>
               </table>}
           <p className="text-xs text-muted mt-3">No guardamos el contenido de tus mensajes, fotos ni audios en este historial.</p>
@@ -216,19 +216,27 @@ function OwnApi({ state, token, isOwner, onChange }: { state: OwnKeyState; token
   )
 }
 
+/** One row per label (several internal operations share the same name for the merchant). */
+function uniqueByLabel<T extends { label: string }>(rows: T[]): T[] {
+  const seen = new Set<string>()
+  return rows.filter((row) => (seen.has(row.label) ? false : (seen.add(row.label), true)))
+}
+
 function Policy({ data }: { data: AiOverview }) {
   const { policy } = data
+  const weightRows = uniqueByLabel(data.weights.filter((weight) => weight.units > 0))
+  const creditRows = uniqueByLabel(data.credits.costs.filter((cost) => cost.image).map((cost) => ({ ...cost, label: cost.feature === 'video_ia_segundo' ? 'Video con IA' : cost.label.replace(' (usa créditos)', '') })))
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <div className="card p-5">
         <h2 className="text-base font-bold text-ink mb-3">Cuántas consultas usa cada tarea</h2>
         <table className="w-full text-sm"><tbody>
           <tr className="border-b border-line"><td className="py-2">Ver existencias, cambiar un precio exacto, confirmar, deshacer, menú</td><td className="text-right font-bold">0</td></tr>
-          {data.weights.filter((weight) => weight.units > 0).map((weight) => (
+          {weightRows.map((weight) => (
             <tr key={weight.feature} className="border-b border-line last:border-0"><td className="py-2">{weight.label}</td><td className="text-right tabular-nums">{weight.units}{weight.perItem ? ' c/u' : ''}</td></tr>
           ))}
-          {data.credits.costs.filter((cost) => cost.image).map((cost) => (
-            <tr key={cost.feature} className="border-b border-line last:border-0"><td className="py-2">{cost.label}</td><td className="text-right tabular-nums">{cost.credits} créditos</td></tr>
+          {creditRows.map((cost) => (
+            <tr key={cost.feature} className="border-b border-line last:border-0"><td className="py-2">{cost.label}</td><td className="text-right tabular-nums whitespace-nowrap">{cost.credits} créditos{cost.feature === 'video_ia_segundo' ? ' por segundo' : ''}</td></tr>
           ))}
         </tbody></table>
       </div>
