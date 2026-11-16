@@ -110,3 +110,13 @@ punto se juzga por lo que quedó en la base.
 - Revisar la latencia del modelo dentro de Cloudflare (5–9 s) antes de cualquier piloto.
 - Repetir los puntos 5 y 9 del guion.
 - WhatsApp sigue sin prueba real.
+
+### Correcciones posteriores a la prueba (2026-11-16, commit `b14c397`, solo en la rama; **sin desplegar**)
+
+- **Claves en el chat:** un mensaje que es una clave o un token (Google, OpenAI, GitHub, Slack, Meta, AWS, JWT o una cadena larga de aspecto aleatorio) no se guarda, no llega a la IA y recibe una advertencia. Dentro de una frase se reemplaza por «[clave oculta]» antes de guardar. Aplica a todas las tiendas, con o sin la capa encendida. La fila con la clave pegada el 15 de noviembre se borró de `assistant_messages` de staging (1 fila; 0 restantes).
+- **«Ponle como nombre X»:** funciona al responder «es uno nuevo, ponle como nombre…» y con el borrador abierto («que se llame…», «el nombre es…», «cámbiale el nombre a…»).
+- **Preguntas de totales:** «cuántas unidades tengo en total» (aunque esté mal escrita), «cuántos productos tengo», «cuánto inventario hay en la tienda» responden con el total del catálogo, sin IA.
+- **Contexto tras un «¿cuál?» cancelado:** ya no se adivina el producto anterior; «¿y cuántos quedan?» pregunta entre los mismos candidatos.
+- Pruebas: `agent/piloto.test.ts` (9 casos que reproducen la prueba real). Suite completa 818 pasan. Banco del paso 1 con modelo real: 34/34 y reserva 10/10 (1 corrida).
+- **No está en staging:** staging corre `8d5d61bd`, desplegado desde `feat/ia-planes-creditos`. Para probar estos arreglos hay que integrar `feat/asistente-conversacional` en esa rama y desplegar desde allí (desplegar esta rama sola quitaría de staging lo de planes y créditos).
+- Sin resolver: latencia del modelo dentro de Cloudflare (5–9 s) y los puntos 5 y 9 del guion por repetir.
