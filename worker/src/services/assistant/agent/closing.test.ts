@@ -176,3 +176,29 @@ describe('lecturas que dependían del modelo ahora son deterministas (modelo ca�
     expect(pending()).toEqual([])
   })
 })
+
+describe('renombrar el producto en conversación', () => {
+  const name = (sku: string) => h.db.query<{ name: string }>('SELECT name FROM products WHERE store_id = ? AND sku = ?', tienda, sku)[0]!.name
+
+  it('«ponle como nombre X» tras hablar de un producto propone renombrarlo y solo cambia al confirmar', async () => {
+    await say('cuantas sandalias quedan')
+    await say('ponle como nombre Sandalias Playa Negras')
+    expect(pending().map((row) => row.action)).toEqual(['update_product'])
+    expect(last()).toContain('Sandalias Playa Negras')
+    expect(name('SAN-1')).toBe('Sandalias Guess')
+    expect(h.db.query('SELECT COUNT(*) AS n FROM products WHERE store_id = ?', tienda)[0]).toEqual({ n: 2 })
+    await say('sí')
+    expect(name('SAN-1')).toBe('Sandalias Playa Negras')
+    expect(name('GOR-3')).toBe('Gorra Negra')
+  })
+
+  it('«que se llame X» también, y sin producto en conversación no renombra nada', async () => {
+    await say('que se llame Gorra Urbana')
+    expect(pending().filter((row) => row.action === 'update_product')).toEqual([])
+    expect(name('GOR-3')).toBe('Gorra Negra')
+    await say('olvida eso')
+    await say('cuantas gorras quedan')
+    await say('que se llame Gorra Urbana')
+    expect(pending().map((row) => row.action)).toEqual(['update_product'])
+  })
+})

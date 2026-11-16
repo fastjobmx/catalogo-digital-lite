@@ -23,6 +23,7 @@ import { parseCommerce } from '../commerce/parse'
 import { loadCatalog, matchProducts, resolveProduct, variantLabel, type CatalogProduct } from '../commerce/resolve'
 import { parseVariants } from '../operations'
 import { makeStep, planTurn, type Step, type ToolName } from './planner'
+import { nameIn } from './media'
 import { askConfirmation, DENIED, filterCatalog, intentFromStep, LIST_LIMIT, renderChoice, renderList, renderProduct, renderSnapshot, shortPreview, storeSnapshot, toolOfIntent, TOOLS } from './tools'
 
 export type AgentResult = 'handled' | 'fallback' | 'other'
@@ -344,6 +345,12 @@ async function understand(ctx: AssistantContext, text: string, turn: Turn): Prom
   const canModel = Boolean(ctx.env.GEMINI_API_KEY)
   const focusNow = session.state.focusSku || (session.state.lastSkus?.length === 1 ? session.state.lastSkus[0] : undefined)
   let parsed = multi ? null : readPriceBump(trimmed) || parseCommerce(withoutLead(trimmed))
+  // «ponle como nombre Zapatillas Running Blancas», «que se llame…», «llámalo…» while a product is in conversation
+  // and nothing is pending: it renames THAT product (shown and confirmed like every change), not a new one.
+  if (!multi && !pending && focusNow && (!parsed || parsed.kind === 'create_product')) {
+    const newName = nameIn(trimmed)
+    if (newName) parsed = { kind: 'rename', product: null, name: newName }
+  }
   // «deja la 39 de las sandalias en 10»: the parser reads «en 10» as a doubtful price. A size right after the verb
   // and no word about money make it an inventory count, with or without the model (it used to depend on the model).
   if (parsed?.kind === 'price_clarify') {
