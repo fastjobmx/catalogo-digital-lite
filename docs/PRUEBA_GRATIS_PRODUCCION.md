@@ -43,3 +43,9 @@ Código: rama `feat/prueba-real` en `be02535`, que es `main` c8bfd5e más la pru
 Migración 0034 (ensayada antes en una copia de producción): plan `prueba` a 20 productos; la única prueba activa («Ositos y ositas») pasó a 20 productos y 14 días (vence el 29 de noviembre). Sin otros cambios: 10 tiendas, 595 productos, 30 pedidos, 0 violaciones. Humo: registro ofrece 14 días y 20 productos, landing actualizada, checklist protegido (401 sin sesión) y las 10 tiendas responden 200.
 
 Correos: los dos correos de confirmación de «Ositos y ositas» figuran como entregados por Resend; la prueba ya está activa, así que el enlace sí se abrió.
+
+## Actualización 2026-11-16: verificación de correo (para que lleguen recuperación y avisos)
+
+Problema: 7 de 8 usuarios nunca verificaron su correo (se activaron con un enlace entregado a mano), y por seguridad la recuperación de contraseña, la bienvenida y el aviso de contraseña cambiada solo se envían a correos verificados. Dos solicitudes de recuperación del 5 de noviembre no llegaron por ningún canal.
+
+Corrección (commit `e910a8a`): al activar una cuenta con enlace manual se envía el correo de verificación (solo confirma la dirección, no da acceso); y con `EMAIL_VERIFICATION_BACKFILL=true` el cron envía UNA sola vez la verificación a las cuentas activadas sin confirmar (6 en producción). API `bcad5c18` (retorno `b55fd691`). La variable queda activa: no reenvía a quien ya lo recibió.
