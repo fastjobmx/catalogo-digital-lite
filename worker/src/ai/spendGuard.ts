@@ -19,6 +19,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import type { Env } from '../index'
 import { costOf, estimateRequestMicros, PRICING_VERSION, usageFromMetadata, type GeminiUsage } from './pricing'
 import { bogotaDate, copToMicros, COUNTED_UNITS, cycleOf, planQuota, unitsFor } from './planUsage'
+import { buyerDataIn } from './privacy'
 import { markOwnKeyResult, parseProviderError, resolveOwnKey, statusFromHttp, STATUS_LABELS, useFor, type OwnKeyStatus } from './ownKey'
 
 type Bindings = Partial<Env['Bindings']>
@@ -39,7 +40,12 @@ export type SpendContext = {
   /** Set when the operation's credits were waived because the store's own key pays: then a failing own key can
    * never fall back to the platform key (that would be a free generation). */
   creditsWaived?: boolean
+  /** The owner chose to pay this operation with credits: the own key is not used for it. */
+  noOwnKey?: boolean
 }
+
+/** Route of a call, recorded with it so that no change of provider or payer is silent. */
+export type SpendRoute = 'own_key' | 'plan' | 'plan_respaldo' | 'plan_privacidad' | 'creditos' | 'plataforma' | 'prueba'
 
 /** Who pays a call: the plan's queries, the store's own key, or the platform (master bot, free trials). */
 export type BillingSource = 'plan' | 'own_key' | 'platform' | 'trial'
@@ -48,8 +54,9 @@ export type BlockReason =
   | 'global_day' | 'global_month' | 'store_day' | 'store_month' | 'images_month' | 'trial_day'
   | 'operation_max' | 'attempts' | 'duplicate' | 'unguarded' | 'guard_unavailable'
   | 'monthly_units' | 'concurrency' | 'burst' | 'duplicate_request' | 'too_large' | 'own_key_failed' | 'own_key_slow' | 'model_timeout'
+  | 'buyer_data_consent' | 'buyer_data_blocked'
 
-export type BlockDetail = { limit?: number; resetAt?: string; ownKeyStatus?: OwnKeyStatus; left?: number; needed?: number }
+export type BlockDetail = { limit?: number; resetAt?: string; ownKeyStatus?: OwnKeyStatus; left?: number; needed?: number; fallbackRefused?: string }
 
 const OWN_API_HINT = 'También puedes conectar tu propia API de Gemini en el panel: Configuración → Inteligencia artificial → Mi API.'
 const KEEPS_WORKING = 'El catálogo, los pedidos, los botones y los comandos siguen funcionando.'
@@ -73,6 +80,8 @@ const USER_MESSAGES: Record<BlockReason, string> = {
   too_large: 'El archivo es demasiado grande para la IA: fotos de hasta 5 MB, audios de hasta 2 minutos y documentos de hasta 10 MB.',
   own_key_failed: 'Tu API de Gemini no respondió bien. Revisa tu clave o la facturación de tu proyecto en Google.',
   own_key_slow: 'Tu API de Gemini tardó demasiado en responder y la detuvimos para no dejarte esperando. Las claves del nivel gratuito de Google pueden ser lentas o estar limitadas; con facturación activa suelen responder mejor. Inténtalo de nuevo en un momento.',
+  buyer_data_consent: 'Esta tarea incluye datos de tus compradores y tu API de Gemini no tiene facturación verificada. Por privacidad no la enviamos a tu API. Si quieres que estas tareas usen las consultas de tu plan con TiendIA, autorízalo en Configuración → Inteligencia artificial → Mi API. Mientras tanto puedes hacerla sin IA.',
+  buyer_data_blocked: 'Esta tarea incluye datos de tus compradores. Elegiste no procesarlos con IA mientras tu API no tenga facturación verificada. Puedes hacerla sin IA o cambiar la opción en Configuración → Inteligencia artificial → Mi API.',
   model_timeout: 'La IA tardó demasiado en responder y la detuvimos para no dejarte esperando. Inténtalo de nuevo en un momento. El catálogo, los pedidos, los botones y los comandos siguen funcionando.',
 }
 
@@ -83,6 +92,7 @@ function messageFor(reason: BlockReason, detail: BlockDetail): string {
     return `⏳ Esta tarea necesita ${detail.needed} consultas de IA y te quedan ${detail.left} de las incluidas este mes. Se renuevan el ${bogotaDate(detail.resetAt)}. Puedes hacer tareas más pequeñas (un mensaje de texto usa 1). ${KEEPS_WORKING} ${OWN_API_HINT}`
   }
   if (reason === 'monthly_units' && detail.resetAt) return `⛔ Usaste las ${detail.limit ?? ''} consultas de IA incluidas en tu plan este mes. Se renuevan el ${bogotaDate(detail.resetAt)}. ${KEEPS_WORKING} ${OWN_API_HINT}`
+  if (detail.fallbackRefused) return `${reason === 'own_key_slow' ? 'Tu API de Gemini tardó demasiado' : `Tu API de Gemini respondió: ${detail.ownKeyStatus ? STATUS_LABELS[detail.ownKeyStatus] : 'error'}`}, y el respaldo con tu plan no se pudo usar: ${detail.fallbackRefused}`
   if (reason === 'own_key_failed' && detail.ownKeyStatus) return `Tu API de Gemini respondió: ${STATUS_LABELS[detail.ownKeyStatus]}. Revisa tu clave o la facturación de tu proyecto en Google. No usamos el cupo de TiendIA porque así está configurado (puedes cambiarlo en Configuración → Inteligencia artificial → Mi API). ${KEEPS_WORKING}`
   return USER_MESSAGES[reason]
 }
@@ -245,7 +255,7 @@ const COMMITTED = `COALESCE(SUM(CASE WHEN billing_source = 'own_key' THEN 0 WHEN
 
 export type Reservation = { id: number; attempt: number; reservedMicros: number; units: number; billingSource: BillingSource; mode: 'shadow' | 'enforce'; limits: ResolvedLimits; wouldBlock: BlockReason | null }
 
-export type ReserveInput = { model: string; kind: SpendKind; amountMicros: number; units?: number; billingSource?: BillingSource; fingerprint?: string | null }
+export type ReserveInput = { model: string; kind: SpendKind; amountMicros: number; units?: number; billingSource?: BillingSource; fingerprint?: string | null; route?: SpendRoute }
 
 /** Reserves one paid call. Throws AiSpendBlockedError when a limit would be crossed (enforce mode).
  *
@@ -292,8 +302,8 @@ export async function reserveSpend(context: SpendContext, input: ReserveInput, n
 
   const row = enforce && duplicates >= DUPLICATE_BLOCK_AT ? null : await db.prepare(
     `INSERT OR IGNORE INTO ai_spend_reservations (op_key, attempt, environment, scope, store_id, plan_code, feature, model, kind, day_key, month_key, reserved_micros, mode,
-       units, session_id, cycle_key, billing_source, request_fingerprint)
-     SELECT ?, (SELECT COALESCE(MAX(attempt), 0) + 1 FROM ai_spend_reservations WHERE op_key = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+       units, session_id, cycle_key, billing_source, request_fingerprint, route)
+     SELECT ?, (SELECT COALESCE(MAX(attempt), 0) + 1 FROM ai_spend_reservations WHERE op_key = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
      WHERE ? = 0 OR (
        (SELECT COALESCE(MAX(attempt), 0) FROM ai_spend_reservations WHERE op_key = ?) < ?
        AND ? <= ?
@@ -319,7 +329,7 @@ export async function reserveSpend(context: SpendContext, input: ReserveInput, n
      RETURNING id, attempt`,
   ).bind(
     context.opKey, context.opKey, env_, context.scope, storeId, limits.planCode, context.feature, input.model.slice(0, 80), input.kind, day, month, amount, mode,
-    units, null, cycleKey, billingSource, fingerprint,
+    units, null, cycleKey, billingSource, fingerprint, input.route ?? (billingSource === 'platform' ? 'plataforma' : billingSource === 'trial' ? 'prueba' : billingSource),
     enforce,
     context.opKey, limits.maxAttempts,
     amount, limits.operationMax,
@@ -528,7 +538,7 @@ export async function guardedGeminiFetch(
   url: string,
   init: RequestInit,
   info: { model: string; kind: SpendKind },
-  options: { forcePlatform?: boolean } = {},
+  options: { forcePlatform?: boolean; route?: SpendRoute } = {},
 ): Promise<Response> {
   const mode = guardMode(env)
   if (mode === 'off') return fetcher(url, init)
@@ -544,13 +554,21 @@ export async function guardedGeminiFetch(
   const storeId = context.scope === 'store' && context.storeId ? context.storeId : null
 
   // Who pays: the store's own key when it applies to this use and model; otherwise the plan (or the platform).
-  const own = storeId && !options.forcePlatform ? await resolveOwnKey(context.db, context.env, storeId, useFor(context.feature, info.kind), info.model, context.feature) : null
+  let own = storeId && !options.forcePlatform && !context.noOwnKey ? await resolveOwnKey(context.db, context.env, storeId, useFor(context.feature, info.kind), info.model, context.feature) : null
+  let route: SpendRoute | undefined = options.route ?? (context.noOwnKey ? 'creditos' : undefined)
+  // Privacy, decided by what this request actually carries: buyers' data never goes to an own key without verified
+  // billing. What happens instead is the owner's explicit choice (use the plan, or do not use AI); never a silent switch.
+  if (own && own.tier !== 'facturacion_verificada' && buyerDataIn(context.feature, body).length) {
+    if (own.buyerDataPolicy !== 'plan' || context.creditsWaived) throw new AiSpendBlockedError(own.buyerDataPolicy === 'bloquear' ? 'buyer_data_blocked' : 'buyer_data_consent')
+    own = null
+    route = 'plan_privacidad'
+  }
   const billingSource: BillingSource = own ? 'own_key' : context.scope === 'store' ? 'plan' : context.scope === 'trial' ? 'trial' : 'platform'
   const units = billingSource === 'plan' ? await unitsFor(context.db, context.feature, body).catch(() => 1) : 0
   const estimate = estimateRequestMicros(context.env, info.model, body, info.kind)
   let reservation: Reservation
   try {
-    reservation = await reserveSpend(context, { model: info.model, kind: info.kind, amountMicros: estimate, units, billingSource, fingerprint: await fingerprintOf(info.model, init) })
+    reservation = await reserveSpend(context, { model: info.model, kind: info.kind, amountMicros: estimate, units, billingSource, fingerprint: await fingerprintOf(info.model, init), route: own ? 'own_key' : route })
   } catch (error) {
     if (isSpendBlocked(error)) throw error
     // The ledger is unavailable: fail closed when enforcing, keep serving when only observing.
@@ -580,7 +598,7 @@ export async function guardedGeminiFetch(
       if (own && storeId) {
         await markOwnKeyResult(context.db, storeId, { ok: false, status: 'activa', code: 'TIMEOUT' })
         // A retry with the platform key only makes sense while the caller is still waiting.
-        if (!callerGaveUp && own.fallbackToPlatform && !context.creditsWaived) return guardedGeminiFetch(env, fetcher, url, init, info, { forcePlatform: true })
+        if (!callerGaveUp && own.fallbackToPlatform && !context.creditsWaived) return fallbackToPlan(env, fetcher, url, init, info, 'own_key_slow')
         throw new AiSpendBlockedError('own_key_slow')
       }
       if (deadline?.aborted) throw new AiSpendBlockedError('model_timeout')
@@ -596,7 +614,7 @@ export async function guardedGeminiFetch(
         await markOwnKeyResult(context.db, storeId, { ok: false, status: keyStatus, code: `HTTP_${response.status}`, kind: info.kind, detail: parseProviderError(response.status, errorBody) })
         // No silent fallback: the platform key is used only if the owner switched it on, and never for an
         // operation whose credits were waived because the own key was going to pay.
-        if (own.fallbackToPlatform && !context.creditsWaived) return guardedGeminiFetch(env, fetcher, url, init, info, { forcePlatform: true })
+        if (own.fallbackToPlatform && !context.creditsWaived) return fallbackToPlan(env, fetcher, url, init, info, 'own_key_failed', keyStatus)
         throw new AiSpendBlockedError('own_key_failed', false, { ownKeyStatus: keyStatus })
       }
     }
@@ -613,6 +631,17 @@ export async function guardedGeminiFetch(
     : { promptTokens: Number(json?.usage?.total_input_tokens || 0), outputTokens: Number(json?.usage?.total_output_tokens || 0) }
   await settle({ outcome: json?.candidates?.[0]?.finishReason === 'MAX_TOKENS' ? 'truncated' : 'ok', usage, model: info.model })
   return response
+}
+
+/** Authorized fallback: the owner switched it on (checked by the caller); the plan's quota is checked by the reservation.
+ * If the plan cannot take it either, the merchant is told both things (own key failed, plan has no quota). */
+async function fallbackToPlan(env: Bindings, fetcher: typeof fetch, url: string, init: RequestInit, info: { model: string; kind: SpendKind }, why: 'own_key_failed' | 'own_key_slow', keyStatus?: OwnKeyStatus): Promise<Response> {
+  try {
+    return await guardedGeminiFetch(env, fetcher, url, init, info, { forcePlatform: true, route: 'plan_respaldo' })
+  } catch (error) {
+    if (isSpendBlocked(error) && error.reason === 'monthly_units') throw new AiSpendBlockedError(why, false, { ownKeyStatus: keyStatus, fallbackRefused: error.userMessage })
+    throw error
+  }
 }
 
 // ---- reading -----------------------------------------------------------------------
@@ -632,4 +661,23 @@ export async function spendSummary(db: D1Database, env: Bindings, now = new Date
      FROM ai_spend_reservations WHERE environment = ? AND month_key = ? GROUP BY feature, kind ORDER BY micros DESC`,
   ).bind(e, month).all()).results || []
   return { environment: e, mode: guardMode(env), pricingVersion: PRICING_VERSION, day: { spent: Number(totals?.day || 0), limit: limits.globalDay }, month: { spent: Number(totals?.month || 0), limit: limits.globalMonth }, byFeature }
+}
+
+/** Can the platform's own monthly ceiling serve every allowance it has sold? The global ceiling protects the shared
+ * Gemini balance; if it is lower than what the active metered stores may use, it would cut advertised allowances.
+ * This never blocks: it tells the platform to raise the ceiling (and the balance) before that happens. */
+export async function allowanceCapacity(db: D1Database, env: Bindings) {
+  const limits = await resolveLimits(db, env, 'platform', null, 'text')
+  const row = await db.prepare(
+    `SELECT COUNT(*) AS stores, COALESCE(SUM(p.ai_monthly_budget_cop), 0) AS budgetCop
+     FROM stores s JOIN plans p ON p.code = s.plan_code
+     WHERE s.status = 'active' AND s.ai_enabled = 1 AND p.ai_monthly_units IS NOT NULL`,
+  ).first<{ stores: number; budgetCop: number }>()
+  const neededMicros = copToMicros(env, Number(row?.budgetCop || 0))
+  const ok = neededMicros <= limits.globalMonth
+  if (!ok) {
+    await db.prepare(`INSERT INTO platform_events (level, source, code, detail) VALUES ('warning', 'ai_spend', 'AI_CAPACITY_SHORT', ?)`)
+      .bind(`El tope mensual global (US$ ${(limits.globalMonth / 1e6).toFixed(2)}) es menor que los cupos vendidos (US$ ${(neededMicros / 1e6).toFixed(2)} en ${row?.stores} tiendas): súbelo y recarga el saldo`).run().catch(() => undefined)
+  }
+  return { meteredStores: Number(row?.stores || 0), neededMicros, globalMonthMicros: limits.globalMonth, ok }
 }

@@ -9,6 +9,7 @@ import {
 } from '../services/platform'
 import type { StoreStatus } from '../tenancy/stores'
 import { getStoreBySlug } from '../tenancy/stores'
+import { OwnKeyError, ownKeyStatus, verifyOwnKeyTier } from '../ai/ownKey'
 import { TemplateError } from '../email/templates'
 import { createTemplate, duplicateTemplate, emailHistory, emailOverview, emailStatus, listCategories, listSuppressions, listTemplates, previewTemplate, removeSuppression, sendTestEmail, setCategoryEnabled, setTemplateActive, updateTemplate, variablesFor } from '../email/manage'
 import { checkSenderDns } from '../email/webhooks'
@@ -187,6 +188,24 @@ app.post('/stores/:slug/credits', async (c) => {
     const result = await grantCredits(c.env.DB, store.id, body, (c.req.header('Idempotency-Key') || '').trim(), actor(c))
     return c.json(result, result.replayed ? 200 : 201)
   } catch (error) { return fail(c, error) }
+})
+
+// API propia de un comercio: la plataforma registra el resultado de revisar la evidencia de facturación
+// (Google AI Studio → Projects → Billing Tier). Google no permite verificarlo con solo la clave.
+app.get('/stores/:slug/ai-key', async (c) => {
+  const store = await getStoreBySlug(c.env.DB, c.req.param('slug'))
+  if (!store) return c.json({ error: 'Store not found', code: 'STORE_NOT_FOUND' }, 404)
+  return c.json(await ownKeyStatus(c.env.DB, c.env, store.id))
+})
+app.post('/stores/:slug/ai-key/tier', async (c) => {
+  const store = await getStoreBySlug(c.env.DB, c.req.param('slug'))
+  if (!store) return c.json({ error: 'Store not found', code: 'STORE_NOT_FOUND' }, 404)
+  const body = await c.req.json().catch(() => null) as { verified?: unknown; note?: unknown } | null
+  if (!body) return c.json({ error: 'Invalid JSON body' }, 400)
+  try { return c.json(await verifyOwnKeyTier(c.env.DB, c.env, store.id, body, actor(c))) } catch (error) {
+    if (error instanceof OwnKeyError) return c.json({ error: error.message, code: error.code }, error.status)
+    throw error
+  }
 })
 
 // Diagnostic: which Gemini models this platform key can use (names only, never the key).

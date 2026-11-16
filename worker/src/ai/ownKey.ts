@@ -12,6 +12,7 @@
 import type { Env } from '../index'
 import { geminiModel } from './geminiClient'
 import { studioModel } from './imageStudio'
+import { BUYER_DATA_FEATURES } from './privacy'
 
 type Bindings = Partial<Env['Bindings']>
 
@@ -105,18 +106,29 @@ export function statusFromHttp(status: number, body: string): OwnKeyStatus | nul
   return null
 }
 
-export type OwnKeyTier = 'desconocido' | 'gratuito' | 'facturacion'
+/** Google offers no documented way to verify a project's tier with only an API key (models.list and the error
+ * replies do not report it; the tier is shown in Google AI Studio → Projects → «Billing Tier»). So the tier is never
+ * inferred: the owner confirms the free tier, or the platform verifies billing from evidence and records who and when. */
+export type OwnKeyTier = 'no_verificada' | 'gratuita_confirmada' | 'facturacion_verificada'
 export type ImageCapability = 'sin_verificar' | 'disponible' | 'no_disponible'
+export type BuyerDataPolicy = 'preguntar' | 'plan' | 'bloquear'
 export const TIER_LABELS: Record<OwnKeyTier, string> = {
-  desconocido: 'sin confirmar',
-  gratuito: 'nivel gratuito de Google',
-  facturacion: 'con facturación activa',
+  no_verificada: 'No verificada',
+  gratuita_confirmada: 'Gratuita (confirmada por el propietario)',
+  facturacion_verificada: 'Facturación verificada por TiendIA',
 }
-
-/** Operations that carry buyers' personal data (names, phones, addresses in orders and shipping guides). They are
- * never sent to an own key unless that key is confirmed with billing: on Google's free tier the provider may use and
- * review the content to improve its products, which does not match our privacy commitment to buyers. */
-export const BUYER_DATA_FEATURES = new Set(['pedidos', 'leer_guia_envio'])
+/** Observations from real calls. They are shown as hints and never change the tier. */
+export const SIGNAL_LABELS: Record<string, string> = {
+  imagen_generada: 'Generó una imagen (las imágenes no tienen nivel gratuito; es un indicio, no una verificación)',
+  limite_gratuito_observado: 'Google respondió con un límite que menciona el nivel gratuito (indicio, no verificación)',
+  pago_requerido: 'Google respondió «pago requerido» (saldo prepago agotado o sin facturación)',
+}
+export const AI_STUDIO_TIER_STEPS = [
+  'Entra a aistudio.google.com con la cuenta dueña de la clave.',
+  'Abre «Projects» (Proyectos) en el menú.',
+  'Busca el proyecto de tu clave y mira la columna «Billing Tier»: «Free» = gratuito; «Tier 1» o superior = con facturación.',
+  'También puedes ver el saldo en «Billing» y los límites en «Rate limit».',
+]
 
 /** What Google said when it refused or limited a call, in plain terms (never the key). */
 export type ProviderErrorDetail = { http: number; status: string | null; quotaMetric: string | null; quotaValue: string | null; retryAfter: string | null; freeTier: boolean }
@@ -133,6 +145,7 @@ export function parseProviderError(http: number, body: string): ProviderErrorDet
     quotaMetric: metric,
     quotaValue: violation?.quotaValue ? String(violation.quotaValue).slice(0, 20) : null,
     retryAfter: details.find((detail) => detail.retryDelay)?.retryDelay?.slice(0, 20) ?? null,
+    // Undocumented by Google: only used as a hint to word the message, never as a tier verification.
     freeTier: /free_tier/i.test(body),
   }
 }
@@ -144,10 +157,11 @@ export function describeProviderError(detail: ProviderErrorDetail | null): strin
   const what = /per_day|PerDay/i.test(metric) ? 'por día' : /per_minute|PerMinute/i.test(metric) ? 'por minuto' : ''
   const kind = /token/i.test(metric) ? 'tokens' : 'solicitudes'
   if (detail.http === 429) {
-    const base = detail.freeTier ? `Límite del nivel gratuito de Google (${kind}${what ? ` ${what}` : ''})` : `Límite de cuota de Google (${kind}${what ? ` ${what}` : ''})`
+    const base = `Límite de cuota de Google (${kind}${what ? ` ${what}` : ''}${detail.freeTier ? ', el mensaje menciona el nivel gratuito' : ''})`
     return `${base}${detail.quotaValue ? `: ${detail.quotaValue}` : ''}${detail.retryAfter ? `. Google sugiere esperar ${detail.retryAfter}` : ''}.`
   }
   if (detail.http === 401 || detail.http === 400) return 'Google rechazó la clave (inválida o revocada).'
+  if (detail.http === 402) return 'Google respondió «pago requerido»: el saldo prepago se agotó o el proyecto no tiene facturación.'
   if (detail.http === 403) return 'Google negó el acceso (permisos del proyecto o facturación).'
   return `Google respondió con el código ${detail.http}${detail.status ? ` (${detail.status})` : ''}.`
 }
@@ -166,6 +180,8 @@ type Row = {
   status: OwnKeyStatus; models_ok: string; fallback_to_platform: number; validated_at: string | null; last_error_code: string | null
   last_used_at: string | null; created_at: string; updated_at: string
   tier: OwnKeyTier; image_capability: ImageCapability; last_error_detail: string | null
+  billing_declared_at: string | null; tier_verified_by: string | null; tier_verified_at: string | null; tier_note: string | null
+  signals: string; buyer_data_policy: BuyerDataPolicy
 }
 
 async function event(db: D1Database, storeId: number, action: string, result: string, errorCode: string | null, actor: string) {
@@ -180,11 +196,15 @@ const publicView = (row: Row | null, env: Bindings) => row
       modelsOk: JSON.parse(row.models_ok || '[]') as string[], validatedAt: row.validated_at, lastErrorCode: row.last_error_code,
       lastUsedAt: row.last_used_at, connectedAt: row.created_at, available: vaultAvailable(env),
       tier: row.tier, tierLabel: TIER_LABELS[row.tier],
+      billingDeclaredAt: row.billing_declared_at, tierVerifiedAt: row.tier_verified_at,
+      signals: (JSON.parse(row.signals || '[]') as string[]).map((code) => SIGNAL_LABELS[code] || code),
+      buyerDataPolicy: row.buyer_data_policy,
+      tierSteps: AI_STUDIO_TIER_STEPS,
       // What it can do for TiendIA today: text (assistant) is verified on connect; images only after a real generation.
       capabilities: {
         text: (JSON.parse(row.models_ok || '[]') as string[]).some((model) => !/image/.test(model)),
         images: row.image_capability,
-        buyerData: row.tier === 'facturacion',
+        buyerData: row.tier === 'facturacion_verificada',
       },
       lastErrorText: describeProviderError(row.last_error_detail ? JSON.parse(row.last_error_detail) as ProviderErrorDetail : null),
     }
@@ -227,7 +247,8 @@ export async function connectOwnKey(db: D1Database, env: Bindings, fetcher: type
      ON CONFLICT(store_id) DO UPDATE SET ciphertext = excluded.ciphertext, iv = excluded.iv, key_version = excluded.key_version, hint = excluded.hint,
        use_assistant = excluded.use_assistant, use_studio = excluded.use_studio, status = 'activa', models_ok = excluded.models_ok,
        fallback_to_platform = excluded.fallback_to_platform, validated_at = excluded.validated_at, last_error_code = NULL, updated_at = datetime('now'),
-       tier = 'desconocido', image_capability = excluded.image_capability, last_error_detail = NULL`,
+       tier = 'no_verificada', billing_declared_at = NULL, tier_verified_by = NULL, tier_verified_at = NULL, tier_note = NULL, signals = '[]',
+       image_capability = excluded.image_capability, last_error_detail = NULL`,
   ).bind(storeId, sealed.ciphertext, sealed.iv, sealed.version, hintOf(apiKey), uses.assistant ? 1 : 0, uses.studio ? 1 : 0, JSON.stringify(validation.modelsOk), fallback, actor.slice(0, 160), validation.imageListed ? 'sin_verificar' : 'no_disponible').run()
   await event(db, storeId, action, 'activa', null, actor)
   await audit(db, storeId, `ai_own_key_${action === 'conectar' ? 'connected' : 'replaced'}`, { hint: hintOf(apiKey), uses, fallback: Boolean(fallback) }, actor)
@@ -276,22 +297,20 @@ async function audit(db: D1Database, storeId: number, action: string, payload: u
 
 // ---- use by the spend guard -------------------------------------------------------
 
-export type ResolvedOwnKey = { apiKey: string; fallbackToPlatform: boolean; status: OwnKeyStatus }
+export type ResolvedOwnKey = { apiKey: string; fallbackToPlatform: boolean; status: OwnKeyStatus; tier: OwnKeyTier; buyerDataPolicy: BuyerDataPolicy }
 
 /** The store's own key for this use and model, or null when it does not apply (not connected, use off, model not
  * verified for that key). A key in an error state still resolves (so the failure is reported, not hidden). */
-export async function resolveOwnKey(db: D1Database, env: Bindings, storeId: number, use: OwnKeyUse, model: string, feature = ''): Promise<ResolvedOwnKey | null> {
+export async function resolveOwnKey(db: D1Database, env: Bindings, storeId: number, use: OwnKeyUse, model: string, _feature = ''): Promise<ResolvedOwnKey | null> {
   if (!vaultAvailable(env)) return null
   const row = await db.prepare('SELECT * FROM store_ai_keys WHERE store_id = ?').bind(storeId).first<Row>().catch(() => null)
   if (!row || !(use === 'assistant' ? row.use_assistant : row.use_studio)) return null
   // Not compatible: this key cannot generate images (Google refused them before). The operation is not sent to it.
   if (/image/.test(model) && row.image_capability === 'no_disponible') return null
-  // Privacy: buyers' personal data only goes to an own key confirmed with billing (see BUYER_DATA_FEATURES).
-  if (BUYER_DATA_FEATURES.has(feature) && row.tier !== 'facturacion') return null
   const models = JSON.parse(row.models_ok || '[]') as string[]
   if (row.status === 'activa' && !models.includes(model)) return null
   try {
-    return { apiKey: await decryptApiKey(env, storeId, row), fallbackToPlatform: Boolean(row.fallback_to_platform), status: row.status }
+    return { apiKey: await decryptApiKey(env, storeId, row), fallbackToPlatform: Boolean(row.fallback_to_platform), status: row.status, tier: row.tier, buyerDataPolicy: row.buyer_data_policy }
   } catch {
     console.error('Own AI key could not be decrypted for a store (vault mismatch)')
     return null
@@ -302,6 +321,8 @@ export async function resolveOwnKey(db: D1Database, env: Bindings, storeId: numb
 export async function ownKeyCovers(db: D1Database, env: Bindings, storeId: number, feature: string, kind: 'text' | 'image' | 'video'): Promise<boolean> {
   const model = kind === 'text' ? geminiModel(env) : studioModel(env) || ''
   const key = await resolveOwnKey(db, env, storeId, useFor(feature, kind), model, feature)
+  // Operations that carry buyers' data by nature never waive credits for an unverified key: the guard will not send them there.
+  if (key && BUYER_DATA_FEATURES.has(feature) && key.tier !== 'facturacion_verificada') return false
   return Boolean(key && key.status === 'activa')
 }
 
@@ -311,19 +332,73 @@ export async function markOwnKeyResult(
 ) {
   if (outcome.ok) {
     // A call that works proves the key is usable again (for example after the owner enabled billing). A generated
-    // image proves both the image capability and billing (images have no free tier).
+    // image proves the image capability; billing stays unverified (only a hint is recorded).
     const image = outcome.kind === 'image'
     await db.prepare(
       `UPDATE store_ai_keys SET last_used_at = datetime('now'), status = 'activa', last_error_code = NULL, last_error_detail = NULL
-         ${image ? ", image_capability = 'disponible', tier = 'facturacion'" : ''} WHERE store_id = ?`,
+         ${image ? ", image_capability = 'disponible'" : ''} WHERE store_id = ?`,
     ).bind(storeId).run().catch(() => undefined)
+    if (image) await addSignal(db, storeId, 'imagen_generada')
     return
   }
   const detail = outcome.detail ?? null
   const imageRefused = outcome.kind === 'image' && (outcome.status === 'sin_cuota' || outcome.status === 'sin_permiso')
   await db.prepare(
     `UPDATE store_ai_keys SET status = ?, last_error_code = ?, last_error_detail = ?, updated_at = datetime('now')
-       ${detail?.freeTier ? ", tier = 'gratuito'" : ''}${imageRefused ? ", image_capability = 'no_disponible'" : ''} WHERE store_id = ?`,
+       ${imageRefused ? ", image_capability = 'no_disponible'" : ''} WHERE store_id = ?`,
   ).bind(outcome.status, outcome.code, detail ? JSON.stringify(detail) : null, storeId).run().catch(() => undefined)
+  if (detail?.freeTier) await addSignal(db, storeId, 'limite_gratuito_observado')
+  if (detail?.http === 402) await addSignal(db, storeId, 'pago_requerido')
   await event(db, storeId, 'uso', outcome.status, outcome.code, 'system').catch(() => undefined)
+}
+
+async function addSignal(db: D1Database, storeId: number, code: string) {
+  await db.prepare(
+    `UPDATE store_ai_keys SET signals = json_insert(signals, '$[#]', ?1) WHERE store_id = ?2 AND NOT EXISTS (SELECT 1 FROM json_each(signals) WHERE value = ?1)`,
+  ).bind(code, storeId).run().catch(() => undefined)
+}
+
+// ---- tier declarations and verification ------------------------------------------
+
+/** The owner states what AI Studio shows for the key's project. «gratuita» is confirmed by that statement; «facturacion»
+ * only records the declaration and asks the platform to verify it (it never becomes «verified» by itself). */
+export async function declareOwnKeyTier(db: D1Database, env: Bindings, storeId: number, body: { tier?: unknown }, actor: string) {
+  const row = await db.prepare('SELECT tier FROM store_ai_keys WHERE store_id = ?').bind(storeId).first<{ tier: OwnKeyTier }>()
+  if (!row) throw new OwnKeyError('KEY_NOT_FOUND', 'No hay una API propia conectada.', 404)
+  if (body.tier === 'gratuita') {
+    await db.prepare(`UPDATE store_ai_keys SET tier = 'gratuita_confirmada', billing_declared_at = NULL, tier_verified_by = ?, tier_verified_at = datetime('now'), tier_note = 'Confirmada por el propietario', updated_at = datetime('now') WHERE store_id = ?`)
+      .bind(actor.slice(0, 160), storeId).run()
+    await event(db, storeId, 'nivel_gratuito_confirmado', 'ok', null, actor)
+  } else if (body.tier === 'facturacion') {
+    await db.prepare(`UPDATE store_ai_keys SET billing_declared_at = datetime('now'), tier = CASE WHEN tier = 'facturacion_verificada' THEN tier ELSE 'no_verificada' END, updated_at = datetime('now') WHERE store_id = ?`)
+      .bind(storeId).run()
+    await event(db, storeId, 'facturacion_declarada', 'pendiente', null, actor)
+    await db.prepare(`INSERT INTO platform_events (store_id, level, source, code, detail) VALUES (?, 'info', 'ai', 'OWN_KEY_BILLING_DECLARED', 'El propietario declaró facturación en su API propia: revisar evidencia de AI Studio')`).bind(storeId).run()
+  } else {
+    throw new OwnKeyError('INVALID_TIER', 'Indica «gratuita» o «facturacion».')
+  }
+  return ownKeyStatus(db, env, storeId)
+}
+
+/** Platform (superadmin) records the result of reviewing the evidence (AI Studio → Projects → Billing Tier). */
+export async function verifyOwnKeyTier(db: D1Database, env: Bindings, storeId: number, body: { verified?: unknown; note?: unknown }, actor: string) {
+  const note = typeof body.note === 'string' ? body.note.replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 300) : ''
+  if (!note) throw new OwnKeyError('NOTE_REQUIRED', 'Escribe qué evidencia revisaste (por ejemplo, captura de «Billing Tier: Tier 1»).')
+  const tier: OwnKeyTier = body.verified === true ? 'facturacion_verificada' : 'no_verificada'
+  const updated = await db.prepare(`UPDATE store_ai_keys SET tier = ?, tier_verified_by = ?, tier_verified_at = datetime('now'), tier_note = ?, updated_at = datetime('now') WHERE store_id = ? RETURNING store_id`)
+    .bind(tier, actor.slice(0, 160), note, storeId).first()
+  if (!updated) throw new OwnKeyError('KEY_NOT_FOUND', 'Esa tienda no tiene API propia conectada.', 404)
+  await event(db, storeId, tier === 'facturacion_verificada' ? 'facturacion_verificada' : 'facturacion_no_verificada', 'ok', null, actor)
+  await audit(db, storeId, 'ai_own_key_tier_verified', { tier, note }, actor)
+  return ownKeyStatus(db, env, storeId)
+}
+
+/** Owner's explicit choice for tasks with buyers' data when the key has no verified billing. */
+export async function setBuyerDataPolicy(db: D1Database, env: Bindings, storeId: number, body: { policy?: unknown }, actor: string) {
+  if (body.policy !== 'plan' && body.policy !== 'bloquear' && body.policy !== 'preguntar') throw new OwnKeyError('INVALID_POLICY', 'Elige «plan» o «bloquear».')
+  const updated = await db.prepare(`UPDATE store_ai_keys SET buyer_data_policy = ?, updated_at = datetime('now') WHERE store_id = ? RETURNING store_id`).bind(body.policy, storeId).first()
+  if (!updated) throw new OwnKeyError('KEY_NOT_FOUND', 'No hay una API propia conectada.', 404)
+  await event(db, storeId, 'politica_datos_compradores', String(body.policy), null, actor)
+  await audit(db, storeId, 'ai_own_key_buyer_data_policy', { policy: body.policy }, actor)
+  return ownKeyStatus(db, env, storeId)
 }

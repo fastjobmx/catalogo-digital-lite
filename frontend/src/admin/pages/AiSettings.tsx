@@ -221,7 +221,7 @@ function OwnApi({ state, token, isOwner, onChange }: { state: OwnKeyState; token
               <table className="w-full text-sm"><tbody>
                 <tr><td className="py-1.5 text-muted">Estado</td><td className="text-right font-bold">{state.statusLabel}</td></tr>
                 <tr><td className="py-1.5 text-muted">Clave</td><td className="text-right font-mono">{state.hint}</td></tr>
-                <tr><td className="py-1.5 text-muted">Nivel en Google</td><td className="text-right">{state.tierLabel}</td></tr>
+                <tr><td className="py-1.5 text-muted">Nivel en Google</td><td className="text-right">{state.tierLabel}{state.billingDeclaredAt && state.tier !== 'facturacion_verificada' ? ' · facturación declarada, pendiente de verificación' : ''}</td></tr>
                 <tr><td className="py-1.5 text-muted">Uso</td><td className="text-right">{[state.useAssistant && 'Asistente', state.useStudio && 'Estudio IA'].filter(Boolean).join(' y ')}</td></tr>
                 <tr><td className="py-1.5 text-muted">Mensajes, voz y fotos a producto</td><td className="text-right">{state.capabilities?.text ? 'Sí' : 'No'}</td></tr>
                 <tr><td className="py-1.5 text-muted align-top">Imágenes premium</td><td className="text-right">{IMAGE_CAPABILITY[state.capabilities?.images || 'sin_verificar']}</td></tr>
@@ -232,6 +232,25 @@ function OwnApi({ state, token, isOwner, onChange }: { state: OwnKeyState; token
                 <tr><td className="py-1.5 text-muted">Tareas con tu API este mes</td><td className="text-right">{state.callsThisMonth}</td></tr>
               </tbody></table>
               {state.lastErrorText && <p className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">Último aviso de Google: {state.lastErrorText}</p>}
+              {state.signals && state.signals.length > 0 && <ul className="mt-3 text-xs text-muted list-disc pl-5 space-y-0.5">{state.signals.map((signal) => <li key={signal}>{signal}</li>)}</ul>}
+              <div className="mt-4 rounded-xl border border-line p-3 text-sm space-y-2">
+                <p className="font-bold text-ink">¿En qué nivel está tu proyecto de Google?</p>
+                <p className="text-muted">Google no permite comprobarlo con la clave. Revísalo así:</p>
+                <ol className="list-decimal pl-5 text-ink space-y-0.5">{(state.tierSteps || []).map((step) => <li key={step}>{step}</li>)}</ol>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <button className="btn-ghost" disabled={!isOwner || busy} onClick={() => void act(() => aiApi.declareTier('gratuita', token), 'Registrado: nivel gratuito confirmado por ti.')}>Está en «Free» (gratuito)</button>
+                  <button className="btn-ghost" disabled={!isOwner || busy} onClick={() => void act(() => aiApi.declareTier('facturacion', token), 'Registrado. TiendIA revisará la evidencia para verificar la facturación.')}>Tiene facturación (pedir verificación)</button>
+                </div>
+              </div>
+              <div className="mt-3 rounded-xl border border-line p-3 text-sm space-y-2">
+                <p className="font-bold text-ink">Tareas con datos de tus compradores</p>
+                <p className="text-muted">Mientras tu clave no tenga facturación verificada, los pedidos, las guías y los mensajes con teléfonos, correos o direcciones de compradores no se envían a tu API. Elige qué hacer con ellas:</p>
+                <div className="flex flex-wrap gap-2">
+                  <button className={state.buyerDataPolicy === 'plan' ? 'btn-brand' : 'btn-ghost'} disabled={!isOwner || busy} onClick={() => void act(() => aiApi.buyerDataPolicy('plan', token), 'Esas tareas usarán las consultas de tu plan.')}>Usar las consultas de mi plan</button>
+                  <button className={state.buyerDataPolicy === 'bloquear' ? 'btn-brand' : 'btn-ghost'} disabled={!isOwner || busy} onClick={() => void act(() => aiApi.buyerDataPolicy('bloquear', token), 'Esas tareas no se procesarán con IA.')}>No procesarlas con IA</button>
+                </div>
+                {state.buyerDataPolicy === 'preguntar' && <p className="text-xs text-amber-700">Aún no has elegido: por ahora esas tareas no se procesan con IA.</p>}
+              </div>
               <div className="flex flex-wrap gap-2 mt-4">
                 <button className="btn-ghost" disabled={!isOwner || busy} onClick={() => void act(() => aiApi.validateKey(token), 'Validación hecha.')}>Validar de nuevo</button>
                 {confirming

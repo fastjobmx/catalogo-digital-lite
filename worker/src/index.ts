@@ -20,7 +20,7 @@ import { processPendingVideoJobs } from './creative/videoEngine'
 import { cleanupAssistantMemory } from './services/assistant/context'
 import { cleanupExpiredTelegramProductAssets } from './services/telegramProductImages'
 import { releaseExpiredReservations } from './ai/credits'
-import { expireStaleReservations } from './ai/spendGuard'
+import { allowanceCapacity, expireStaleReservations } from './ai/spendGuard'
 import { expireCreditLots } from './ai/creditWallet'
 import trialRoutes from './routes/trial'
 import seoRoutes from './routes/seo'
@@ -261,6 +261,8 @@ const worker = {
   // Gasto IA: cierra reservas que un Worker caído dejó abiertas (se cuentan por lo reservado: la llamada pudo cobrarse).
   // Créditos artísticos: retira lo que quedó de lotes vencidos (un ajuste idempotente por lote).
   context.waitUntil(expireCreditLots(env.DB).catch((error) => console.error('Credit expiry failed:', error instanceof Error ? error.message : 'unknown')))
+  // Una vez al día: ¿el tope global alcanza para los cupos vendidos? (solo avisa)
+  if (tick.getUTCHours() === 8 && tick.getUTCMinutes() < 15) context.waitUntil(allowanceCapacity(env.DB, env).catch(() => undefined))
   context.waitUntil(expireStaleReservations(env.DB).catch((error) => console.error('AI spend reservation cleanup failed:', error instanceof Error ? error.message : 'unknown')))
   // Estudio Creativo: primero libera trabajos caídos; después avanza la cola de fotos pendientes.
   context.waitUntil(maintainCreativeJobs(env.DB).then(() => processPendingPhotoJobs(env)).then(() => processPendingVideoJobs(env)).catch((error) => console.error('Creative jobs maintenance failed:', error instanceof Error ? error.message : 'unknown')))

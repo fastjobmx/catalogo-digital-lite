@@ -7,7 +7,7 @@ import { taskAvailability } from '../creative/aiRouter'
 import { ALLOWED_FONTS, CreativeError, TONES, VISUAL_STYLES, brandKitService, storeAppearanceHints } from '../creative/brandKit'
 import { creativeJobService, isJobKind, JOB_STATUSES, retryJob } from '../creative/jobs'
 import { assetLibrary } from '../creative/library'
-import { cancelPhotoBatch, createPhotoBatch, PHOTO_OPERATIONS, photoBatchStatus, photoCatalog, quotePhotoBatch, runPhotoJob } from '../creative/photoEngine'
+import { cancelPhotoBatch, createPhotoBatch, PHOTO_OPERATIONS, photoBatchStatus, photoCatalog, quotePhotoBatch, retryPhotoJobWithCredits, runPhotoJob } from '../creative/photoEngine'
 import { pieceService, QUALITIES } from '../creative/pieces'
 import { CREATIVE_FORMATS, CREATIVE_TEMPLATES, guardAiCopy, isTemplate, loadFacts, suggestCopyWithAi, templateEligibility, type TemplateKey } from '../creative/templates'
 import { createVideoAiJob, quoteVideoAi, runVideoJob, videoAiCatalog } from '../creative/videoEngine'
@@ -79,6 +79,12 @@ app.post('/jobs/:id/retry', async (c) => {
   try { return c.json(await retryJob(c.env.DB, ctx(c), c.req.param('id'))) } catch (error) { return fail(c, error) }
 })
 
+// La foto falló con la API propia: reintento pagando con créditos, solo con la confirmación del costo mostrado.
+app.post('/jobs/:id/retry-with-credits', async (c) => {
+  const body = await c.req.json().catch(() => ({})) as { confirmCredits?: unknown }
+  try { return c.json(await retryPhotoJobWithCredits(c.env, ctx(c), c.req.param('id'), body)) } catch (error) { return fail(c, error) }
+})
+
 // Ejecuta un trabajo pendiente de la tienda. El panel llama aquí para avanzar el lote; el cron hace lo mismo en segundo plano.
 app.post('/jobs/:id/run', async (c) => {
   const pending = await creativeJobService(c.env.DB).get(ctx(c), c.req.param('id'))
@@ -93,9 +99,9 @@ app.post('/jobs/:id/run', async (c) => {
 app.get('/photo/catalog', async (c) => c.json(await photoCatalog(c.env, c.get('storeId')!)))
 
 app.post('/photo/quote', async (c) => {
-  const body = await c.req.json().catch(() => null) as { operation?: unknown; count?: unknown } | null
+  const body = await c.req.json().catch(() => null) as { operation?: unknown; count?: unknown; payWith?: unknown } | null
   if (!body) return c.json({ error: 'Invalid JSON body' }, 400)
-  try { return c.json(await quotePhotoBatch(c.env, ctx(c), body.operation, body.count)) } catch (error) { return fail(c, error) }
+  try { return c.json(await quotePhotoBatch(c.env, ctx(c), body.operation, body.count, body.payWith === 'credits')) } catch (error) { return fail(c, error) }
 })
 
 app.post('/photo/batches', async (c) => {

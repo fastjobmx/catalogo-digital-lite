@@ -668,8 +668,13 @@ export type OwnKeyState = {
   lastErrorCode?: string | null
   lastUsedAt?: string | null
   connectedAt?: string
-  tier?: 'desconocido' | 'gratuito' | 'facturacion'
+  tier?: 'no_verificada' | 'gratuita_confirmada' | 'facturacion_verificada'
   tierLabel?: string
+  billingDeclaredAt?: string | null
+  tierVerifiedAt?: string | null
+  signals?: string[]
+  buyerDataPolicy?: 'preguntar' | 'plan' | 'bloquear'
+  tierSteps?: string[]
   capabilities?: { text: boolean; images: 'sin_verificar' | 'disponible' | 'no_disponible'; buyerData: boolean }
   lastErrorText?: string | null
   callsThisMonth: number
@@ -702,6 +707,8 @@ export const aiApi = {
   updateKey: (payload: { useAssistant?: boolean; useStudio?: boolean; fallbackToPlatform?: boolean }, token: string) =>
     fetchApi<OwnKeyState>('/api/admin/ai/key', { method: 'PATCH', headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(payload) }),
   validateKey: (token: string) => fetchApi<OwnKeyState>('/api/admin/ai/key/validate', { method: 'POST', headers: { Authorization: `Bearer ${token}` } }),
+  declareTier: (tier: 'gratuita' | 'facturacion', token: string) => fetchApi<OwnKeyState>('/api/admin/ai/key/tier', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify({ tier }) }),
+  buyerDataPolicy: (policy: 'plan' | 'bloquear', token: string) => fetchApi<OwnKeyState>('/api/admin/ai/key/buyer-data', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify({ policy }) }),
   disconnectKey: (token: string) => fetchApi<OwnKeyState>('/api/admin/ai/key', { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }),
   requestPack: (packCode: string, token: string) => fetchApi<CreditRequest>('/api/admin/credits/requests', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify({ packCode }) }),
 }
@@ -969,6 +976,7 @@ export const creativePhotoApi = {
   cancelBatch: (id: string, token: string) => fetchApi<PhotoBatchApi & { cancelled: number }>(`/api/creative/photo/batches/${encodeURIComponent(id)}/cancel`, { method: 'POST', headers: auth(token) }),
   runJob: (id: string, token: string) => fetchApi<CreativeJobApi>(`/api/creative/jobs/${id}/run`, { method: 'POST', headers: auth(token) }),
   retryJob: (id: string, token: string) => fetchApi<CreativeJobApi>(`/api/creative/jobs/${id}/retry`, { method: 'POST', headers: auth(token) }),
+  retryJobWithCredits: (id: string, confirmCredits: number, token: string) => fetchApi<CreativeJobApi>(`/api/creative/jobs/${id}/retry-with-credits`, { method: 'POST', headers: auth(token), body: JSON.stringify({ confirmCredits }) }),
   assets: (token: string, filter: { role?: string; status?: string; productId?: number; sourceId?: string; before?: string } = {}) => {
     const query = new URLSearchParams(Object.entries(filter).filter(([, value]) => value !== undefined && value !== '').map(([key, value]) => [key, String(value)]))
     query.set('t', String(Date.now()))

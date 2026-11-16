@@ -11,6 +11,7 @@ type Bindings = Partial<Env['Bindings']>
 
 const CHANNELS: Record<string, string> = { tg: 'Telegram', wa: 'WhatsApp', waha: 'WhatsApp', cr: 'Panel', master: 'Plataforma', trial: 'Prueba gratuita' }
 const PAID_WITH: Record<string, string> = { plan: 'Plan', own_key: 'Mi API', platform: 'Plataforma', trial: 'Prueba gratuita' }
+const ROUTE_LABELS: Record<string, string> = { plan_respaldo: 'Plan (respaldo autorizado: tu API falló)', plan_privacidad: 'Plan (datos de compradores)' }
 const IMAGE_FEATURES = ['estudio_imagen', 'foto_packshot', 'foto_premium', 'video_ia_segundo']
 
 export async function aiOverview(db: D1Database, env: Bindings, storeId: number, now = new Date()) {
@@ -27,8 +28,8 @@ export async function aiOverview(db: D1Database, env: Bindings, storeId: number,
   const level = percent === null ? null : [...NOTICE_THRESHOLDS].reverse().find((threshold) => percent >= threshold) ?? null
   const label = new Map(weights.map((weight) => [weight.feature, weight.label]))
   const rows = (await db.prepare(
-    `SELECT created_at AS at, feature, kind, billing_source AS paidWith, units, status, outcome, op_key AS opKey FROM ai_spend_reservations WHERE store_id = ? ORDER BY id DESC LIMIT 40`,
-  ).bind(storeId).all<{ at: string; feature: string; kind: string; paidWith: string; units: number; status: string; outcome: string | null; opKey: string }>()).results || []
+    `SELECT created_at AS at, feature, kind, billing_source AS paidWith, route, units, status, outcome, op_key AS opKey FROM ai_spend_reservations WHERE store_id = ? ORDER BY id DESC LIMIT 40`,
+  ).bind(storeId).all<{ at: string; feature: string; kind: string; paidWith: string; units: number; status: string; outcome: string | null; opKey: string; route: string | null }>()).results || []
   const history = await Promise.all(rows.map(async (row) => {
     // Artistic generation is paid with credits: show the credits of its reservation (0 if they were given back).
     let credits: number | null = null
@@ -42,7 +43,7 @@ export async function aiOverview(db: D1Database, env: Bindings, storeId: number,
     }
     return {
       at: row.at, task: label.get(row.feature) || row.feature, channel: CHANNELS[row.opKey.split(':')[0] || ''] || 'Panel',
-      paidWith: credits !== null ? 'Créditos' : PAID_WITH[row.paidWith] || row.paidWith,
+      paidWith: credits !== null ? 'Créditos' : ROUTE_LABELS[row.route || ''] || PAID_WITH[row.paidWith] || row.paidWith,
       units: row.status === 'released' ? 0 : row.units, credits,
       result: row.status === 'released' ? 'falló (no se descontó)' : row.outcome === 'truncated' ? 'respuesta incompleta' : row.status === 'reserved' ? 'en curso' : 'ok',
     }

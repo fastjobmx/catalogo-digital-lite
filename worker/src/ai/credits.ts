@@ -122,6 +122,9 @@ export async function runWithCredits<T extends { usage?: TokenUsage; model?: str
     storeId: number; feature: AiCreditFeature; key: string; actor: string; units?: number
     /** Stable key for the spend guard when `key` changes per attempt (queued jobs): bounds paid attempts per job. */
     spendKey?: string
+    /** Who pays, as the owner confirmed it: «auto» (own key when it covers the task, otherwise credits), «own_key» (only
+     * the own key; if it cannot, nothing is charged and nothing runs) or «credits» (credits; the own key is not used). */
+    payWith?: 'auto' | 'own_key' | 'credits'
   },
   call: () => Promise<T>,
 ): Promise<CreditRun<T>> {
@@ -134,7 +137,10 @@ export async function runWithCredits<T extends { usage?: TokenUsage; model?: str
   if (cost && !cost.enabled) return blocked('feature_disabled')
   // The store's own API key pays this operation: TiendIA charges no credits for it (and the guard will never send
   // it with the platform key instead).
-  const ownKey = await ownKeyCovers(db, env, input.storeId, input.feature, kindOfFeature(input.feature)).catch(() => false)
+  const payWith = input.payWith ?? 'auto'
+  const ownKey = payWith === 'credits' ? false : await ownKeyCovers(db, env, input.storeId, input.feature, kindOfFeature(input.feature)).catch(() => false)
+  // Confirmed to run with the own key, but it no longer covers the task: never switch to credits silently.
+  if (payWith === 'own_key' && !ownKey) return { ok: false, reason: 'own_key_failed', message: 'Tu API de Gemini ya no está disponible para esta tarea. Puedes volver a intentarlo pagando con créditos artísticos (te mostraremos cuántos antes).' }
   const budget = await checkAiBudget(db, env, input.storeId)
   if (!budget.allowed) {
     await recordAiUsage(db, env, { storeId: input.storeId, feature: input.feature, status: 'blocked' })
@@ -153,7 +159,7 @@ export async function runWithCredits<T extends { usage?: TokenUsage; model?: str
     reservationId = reservation.reservationId
   }
   try {
-    const spend = { db, env, scope: 'store' as const, storeId: input.storeId, feature: input.feature, opKey: `cr:${input.storeId}:${input.spendKey || input.key}`, creditsWaived: ownKey }
+    const spend = { db, env, scope: 'store' as const, storeId: input.storeId, feature: input.feature, opKey: `cr:${input.storeId}:${input.spendKey || input.key}`, creditsWaived: ownKey, noOwnKey: payWith === 'credits' }
     const value = await runWithSpend(spend, call)
     if (reservationId) await settleReservation(db, reservationId, 'consumo')
     await recordAiUsage(db, env, { storeId: input.storeId, feature: input.feature, model: value.model, usage: value.usage, status: 'ok' })

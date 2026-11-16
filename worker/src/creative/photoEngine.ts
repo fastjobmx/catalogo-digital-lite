@@ -9,6 +9,8 @@
  * prompt. El original no se modifica y cada resultado queda «pendiente» hasta que el comercio lo aprueba. */
 import type { Env } from '../index'
 import { creditSummary, runWithCredits, validIdempotencyKey, type AiCreditFeature } from '../ai/credits'
+import { creditCostFor } from '../ai/creditWallet'
+import { ownKeyCovers } from '../ai/ownKey'
 import { geminiFailureCode, UNTRUSTED_CONTENT_RULE } from '../ai/geminiClient'
 import { editPhotoWithInstruction } from '../ai/imageStudio'
 import { estimateCostMicros } from '../ai/usage'
@@ -16,7 +18,7 @@ import { buildCatalog, routeTask } from './aiRouter'
 import { CreativeError } from './brandKit'
 import type { CreativeContext, CreativeJob } from './contracts'
 import { fromBase64, sniffImageType, toBase64 } from './imageInfo'
-import { cancelBatch, claimJob, creativeJobService, finishJob, listBatchJobs, MAX_ACTIVE_JOBS_PER_STORE } from './jobs'
+import { cancelBatch, claimJob, creativeJobService, finishJob, listBatchJobs, MAX_ACTIVE_JOBS_PER_STORE, retryJob } from './jobs'
 import { assetLibrary, type CreativeAsset } from './library'
 
 export type PhotoLevel = 'A' | 'B' | 'C'
@@ -132,9 +134,16 @@ function modelFor(env: EngineEnv, level: PhotoLevel) {
   return decision.ok && decision.entry.provider === 'gemini' ? decision.entry : null
 }
 
-async function unitCost(db: D1Database, feature: AiCreditFeature) {
-  const row = await db.prepare('SELECT credits, enabled FROM ai_credit_costs WHERE feature = ?').bind(feature).first<{ credits: number; enabled: number }>()
+/** Credits per photo for THIS store (its price version) — the same figure runWithCredits will charge. */
+async function unitCost(db: D1Database, storeId: number, feature: AiCreditFeature) {
+  const row = await creditCostFor(db, storeId, feature)
   return { configured: Boolean(row), credits: Number(row?.credits || 0), enabled: row ? Boolean(row.enabled) : true }
+}
+
+/** Who will pay a photo of this level, as shown before confirming: the store's own key (0 credits) or credits. */
+async function photoPayer(env: EngineEnv, storeId: number, feature: AiCreditFeature, preferCredits = false): Promise<'own_key' | 'credits'> {
+  if (preferCredits) return 'credits'
+  return (await ownKeyCovers(env.DB, env, storeId, feature, 'image').catch(() => false)) ? 'own_key' : 'credits'
 }
 
 /** Lo que el panel necesita para ofrecer operaciones con honestidad: disponibilidad y precio por foto. */
@@ -143,7 +152,7 @@ export async function photoCatalog(env: EngineEnv, storeId: number) {
   const aiEnabled = Boolean(store?.ai_enabled) && Boolean(env.GEMINI_API_KEY)
   const levels = await Promise.all((Object.keys(PHOTO_LEVELS) as PhotoLevel[]).map(async (level) => {
     const info = PHOTO_LEVELS[level]
-    const cost = info.feature ? await unitCost(env.DB, info.feature) : null
+    const cost = info.feature ? await unitCost(env.DB, storeId, info.feature) : null
     const model = info.feature ? modelFor(env, level) : null
     return {
       level, label: info.label, description: info.description,
@@ -156,18 +165,21 @@ export async function photoCatalog(env: EngineEnv, storeId: number) {
   return { aiEnabled, levels, operations, maxBatchItems: MAX_BATCH_ITEMS, balance: (await creditSummary(env.DB, storeId)).balance }
 }
 
-export async function quotePhotoBatch(env: EngineEnv, ctx: CreativeContext, operationKey: unknown, count: unknown) {
+export async function quotePhotoBatch(env: EngineEnv, ctx: CreativeContext, operationKey: unknown, count: unknown, preferCredits = false) {
   const op = operation(operationKey)
   const items = Number(count)
   if (!Number.isInteger(items) || items < 1 || items > MAX_BATCH_ITEMS) throw new CreativeError('INVALID_COUNT', `Elige entre 1 y ${MAX_BATCH_ITEMS} fotos`)
   if (!op.available) throw new CreativeError('OPERATION_UNAVAILABLE', op.note || 'Esta mejora todavía no está disponible', 409)
   const feature = PHOTO_LEVELS[op.level].feature
-  const cost = feature ? await unitCost(env.DB, feature) : { configured: true, credits: 0, enabled: true }
-  const total = cost.credits * items
+  const cost = feature ? await unitCost(env.DB, ctx.storeId, feature) : { configured: true, credits: 0, enabled: true }
+  const payWith = feature ? await photoPayer(env, ctx.storeId, feature, preferCredits) : 'credits'
+  // With the store's own key the photos cost 0 credits (Google bills the owner). The quote says so before confirming.
+  const perPhoto = payWith === 'own_key' ? 0 : cost.credits
+  const total = perPhoto * items
   const balance = (await creditSummary(env.DB, ctx.storeId)).balance
   return {
     operation: op.key, level: op.level, runsIn: op.runsIn, count: items,
-    creditsPerPhoto: cost.credits, priceConfigured: cost.configured, totalCredits: total, balance,
+    creditsPerPhoto: perPhoto, creditsPerPhotoWithCredits: cost.credits, payWith, priceConfigured: cost.configured, totalCredits: total, balance,
     enough: balance >= total, paused: !cost.enabled,
   }
 }
@@ -175,14 +187,14 @@ export async function quotePhotoBatch(env: EngineEnv, ctx: CreativeContext, oper
 type BatchItemInput = { productId?: unknown; imageUrl?: unknown; assetId?: unknown; telegramBatchId?: unknown; telegramItemId?: unknown }
 
 /** Crea un lote: un trabajo por foto. Las fotos que no se pueden tomar se informan sin tumbar el resto. */
-export async function createPhotoBatch(env: EngineEnv, ctx: CreativeContext, body: { operation?: unknown; items?: unknown; confirmCredits?: unknown }, key: string) {
+export async function createPhotoBatch(env: EngineEnv, ctx: CreativeContext, body: { operation?: unknown; items?: unknown; confirmCredits?: unknown; payWith?: unknown }, key: string) {
   if (!validIdempotencyKey(key) || key.length > 80) throw new CreativeError('INVALID_IDEMPOTENCY_KEY', 'Falta el encabezado Idempotency-Key')
   const existing = await listBatchJobs(env.DB, ctx.storeId, key)
   if (existing.length) return { ...(await photoBatchStatus(env, ctx, key)), replayed: true, skipped: [] as Array<{ index: number; code: string; message: string }> }
   const op = operation(body.operation)
   if (op.runsIn !== 'ia') throw new CreativeError('BROWSER_OPERATION', 'La edición convencional se hace en el navegador y no crea trabajos')
   const items = Array.isArray(body.items) ? body.items as BatchItemInput[] : []
-  const quote = await quotePhotoBatch(env, ctx, op.key, items.length)
+  const quote = await quotePhotoBatch(env, ctx, op.key, items.length, body.payWith === 'credits')
   if (quote.paused) throw new CreativeError('FEATURE_PAUSED', 'Esta función de IA está pausada por la plataforma.', 409)
   if (!env.GEMINI_API_KEY || !modelFor(env, op.level)) throw new CreativeError('AI_UNAVAILABLE', 'La IA de imágenes todavía no está activada en esta plataforma.', 409)
   // Confirmación explícita del costo que el comercio vio en pantalla.
@@ -205,7 +217,7 @@ export async function createPhotoBatch(env: EngineEnv, ctx: CreativeContext, bod
       else asset = (await library.importProductImage(ctx, item?.productId, item?.imageUrl)).asset
       if (seen.has(asset.id)) throw new CreativeError('DUPLICATE_PHOTO', 'Esta foto ya está en el lote')
       seen.add(asset.id)
-      await jobs.create(ctx, { kind: 'foto', idempotencyKey: `${key}:${index}`, batchId: key, input: { operation: op.key, level: op.level, assetId: asset.id, productId: asset.productId } })
+      await jobs.create(ctx, { kind: 'foto', idempotencyKey: `${key}:${index}`, batchId: key, input: { operation: op.key, level: op.level, assetId: asset.id, productId: asset.productId, payWith: quote.payWith } })
     } catch (error) {
       if (!(error instanceof CreativeError)) throw error
       skipped.push({ index, code: error.code, message: error.message })
@@ -260,8 +272,10 @@ export async function runPhotoJob(env: EngineEnv, storeId: number, jobId: string
       instruction = instruction.replace('{categoria}', name ? ` («${name}»)` : '')
     }
     // El costo sale de la tabla oficial de precios (pricing.ts) según el modelo de imagen usado.
-    const cost = await unitCost(env.DB, feature)
-    const run = await runWithCredits(env.DB, env, { storeId, feature, key: `job:${job.id}:${job.attempts}`, spendKey: `job:${job.id}`, actor: job.requestedBy }, async () => {
+    const cost = await unitCost(env.DB, storeId, feature)
+    // Pay exactly as the owner confirmed: own key (never switched to credits) or credits (never sent to the own key).
+    const payWith = job.input.payWith === 'own_key' || job.input.payWith === 'credits' ? job.input.payWith as 'own_key' | 'credits' : 'auto'
+    const run = await runWithCredits(env.DB, env, { storeId, feature, key: `job:${job.id}:${job.attempts}`, spendKey: `job:${job.id}:${payWith}`, actor: job.requestedBy, payWith }, async () => {
       const output = await editPhotoWithInstruction(env, fetcher, { mimeType: source.contentType, data: toBase64(source.bytes) }, instruction, entry.model, FIDELITY_RULES)
       const bytes = fromBase64(output.image.data)
       if (!sniffImageType(bytes)) throw Object.assign(new Error('Invalid image output'), { failure: 'INVALID_OUTPUT', usage: output.usage })
@@ -295,4 +309,22 @@ export async function processPendingPhotoJobs(env: EngineEnv, limit = 4): Promis
   let processed = 0
   for (const row of results || []) if (await runPhotoJob(env, row.storeId, row.id)) processed++
   return processed
+}
+
+/** A photo that failed with the store's own key can run again paying with credits — only after the owner confirms the
+ * exact credits shown. The new attempt has its own reservation key, so nothing is charged twice. */
+export async function retryPhotoJobWithCredits(env: EngineEnv, ctx: CreativeContext, jobId: string, body: { confirmCredits?: unknown }) {
+  const jobs = creativeJobService(env.DB)
+  const job = await jobs.get(ctx, jobId)
+  if (!job || job.kind !== 'foto') throw new CreativeError('JOB_NOT_FOUND', 'Trabajo no encontrado', 404)
+  if (job.status !== 'fallido') throw new CreativeError('JOB_NOT_RETRYABLE', 'Solo se reintentan trabajos que fallaron', 409)
+  const op = PHOTO_OPERATIONS[String(job.input.operation)]
+  const feature = op ? PHOTO_LEVELS[op.level].feature : null
+  if (!feature) throw new CreativeError('OPERATION_UNAVAILABLE', 'Esta mejora no usa créditos', 409)
+  const cost = await unitCost(env.DB, ctx.storeId, feature)
+  if (Number(body.confirmCredits) !== cost.credits) throw new CreativeError('CONFIRMATION_REQUIRED', `Confirma los ${cost.credits} créditos de esta foto antes de reintentar`, 409)
+  const balance = (await creditSummary(env.DB, ctx.storeId)).balance
+  if (balance < cost.credits) throw new CreativeError('NO_CREDITS', `Esta foto cuesta ${cost.credits} créditos y tienes ${balance}.`, 409)
+  await env.DB.prepare(`UPDATE creative_jobs SET input_json = json_set(input_json, '$.payWith', 'credits') WHERE id = ? AND store_id = ? AND status = 'fallido'`).bind(job.id, ctx.storeId).run()
+  return retryJob(env.DB, ctx, job.id)
 }

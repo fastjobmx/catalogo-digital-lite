@@ -1,7 +1,7 @@
 /** IA por plan, créditos artísticos y API propia. Todo con el modelo SIMULADO: ninguna prueba llama a Gemini. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPng } from '../../test/sqliteD1'
-import { createHarness, createStoreUser, seedStore, userToken, type Harness } from '../testing/harness'
+import { createHarness, createStoreUser, seedCatalog, seedStore, superadminToken, userToken, type Harness } from '../testing/harness'
 import { callGeminiJson } from './geminiClient'
 import { editPhotoWithInstruction } from './imageStudio'
 import { creditSummary, grantCredits, runWithCredits } from './credits'
@@ -10,6 +10,9 @@ import { decryptApiKey, encryptApiKey } from './ownKey'
 import { AiSpendBlockedError, runWithSpend, type SpendContext } from './spendGuard'
 import { aiOverview } from './aiOverview'
 import { noticeText, takeQuotaNotice } from './quotaNotices'
+
+// Some cases make hundreds of simulated calls; under a full parallel run they need more than the 5 s default.
+vi.setConfig({ testTimeout: 60_000 })
 
 const MASTER = btoa(String.fromCharCode(...new Uint8Array(32).map((_, i) => (i * 7 + 3) % 256)))
 const OWN_KEY = 'AIzaSyPropiaDeLaTiendaA_1234567890abcdEF'
@@ -358,37 +361,77 @@ describe('API propia del comercio', () => {
     expect(units(emp)).toBe(1)
   })
 
-  it('API gratuita: Google la marca con free_tier; las imágenes dejan de enviarse a ella y los pedidos nunca van', async () => {
-    await connect({ useStudio: true })
-    const freeTier = JSON.stringify({ error: { status: 'RESOURCE_EXHAUSTED', details: [{ violations: [{ quotaMetric: 'generativelanguage.googleapis.com/generate_content_free_tier_requests', quotaValue: '0' }] }, { retryDelay: '37s' }] } })
-    modelReply = (call) => call.key === OWN_KEY && /image/.test(call.url) ? new Response(freeTier, { status: 429 }) : /image/.test(call.url) ? imageOk() : ok()
-    const first = await runWithCredits(h.db, h.env, { storeId: emp, feature: 'foto_premium', key: 'gratis-foto-1', actor: 'prueba' }, () => editPhotoWithInstruction(h.env, fetch, png(), 'Fondo blanco'))
-    expect(first).toMatchObject({ ok: false, reason: 'own_key_failed' })
-    const state = await (await api('GET', adminEmp)).json() as any
-    expect(state).toMatchObject({ tier: 'gratuito', capabilities: { text: true, images: 'no_disponible', buyerData: false } })
-    expect(state.lastErrorText).toContain('nivel gratuito')
-    // Next image: not compatible with the key → it is not tried there; it is paid with the store's credits.
-    const before = calls.filter((call) => call.key === OWN_KEY).length
-    const second = await runWithCredits(h.db, h.env, { storeId: emp, feature: 'foto_premium', key: 'gratis-foto-2', actor: 'prueba' }, () => editPhotoWithInstruction(h.env, fetch, png(), 'Fondo blanco'))
-    expect(second).toMatchObject({ ok: true, charged: 10 })
-    expect(calls.filter((call) => call.key === OWN_KEY).length).toBe(before)
-    // Text still goes to the free key (no queries); orders with buyers' data never do.
-    await ask(emp, 'texto-gratis')
-    expect(calls.at(-1)?.key).toBe(OWN_KEY)
-    await ask(emp, 'pedido-privado', 'pedidos')
-    expect(calls.at(-1)?.key).toBe(PLATFORM_KEY)
-    expect(units(emp)).toBe(2)
-  })
-
-  it('API con facturación: una imagen generada confirma imágenes y facturación; entonces también procesa pedidos', async () => {
+  it('el nivel nunca se infiere: ni una imagen generada ni un error free_tier lo cambian; solo quedan como indicios', async () => {
     await connect({ useStudio: true })
     modelReply = (call) => /image/.test(call.url) ? imageOk() : ok()
-    const run = await runWithCredits(h.db, h.env, { storeId: emp, feature: 'foto_premium', key: 'pago-foto-1', actor: 'prueba' }, () => editPhotoWithInstruction(h.env, fetch, png(), 'Fondo blanco'))
-    expect(run).toMatchObject({ ok: true, charged: 0 })
-    expect(await (await api('GET', adminEmp)).json()).toMatchObject({ tier: 'facturacion', capabilities: { images: 'disponible', buyerData: true } })
-    await ask(emp, 'pedido-con-pago', 'pedidos')
+    await runWithCredits(h.db, h.env, { storeId: emp, feature: 'foto_premium', key: 'indicio-foto-1', actor: 'prueba' }, () => editPhotoWithInstruction(h.env, fetch, png(), 'Fondo blanco'))
+    let state = await (await api('GET', adminEmp)).json() as any
+    expect(state).toMatchObject({ tier: 'no_verificada', capabilities: { images: 'disponible', buyerData: false } })
+    expect(state.signals.join(' ')).toContain('indicio, no una verificación')
+    const freeTier = JSON.stringify({ error: { status: 'RESOURCE_EXHAUSTED', details: [{ violations: [{ quotaMetric: 'generativelanguage.googleapis.com/generate_content_free_tier_requests', quotaValue: '15' }] }, { retryDelay: '37s' }] } })
+    modelReply = () => new Response(freeTier, { status: 429 })
+    await ask(emp, 'limite-gratis').catch(() => undefined)
+    state = await (await api('GET', adminEmp)).json() as any
+    expect(state.tier).toBe('no_verificada')
+    expect(state.lastErrorText).toContain('menciona el nivel gratuito')
+    expect(state.tierSteps.join(' ')).toContain('Billing Tier')
+  })
+
+  it('estados: gratuita la confirma el propietario; facturación solo la verifica la plataforma con evidencia; reemplazar la clave la reinicia', async () => {
+    await connect()
+    const tier = (body: unknown, token = ownerEmp) => h.request('/api/admin/ai/key/tier', { method: 'POST', token, store: 'emp', body })
+    expect((await tier({ tier: 'gratuita' }, adminEmp)).status).toBe(403)
+    expect(await (await tier({ tier: 'gratuita' })).json()).toMatchObject({ tier: 'gratuita_confirmada' })
+    // Declaring billing never verifies it.
+    expect(await (await tier({ tier: 'facturacion' })).json()).toMatchObject({ tier: 'no_verificada' })
+    expect((await api('GET', adminEmp).then((r) => r.json()) as any).billingDeclaredAt).toBeTruthy()
+    const superadmin = await superadminToken()
+    const verify = (body: unknown) => h.request('/api/platform/stores/emp/ai-key/tier', { method: 'POST', token: superadmin, body })
+    expect((await verify({ verified: true })).status).toBe(400) // evidence note required
+    expect(await (await verify({ verified: true, note: 'Captura de AI Studio: Billing Tier = Tier 1' })).json()).toMatchObject({ tier: 'facturacion_verificada', capabilities: { buyerData: true } })
+    expect((await h.request('/api/platform/stores/emp/ai-key/tier', { method: 'POST', token: ownerEmp, body: { verified: true, note: 'yo mismo' } })).status).toBeGreaterThanOrEqual(401)
+    // A new key may belong to another project: back to «no verificada».
+    expect(await (await api('PUT', ownerEmp, 'emp', { apiKey: 'AIzaSyOtraClaveOtraClaveOtraClave99999' })).json()).toMatchObject({ tier: 'no_verificada' })
+  })
+
+  it('privacidad por contenido: datos de compradores no van a una clave no verificada; nada cambia de proveedor sin autorización', async () => {
+    await connect()
+    // Plain merchant text goes to the own key.
+    await ask(emp, 'texto-normal', 'interpretacion', 'súbele 5 mil a las sandalias')
     expect(calls.at(-1)?.key).toBe(OWN_KEY)
-    expect(units(emp)).toBe(0)
+    // A phone number and an address in an ordinary message: detected by content, not by the feature name.
+    const before = calls.length
+    const error = await ask(emp, 'texto-con-datos', 'interpretacion', 'anota que Marta Ruiz, cel 311 555 1234, vive en Calle 45 # 12-30').then(() => null, (e) => e as AiSpendBlockedError)
+    expect(error?.reason).toBe('buyer_data_consent')
+    expect(calls.length).toBe(before) // sent to nobody
+    expect(await reason(ask(emp, 'pedido-sin-permiso', 'pedidos', 'cómo van los pedidos'))).toBe('buyer_data_consent')
+    // The owner authorizes using the plan for those tasks: TiendIA's key, counted, and labelled in the history.
+    const policy = (value: string) => h.request('/api/admin/ai/key/buyer-data', { method: 'POST', token: ownerEmp, store: 'emp', body: { policy: value } })
+    expect((await policy('plan')).status).toBe(200)
+    await ask(emp, 'pedido-con-permiso', 'pedidos', 'cómo van los pedidos')
+    expect(calls.at(-1)?.key).toBe(PLATFORM_KEY)
+    expect(units(emp)).toBe(2)
+    expect(h.db.query("SELECT route FROM ai_spend_reservations WHERE op_key = 'pedido-con-permiso'")).toEqual([{ route: 'plan_privacidad' }])
+    // Or forbids AI for them.
+    await policy('bloquear')
+    expect(await reason(ask(emp, 'pedido-bloqueado', 'pedidos', 'cómo van los pedidos'))).toBe('buyer_data_blocked')
+    // With billing verified by the platform, the own key takes them.
+    h.db.query("UPDATE store_ai_keys SET tier = 'facturacion_verificada' WHERE store_id = ?", emp)
+    await ask(emp, 'pedido-verificado', 'pedidos', 'cómo van los pedidos')
+    expect(calls.at(-1)?.key).toBe(OWN_KEY)
+  })
+
+  it('respaldo autorizado: consentimiento + cupo; sin cupo en el plan se dicen las dos cosas y nada se envía a TiendIA', async () => {
+    await connect({ fallbackToPlatform: true })
+    modelReply = (call) => call.key === OWN_KEY ? new Response('{}', { status: 429 }) : ok()
+    await ask(emp, 'respaldo-ok')
+    expect(h.db.query("SELECT route, units FROM ai_spend_reservations WHERE op_key = 'respaldo-ok' AND billing_source = 'plan'")).toEqual([{ route: 'plan_respaldo', units: 1 }])
+    h.db.query('UPDATE stores SET ai_monthly_units_override = 1 WHERE id = ?', emp)
+    const platformCalls = calls.filter((call) => call.key === PLATFORM_KEY).length
+    const error = await ask(emp, 'respaldo-sin-cupo').then(() => null, (e) => e as AiSpendBlockedError)
+    expect(error?.reason).toBe('own_key_failed')
+    expect(error?.userMessage).toContain('el respaldo con tu plan no se pudo usar')
+    expect(calls.filter((call) => call.key === PLATFORM_KEY).length).toBe(platformCalls)
   })
 
   it('reemplazar y desconectar quedan en el historial; después vuelve el cupo del plan', async () => {
@@ -413,6 +456,43 @@ describe('API propia del comercio', () => {
     h.db.query("INSERT INTO ai_spend_limits (scope, scope_ref, period, metric, limit_value) VALUES ('global', '*', 'day', 'micros', 0)")
     expect(await reason(ask(emp, 'propia-sin-global'))).toBeNull()
     expect(await reason(ask(neg, 'plan-sin-global'))).toBe('global_day')
+  })
+})
+
+describe('Estudio: si la imagen falla con la API propia, la alternativa con créditos exige confirmación', () => {
+  let owner: string
+  let ids: Record<string, number>
+  const json = async (response: Response) => response.json() as Promise<any>
+  const A = (path: string, init: Parameters<Harness['request']>[1] = {}) => h.request(`/api/creative${path}`, { store: 'emp', token: owner, ...init })
+
+  beforeEach(async () => {
+    owner = await userToken(await createStoreUser(h.db, { email: 'estudio@emp.test', storeId: emp, role: 'owner' }), 'estudio@emp.test')
+    ids = await seedCatalog(h.db, emp, { products: [{ sku: 'F1', name: 'Uno', price: 1000 }] })
+    await h.assets.put(`stores/${emp}/products/F1.jpg`, createPng(30, 30), { httpMetadata: { contentType: 'image/png' } })
+    await h.request('/api/admin/ai/key', { method: 'PUT', token: owner, store: 'emp', body: { apiKey: OWN_KEY, useAssistant: true, useStudio: true } })
+  })
+
+  it('cotiza 0 créditos con API propia; al fallar no cobra ni cambia de pagador; con confirmación usa créditos una sola vez', async () => {
+    const quote = await json(await A('/photo/quote', { method: 'POST', body: { operation: 'fondo_premium', count: 1 } }))
+    const operation = quote.code ? 'fondo_blanco' : 'fondo_premium'
+    const q = quote.code ? await json(await A('/photo/quote', { method: 'POST', body: { operation, count: 1 } })) : quote
+    expect(q).toMatchObject({ payWith: 'own_key', totalCredits: 0, creditsPerPhotoWithCredits: 10 })
+    modelReply = (call) => call.key === OWN_KEY ? new Response('{"error":{"status":"RESOURCE_EXHAUSTED"}}', { status: 429 }) : imageOk()
+    const created = await json(await A('/photo/batches', { method: 'POST', headers: { 'Idempotency-Key': 'lote-propia-0001' }, body: { operation, items: [{ productId: ids.F1 }], confirmCredits: 0 } }))
+    const job = await json(await A(`/jobs/${created.jobs[0].id}/run`, { method: 'POST' }))
+    expect(job).toMatchObject({ status: 'fallido', errorCode: 'OWN_KEY_FAILED' })
+    expect(calls.filter((call) => call.key === PLATFORM_KEY)).toHaveLength(0)
+    expect((await creditSummary(h.db, emp)).balance).toBe(30)
+    // The alternative needs the exact confirmation.
+    expect((await A(`/jobs/${job.id}/retry-with-credits`, { method: 'POST', body: {} })).status).toBe(409)
+    expect((await json(await A(`/jobs/${job.id}/retry-with-credits`, { method: 'POST', body: { confirmCredits: 10 } }))).status).toBe('pendiente')
+    const done = await json(await A(`/jobs/${job.id}/run`, { method: 'POST' }))
+    expect(done.status).toBe('completado')
+    expect(calls.at(-1)?.key).toBe(PLATFORM_KEY)
+    expect(await creditSummary(h.db, emp)).toMatchObject({ balance: 20, consumed: 10, reserved: 0 })
+    // Running or retrying again never charges twice.
+    expect((await A(`/jobs/${job.id}/retry-with-credits`, { method: 'POST', body: { confirmCredits: 10 } })).status).toBe(409)
+    expect((await creditSummary(h.db, emp)).balance).toBe(20)
   })
 })
 

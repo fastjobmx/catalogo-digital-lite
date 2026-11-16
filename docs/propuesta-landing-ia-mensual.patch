@@ -1,0 +1,74 @@
+diff --git a/apps/tiendaiaexpress-landing/src/content/plans.ts b/apps/tiendaiaexpress-landing/src/content/plans.ts
+index 905a870..0346a07 100644
+--- a/apps/tiendaiaexpress-landing/src/content/plans.ts
++++ b/apps/tiendaiaexpress-landing/src/content/plans.ts
+@@ -45,9 +45,9 @@ export const plans: Plan[] = [
+       'Herramientas básicas de fotografía (uso razonable)',
+     ],
+     ai: [
+-      'Asistente en Telegram: hasta 500 mensajes IA al mes',
+-      '50 mejoras de fotografía con IA al mes',
+-      '200 descripciones con IA al mes',
++      '300 consultas de IA al mes para el asistente (Telegram y WhatsApp), sin límite por día',
++      '30 créditos artísticos al mes para imágenes premium (3 imágenes)',
++      'Conecta tu propia API de Gemini para ampliar la capacidad',
+     ],
+     soon: [],
+   },
+@@ -61,13 +61,14 @@ export const plans: Plan[] = [
+     products: 'Hasta 500 productos',
+     features: [
+       'Todo lo del plan Emprendedor',
+-      'Asistente en Telegram de uso ampliado',
++      'Asistente con IA de mayor capacidad',
+       'Guías de envío desde Telegram (foto de la guía)',
+       'Pedidos con estados, transportadora y número de guía',
+     ],
+     ai: [
+-      '150 mejoras de fotografía con IA al mes',
+-      'Descripciones con IA bajo uso razonable',
++      '1.000 consultas de IA al mes, sin límite por día',
++      '80 créditos artísticos al mes para imágenes premium (8 imágenes)',
++      'Conecta tu propia API de Gemini para ampliar la capacidad',
+     ],
+     soon: ['Reportes comerciales'],
+     highlight: true,
+@@ -86,8 +87,9 @@ export const plans: Plan[] = [
+       'Soporte prioritario',
+     ],
+     ai: [
+-      '400 mejoras de fotografía con IA al mes',
+-      'Descripciones con IA bajo uso razonable',
++      '2.500 consultas de IA al mes, sin límite por día',
++      '180 créditos artísticos al mes para imágenes premium (18 imágenes)',
++      'Conecta tu propia API de Gemini para ampliar la capacidad',
+     ],
+     soon: ['Precios al por mayor', 'Reportes comerciales'],
+   },
+diff --git a/apps/tiendaiaexpress-landing/src/sections/Commerce.tsx b/apps/tiendaiaexpress-landing/src/sections/Commerce.tsx
+index 84eb465..b42f8d0 100644
+--- a/apps/tiendaiaexpress-landing/src/sections/Commerce.tsx
++++ b/apps/tiendaiaexpress-landing/src/sections/Commerce.tsx
+@@ -90,7 +90,8 @@ const COMPARE: { group: string; rows: { label: string; cells: [Cell, Cell, Cell]
+   {
+     group: 'Asistente e inteligencia artificial',
+     rows: [
+-      { label: 'Asistente en Telegram', cells: ['Hasta 500 mensajes IA al mes', 'Uso ampliado', 'Uso ampliado'] },
++      { label: 'Consultas de IA al mes', cells: ['300', '1.000', '2.500'] },
++      { label: 'Créditos artísticos al mes', cells: ['30', '80', '180'] },
+       { label: 'Guías de envío desde Telegram', cells: [false, true, true] },
+       { label: 'Mejoras de fotografía con IA al mes', cells: ['50', '150', '400'] },
+       { label: 'Descripciones con IA', cells: ['200 al mes', 'Uso razonable', 'Uso razonable'] },
+diff --git a/apps/tiendaiaexpress-landing/src/sections/Studio.tsx b/apps/tiendaiaexpress-landing/src/sections/Studio.tsx
+index fcf79b3..8a64d68 100644
+--- a/apps/tiendaiaexpress-landing/src/sections/Studio.tsx
++++ b/apps/tiendaiaexpress-landing/src/sections/Studio.tsx
+@@ -121,7 +121,7 @@ export function Studio() {
+           </div>
+           <div data-reveal data-tilt="0.3" style={{ ...i(1), background: 'radial-gradient(30rem 20rem at 100% 0%, rgba(197,42,241,.5), transparent 65%), linear-gradient(160deg, #2b0b45, #12101f 70%)' }} className="relative overflow-hidden rounded-[1.75rem] p-7 ring-1 ring-inset ring-violet/40 md:p-9">
+             <div className="flex flex-wrap items-center gap-3"><h3 className="font-display text-2xl font-extrabold tracking-tight">Fotografía con IA</h3><Badge kind="live" onDark label="Según las cuotas de tu plan" /></div>
+-            <p className="mt-2 text-mist">Usa las mejoras de fotografía con IA de tu plan. Antes de procesar ves cuántas vas a usar.</p>
++            <p className="mt-2 text-mist">Las imágenes premium usan los créditos artísticos de tu plan (10 por imagen). Antes de procesar ves cuántos vas a usar.</p>
+             <ul className="mt-7 space-y-3">
+               {WITH_AI.map((t) => (
+                 <li key={t.name} className="flex gap-3.5 rounded-2xl bg-white/5 p-4 ring-1 ring-inset ring-white/10">

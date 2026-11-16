@@ -210,6 +210,14 @@ export default function PhotoStudio() {
     if (!token || !batch) return
     try { await creativePhotoApi.retryJob(jobId, token); await drive(batch.batchId) } catch (err) { fail(err, 'No se pudo reintentar.') }
   }
+  // The photo failed with the store's own Gemini key: offer credits, always after an explicit confirmation of the cost.
+  const [confirmingCredits, setConfirmingCredits] = useState<string | null>(null)
+  const creditsFor = (operationKey: string) => level(catalog?.operations.find((item) => item.key === operationKey)?.level || '')?.creditsPerPhoto ?? null
+  const retryWithCredits = async (jobId: string, credits: number) => {
+    if (!token || !batch) return
+    setConfirmingCredits(null)
+    try { await creativePhotoApi.retryJobWithCredits(jobId, credits, token); await drive(batch.batchId) } catch (err) { fail(err, 'No se pudo reintentar con créditos.') }
+  }
 
   const productOptions = useMemo(() => products.map((product) => ({ id: product.id, name: product.name })), [products])
   const failedJobs = batch?.jobs.filter((job) => job.status === 'fallido') ?? []
@@ -407,6 +415,11 @@ export default function PhotoStudio() {
                         <li key={job.id} className="flex items-center gap-3 py-2.5">
                           <AssetImage id={job.sourceAssetId} alt="" className="h-12 w-12 shrink-0 rounded-btn border border-line object-cover" />
                           <span className="flex-1 text-ink">{jobError(job.errorCode)}</span>
+                          {job.errorCode === 'OWN_KEY_FAILED' && job.attempts < 3 && creditsFor(job.operation) !== null && (
+                            confirmingCredits === job.id
+                              ? <span className="flex items-center gap-2"><button type="button" className="btn-brand" disabled={working} onClick={() => void retryWithCredits(job.id, creditsFor(job.operation)!)}>Confirmar {creditsFor(job.operation)} créditos</button><button type="button" className="btn-ghost" onClick={() => setConfirmingCredits(null)}>Cancelar</button></span>
+                              : <button type="button" className="btn-ghost" disabled={working} onClick={() => setConfirmingCredits(job.id)}>Usar {creditsFor(job.operation)} créditos</button>
+                          )}
                           {job.attempts < 3 && !['NO_CREDITS', 'AI_DISABLED', 'AI_UNAVAILABLE', 'BUDGET_EXHAUSTED'].includes(job.errorCode || '') && <button type="button" className="btn-ghost" disabled={working} onClick={() => void retry(job.id)}><RefreshCw size={14} /> Reintentar</button>}
                         </li>
                       ))}

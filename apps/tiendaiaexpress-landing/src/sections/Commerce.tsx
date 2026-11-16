@@ -90,8 +90,7 @@ const COMPARE: { group: string; rows: { label: string; cells: [Cell, Cell, Cell]
   {
     group: 'Asistente e inteligencia artificial',
     rows: [
-      { label: 'Consultas de IA al mes', cells: ['300', '1.000', '2.500'] },
-      { label: 'Créditos artísticos al mes', cells: ['30', '80', '180'] },
+      { label: 'Asistente en Telegram', cells: ['Hasta 500 mensajes IA al mes', 'Uso ampliado', 'Uso ampliado'] },
       { label: 'Guías de envío desde Telegram', cells: [false, true, true] },
       { label: 'Mejoras de fotografía con IA al mes', cells: ['50', '150', '400'] },
       { label: 'Descripciones con IA', cells: ['200 al mes', 'Uso razonable', 'Uso razonable'] },

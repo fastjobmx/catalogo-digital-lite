@@ -18,7 +18,7 @@ import { roleAllows } from '../tenancy/access'
 import { AiCatalogError, photoToProduct, readCatalogPage, studioEdit } from '../services/aiCatalog'
 import { ImportError, applyImportBatch, createImportJob, finishImportJob, listImportJobs, previewImport } from '../services/catalogImport'
 import { aiOverview } from '../ai/aiOverview'
-import { connectOwnKey, disconnectOwnKey, OwnKeyError, ownKeyStatus, revalidateOwnKey, updateOwnKeyUses } from '../ai/ownKey'
+import { connectOwnKey, declareOwnKeyTier, disconnectOwnKey, OwnKeyError, ownKeyStatus, revalidateOwnKey, setBuyerDataPolicy, updateOwnKeyUses } from '../ai/ownKey'
 import { CreditError, createCreditRequest, creditSummary, listCreditCosts, listCreditMovements, listCreditRequests } from '../ai/credits'
 import { getTelegramBatchPhoto, getTelegramBatchReview, listTelegramBatches, updateTelegramBatchReviewItem } from '../services/telegramProductBatches'
 import type { Context } from 'hono'
@@ -354,6 +354,16 @@ app.patch('/ai/key', adminAuth, requireRole('owner'), async (c) => {
  const body = await c.req.json().catch(() => null) as Record<string, unknown> | null
  if (!body) return c.json({ error: 'Invalid JSON body' }, 400)
  return ownKeyAction(c, (storeId, actor) => updateOwnKeyUses(c.env.DB, c.env, fetch, storeId, body, actor))
+})
+app.post('/ai/key/tier', adminAuth, requireRole('owner'), async (c) => {
+ const body = await c.req.json().catch(() => null) as Record<string, unknown> | null
+ if (!body) return c.json({ error: 'Invalid JSON body' }, 400)
+ return ownKeyAction(c, (storeId, actor) => declareOwnKeyTier(c.env.DB, c.env, storeId, body, actor))
+})
+app.post('/ai/key/buyer-data', adminAuth, requireRole('owner'), async (c) => {
+ const body = await c.req.json().catch(() => null) as Record<string, unknown> | null
+ if (!body) return c.json({ error: 'Invalid JSON body' }, 400)
+ return ownKeyAction(c, (storeId, actor) => setBuyerDataPolicy(c.env.DB, c.env, storeId, body, actor))
 })
 app.delete('/ai/key', adminAuth, requireRole('owner'), (c) => ownKeyAction(c, (storeId, actor) => disconnectOwnKey(c.env.DB, c.env, storeId, actor)))
 
