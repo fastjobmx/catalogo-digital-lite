@@ -102,6 +102,28 @@ export async function requestEmailVerification(db: D1Database, env: Env['Binding
   return { status: sent.status, sentAt: new Date().toISOString() }
 }
 
+/** One-time catch-up (EMAIL_VERIFICATION_BACKFILL=true): accounts already activated whose address was never confirmed
+ * get ONE verification email (the link only confirms the address). Never twice per account, a few per run. */
+export async function backfillEmailVerification(db: D1Database, env: Env['Bindings'], limit = 10): Promise<{ sent: number; skipped: number }> {
+  if (String(env.EMAIL_VERIFICATION_BACKFILL || '').toLowerCase() !== 'true' || !emailConfig(env).configured) return { sent: 0, skipped: 0 }
+  const { results } = await db.prepare(
+    `SELECT u.id AS userId, (SELECT m.store_id FROM store_memberships m JOIN stores s ON s.id = m.store_id
+                            WHERE m.user_id = u.id AND m.status = 'active' AND s.status <> 'cancelled'
+                            ORDER BY CASE m.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, m.store_id LIMIT 1) AS storeId
+     FROM platform_users u
+     WHERE u.status <> 'disabled' AND u.email IS NOT NULL AND u.password_hash IS NOT NULL AND u.email_verified_at IS NULL
+       AND NOT EXISTS (SELECT 1 FROM audit_log a WHERE a.action = 'email_verification_sent' AND a.entity_type = 'user' AND a.entity_id = CAST(u.id AS TEXT) AND a.performed_by = 'system:backfill')
+     ORDER BY u.id LIMIT ?`,
+  ).bind(limit).all<{ userId: number; storeId: number | null }>()
+  let sent = 0, skipped = 0
+  for (const row of results || []) {
+    if (!row.storeId) { skipped++; continue }
+    const result = await requestEmailVerification(db, env, row.storeId, row.userId, 'system:backfill').catch(() => null)
+    if (result?.status === 'enviado') sent++; else skipped++
+  }
+  return { sent, skipped }
+}
+
 /** Public: confirms an address with a verification link (single use, only if the address did not change). */
 export async function confirmEmailVerification(db: D1Database, token: string) {
   if (token.length < 20 || token.length > 200) return null

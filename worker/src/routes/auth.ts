@@ -5,7 +5,7 @@ import { consumeAccessToken, peekAccessToken, validatePasswordPolicy } from '../
 import { clearAdminLoginFailures, isAdminLoginBlocked, recordAdminLoginFailure } from '../services/loginRateLimit'
 import { listUserMemberships } from '../tenancy/access'
 import { maskEmail, requestPasswordReset } from '../services/passwordReset'
-import { confirmEmailVerification } from '../services/userAccess'
+import { confirmEmailVerification, requestEmailVerification } from '../services/userAccess'
 import { sendEmail } from '../email/send'
 import { adminStoreUrl, publicStoreUrl } from '../tenancy/stores'
 import { sendTrialWelcome, startTrialAfterActivation } from '../services/freeTrial'
@@ -68,6 +68,9 @@ app.post('/activate', async (c) => {
   if (!user?.email) return c.json({ error: 'This account cannot be activated' }, 409)
   // A free-trial store starts its 7 days (and is published) when its owner confirms the email here.
   const trial = await startTrialAfterActivation(c.env.DB, consumed.storeId, user.email)
+  // A link delivered by hand (platform or Telegram) does not prove the address: ask to confirm it by email right away.
+  // The confirmation only verifies the address (no access); it unlocks password recovery and notices by email.
+  if (!user.verified) await requestEmailVerification(c.env.DB, c.env, consumed.storeId, user.id, 'system:activation').catch(() => null)
   if (trial.started) {
     if (user.verified) await sendTrialWelcome(c.env.DB, c.env, consumed.storeId)
   } else if (user.verified) {
