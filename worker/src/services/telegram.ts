@@ -16,7 +16,7 @@ import {
 } from './assistant/telegramApi'
 import {
   actorOf, loadAssistantStore, membershipsForTelegramUser, sourceOf, readSession, rememberTurn, say, showTyping, updateSessionState, writeSession,
-  type AssistantContext,
+  looksLikeSecret, type AssistantContext,
 } from './assistant/context'
 import { ACCESS_HELP_TEXT, backToMenu, greeting, HELP_TEXT, inventoryKeyboard, mainMenuKeyboard, orderMenuKeyboard, storePickerKeyboard, storePickerText, switchedStoreKeyboard } from './assistant/menus'
 import { cancelOperation, confirmOperation, formatOperationPreview, getPendingOperation, isConfirmableAction, proposeChange } from './assistant/operations'
@@ -556,6 +556,11 @@ async function handleCommand(ctx: AssistantContext, text: string): Promise<boole
 async function handleText(ctx: AssistantContext, text: string): Promise<void> {
   if (text.startsWith('/')) { await handleCommand(ctx, text); return }
   if (CONSUMPTION_INTENT.test(text) && text.length < 60) { await showConsumption(ctx); return }
+  // A key or token pasted in the chat is not read, stored or sent to the AI: the merchant is told where it goes.
+  if (looksLikeSecret(text) && text.trim().split(/\s+/).length <= 6) {
+    await say(ctx, '🔒 Eso parece una clave o un token. No lo guardé ni lo usé, y por seguridad conviene que lo cambies donde lo generaste, porque ya quedó escrito en este chat. Las claves se conectan solo desde el panel de tu tienda, nunca por aquí.')
+    return
+  }
   ctx.fingerprint = await fingerprintText(text)
   await rememberTurn(ctx, 'user', text)
   if (await handleOnboardingText(ctx, text)) return

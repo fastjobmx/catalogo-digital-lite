@@ -40,6 +40,8 @@ const WAIT = /^(?:espera|esp[eé]rame?|esp[eé]rate|un momento|momento|aguanta|t
 const KEEP = /^(?:s[ií]guela|sigue(?:la)?|contin[uú]a(?:la)?|term[ií]nala|la sigo|seguir|conf[ií]rmala)\b/i
 const RESET = /^(?:olvida (?:eso|todo|lo anterior)|olv[ií]dalo todo|empecemos de nuevo|empezar de nuevo|empecemos de cero|borr[oó]n y cuenta nueva|reinicia(?:r)?(?: la conversaci[oó]n)?)[.! ]*$/i
 const UNDO = /^(?:deshaz(?:lo|la)?|deshacer|revierte(?:lo)?|reversa|devuelve (?:eso|el cambio|ese cambio)|me equivoqu[eé],? (?:deshaz|devuelve))\b/i
+/** A question about the whole store: «cuántas unidades tengo en total», «cuánto inventario hay en la tienda». */
+const GENERAL_TOTAL = /^(?:y\s+)?cuant[oa]s?\s+(?:\w+\s+){0,3}(?:tengo|hay|quedan|me quedan|tenemos)?\s*(?:en total|en inventario|en bodega|en (?:toda )?la tienda|en el catalogo|de todo)\b|^(?:y\s+)?cuant[oa]s?\s+(?:unidad\w*|product\w*|articul\w*|referenc\w*|inventario|existenc\w*|mercanc\w*)\s+(?:tengo|hay|tenemos|me quedan|quedan)\b/
 /** Words of the merchant that are a yes when the model reads the message as a confirmation. */
 const AFFIRMS = /\b(?:si|sip|dale|hagale|hagalo|hazlo|confirm\w*|listo|de una|aplica\w*|apruebo|correcto|ok|okay|adelante|perfecto)\b/
 const BATCH_TTL_MS = 15 * 60 * 1000
@@ -320,6 +322,13 @@ async function understand(ctx: AssistantContext, text: string, turn: Turn): Prom
   }
 
   const multi = looksMulti(text)
+  // A question about the whole store («cuántos productos tengo», «cuántas unidades hay en total», even misspelled)
+  // is answered with the totals of the catalogue, unless it names a product the store really has.
+  if (!multi && GENERAL_TOTAL.test(fold(trimmed))) {
+    const asked = parseCommerce(withoutLead(trimmed))
+    const named = asked?.kind === 'stock_query' && asked.product ? resolveProduct(await loadCatalog(ctx), asked.product, {}, null).kind !== 'none' : false
+    if (!named) return runSteps(ctx, text, [step('buscar_productos', { filtro: 'todos' })], turn, pending)
+  }
   const quick = multi ? null : detectIntent(text, session.state.lastSkus)
   if (quick?.kind === 'greeting') return runSteps(ctx, text, [step('resumen_tienda', { texto: trimmed })], turn, pending)
   if (quick?.kind === 'action' && quick.action === 'get_out_of_stock') return runSteps(ctx, text, [step('buscar_productos', { filtro: 'agotados' })], turn, pending)
@@ -475,6 +484,10 @@ async function runSteps(ctx: AssistantContext, text: string, steps: Step[], turn
         } else if (resolution.kind === 'many') {
           await saveAgent(ctx, { options: resolution.options.slice(0, 3).map((product) => product.sku) })
           out.push(renderChoice(resolution.options, ctx.store.currency))
+        } else if (!step.producto && !step.consulta && (session.state.agent?.options?.length || 0) > 1) {
+          // No product named and the last thing shown was a choice: ask among those, instead of guessing one.
+          const candidates = session.state.agent!.options!.map((sku) => catalog!.find((product) => product.sku === sku)).filter((product): product is CatalogProduct => Boolean(product))
+          out.push(candidates.length > 1 ? renderChoice(candidates, ctx.store.currency).replace(/^[^\n]*\n/, '¿De cuál?\n').replace(/\n¿Cuál\?$/, '') : '¿De cuál producto? Dime el nombre o el código.')
         } else {
           out.push(step.producto || step.consulta ? `No encontré «${plainText(step.producto || step.consulta!)}» en ${plainText(ctx.store.name)}. Revisa el nombre o dime el código.` : '¿De cuál producto? Dime el nombre o el código.')
         }
@@ -587,7 +600,9 @@ async function runWrites(ctx: AssistantContext, text: string, intents: CommerceI
   const options = ambiguous(first)
   if (options) {
     const shown = options.slice(0, 3)
-    await updateSessionState(ctx, { commerce: { intent: first, ask: 'product', options: shown.map((product) => product.id) } })
+    // The conversation is now about these candidates: none of them is «the» product until the merchant picks one.
+    await updateSessionState(ctx, { commerce: { intent: first, ask: 'product', options: shown.map((product) => product.id) }, focusSku: undefined, lastSkus: shown.map((product) => product.sku) })
+    await saveAgent(ctx, { options: shown.map((product) => product.sku) })
     const rest = intents.length > 1 ? '\n(Los otros cambios los preparo cuando aclaremos este.)' : ''
     await reply(ctx, `${prefix}${renderChoice(options, ctx.store.currency)}${rest}`, {
       inline_keyboard: [...shown.map((product, index) => [{ text: `${index + 1}. ${product.name}`.slice(0, 60), callback_data: `cm:${ctx.store.id}:pick:${product.id}` }]), [{ text: '✖ Cancelar', callback_data: `cm:${ctx.store.id}:cancel` }]],

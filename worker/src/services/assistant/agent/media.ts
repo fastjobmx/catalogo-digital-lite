@@ -471,7 +471,8 @@ async function answerAsk(ctx: AssistantContext, ask: MediaAsk, text: string): Pr
   if (!isNew && !same) return null
   await saveMedia(ctx, { ask: undefined })
   if (isNew) {
-    await describePhotos(ctx, ask.text, { voice: ask.voice, photos, forceNew: true })
+    // «Es uno nuevo, ponle como nombre Adidas violeta»: the answer may carry the name of the new product.
+    await describePhotos(ctx, ask.text, { voice: ask.voice, photos, forceNew: true, name: nameIn(text) || undefined })
     return 'borrador_desde_fotos'
   }
   const product = (await loadCatalog(ctx)).find((item) => item.sku === ask.sku)
@@ -481,9 +482,17 @@ async function answerAsk(ctx: AssistantContext, ask: MediaAsk, text: string): Pr
   return 'detectar_duplicados'
 }
 
+/** «ponle como nombre Adidas violeta», «que se llame…», «el nombre es…», «llámalo…»: the name the merchant dictates. */
+export function nameIn(text: string): string | null {
+  const match = text.trim().match(/(?:p[oó]n(?:le|ele|gale|me)?\s+(?:como\s+|de\s+|por\s+)?nombre|que\s+se\s+llamen?|ll[aá]m[ae]l[oa]s?|n[oó]mbr[ae]l[oa]s?(?:\s+como)?|(?:el|su|de|como)\s+nombre\s+(?:es|ser[ií]a|va a ser|:)?|c[aá]mbi[ae]le\s+el\s+nombre\s+(?:a|por)|nombre\s*:)\s+(.+)$/i)
+  if (!match) return null
+  const name = match[1]!.replace(/^(?:es|ser[ií]a|como|a|por|de)\s+/i, '').replace(/^[«"“']+|[»"”'.!]+$/g, '').split(/[,;]|\s+(?=(?:a\s+\$?\s*\d|del?\s+\d|tallas?\b|precio\b|y\s+(?:el\s+)?precio\b))/i)[0]!.trim()
+  return name.length >= 2 && name.length <= 120 && /[a-záéíóúñ]{2,}/i.test(name) ? name.charAt(0).toUpperCase() + name.slice(1) : null
+}
+
 // ───────────────────────── Fotos + descripción = un borrador y un solo resumen ─────────────────────────
 
-async function describePhotos(ctx: AssistantContext, text: string, input: { voice: boolean; photos: OpenPhoto[]; description?: Description; catalog?: CatalogProduct[]; forceNew?: boolean }): Promise<boolean> {
+async function describePhotos(ctx: AssistantContext, text: string, input: { voice: boolean; photos: OpenPhoto[]; description?: Description; catalog?: CatalogProduct[]; forceNew?: boolean; name?: string }): Promise<boolean> {
   const photos = input.photos
   if (!photos.length) return false
   if (!roleAllows(ctx.role, 'admin')) { await say(ctx, 'Tu rol en esta tienda no permite publicar productos. Pídeselo al propietario o a un administrador.'); return true }
@@ -498,7 +507,7 @@ async function describePhotos(ctx: AssistantContext, text: string, input: { voic
   const description = input.description || readDescription(text)
   const catalog = input.catalog?.length ? input.catalog : await loadCatalog(ctx)
   // The name the merchant gave, or the one the model reads from the same words (never from the photos' text).
-  let name = description.name
+  let name = input.name || nameIn(text) || description.name
   if ((!name || !description.lines.length) && looksLikeDescription(description) && ctx.env.GEMINI_API_KEY) {
     const plan = await withAiBudget(ctx, 'interpretacion', () => planTurn(ctx, text, { focus: null, options: [], pending: null, recent: 'El comerciante acaba de enviar fotos de un producto nuevo y lo está describiendo: usa preparar_producto.' }, 6000)).catch(() => null)
     const step = plan && plan.ok ? plan.value.steps.find((item) => item.tool === 'preparar_producto') : null
@@ -620,6 +629,13 @@ export async function handleAgentDraftText(ctx: AssistantContext, active: Pendin
   }
   const next = structuredClone(draft)
   const changes: string[] = []
+  // The name the merchant dictates replaces any suggested one (it is theirs to decide; nothing is published yet).
+  const renamed = awaiting === 'name' ? null : nameIn(text)
+  if (renamed) {
+    next.fields.name = renamed
+    next.aiSuggested = (next.aiSuggested || []).filter((field) => field !== 'name')
+    changes.push(`nombre «${escapeHtml(renamed)}»`)
+  }
 
   const photo = lower.match(/\b(?:quita|quitar|elimina|borra|saca)\s+(?:la\s+)?(?:foto\s+)?(?:numero\s+)?(\d{1,2}|primera|segunda|tercera|cuarta|quinta|ultima)(?:\s+foto)?\b/)
     || (/\besa foto (?:es de otro producto|no es|no va)\b/.test(lower) ? ['', 'ultima'] : null)
