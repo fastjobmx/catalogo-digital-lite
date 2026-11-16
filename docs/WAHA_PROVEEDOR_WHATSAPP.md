@@ -201,7 +201,24 @@ Límites:
 
 Reversión de staging: `wrangler rollback 56401a84-…` → (opcional) `database/rollback/0026_whatsapp_waha.down.sql` → `wrangler queues delete tiendia-whatsapp-jobs-staging` → `docker compose down`.
 
-## 14. Recomendaciones antes de producción
+## 14. Estado al 2026-11-16 y lo que falta para producción
+
+**Ya hecho**
+- Todo el trabajo de WAHA está en `main`, que es producción. La migración 0026 está aplicada en producción (D1 hasta 0034).
+- WAHA sigue **apagado** en producción: no hay variables `WAHA_*` ni secretos, y `WHATSAPP_ADMIN_BOT_ENABLED = "false"`.
+- **Vinculación con solo WAHA corregida** (esta rama, encima de `main` `5ce35af`). Generar el código, la opción «Vincular WhatsApp» del panel y el enlace `wa.me` ya no dependen del interruptor de Meta. Sirve cualquiera de los dos canales activos, y con Meta apagado se usa el número `WAHA_DISPLAY_NUMBER`. Tiene 4 pruebas nuevas; la principal falla sin la corrección.
+- Servidor: 890 pruebas pasan y TypeScript queda limpio. Ensayo de producción correcto.
+- Panel: 1 prueba falla y **ya fallaba en `main`** («navegación administrativa visible»: el menú tiene 18 secciones y la prueba espera 17). No es de este trabajo.
+
+**Falta (decisiones del propietario)**
+1. Servidor 24/7 para WAHA (mínimo 2 CPU y 4 GB). Hoy corre en el PC, desde `D:\LANDING 4000\CATALOGO DIGITAL\waha-tiendia`.
+2. Túnel con nombre en el dominio, con Cloudflare Access (el túnel rápido expira).
+3. Cola de producción `WHATSAPP_JOBS` y su configuración en `wrangler.production.toml`.
+4. Número definitivo y aceptación del riesgo de usar una vía no oficial.
+5. Publicar esta corrección (API y panel), cargar los secretos y variables de WAHA (incluido `WAHA_DISPLAY_NUMBER`) y activar el piloto con una tienda interna, todo con autorización.
+6. Pendientes de prueba: 100 fotos en un lote, un CSV real y el cambio de número. Recomendado: unir productos repetidos entre tandas y avisar al administrador si la sesión se cae.
+
+## 14 bis. Recomendaciones antes de producción (registro anterior)
 
 > **Aviso (2026-11-12 22:05 UTC):** producción ya no corre `56b1450b`. Ahora la API es **`3c53c1d8`** (fábrica de publicidad) y el panel **`6f503c33`**, publicados desde la rama local `integracion/motor-publicitario` (`8d8f560`, basada en `891d17a`). Esta rama **no** incluye la fábrica. Después se hizo push de `main` por avance directo: **`main` = producción** (`fffdc37`, igual a la rama de integración). Antes de publicar algo desde aquí basta **integrar `main`** (ensayo con `git merge-tree`: sin conflictos); si no, la fábrica desaparecería de producción. Allí `wrangler.production.toml` ya fija `AI_MESSAGE_QUOTA_MODE = "shadow"`.
 >

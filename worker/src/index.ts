@@ -175,6 +175,8 @@ export type Env = {
  WAHA_GATEWAY_TOKEN?: string
  WAHA_WEBHOOK_HMAC_KEY?: string
  WAHA_SESSION?: string
+ /** Número del asistente en WAHA (dígitos con indicativo) para el enlace wa.me de vinculación. */
+ WAHA_DISPLAY_NUMBER?: string
  /** Lotes de fotos agrupados por IA (solo WAHA): 'true' activa; máximo de fotos por lote y segundos de espera. */
  WAHA_PHOTO_BATCH_ENABLED?: string
  WAHA_PHOTO_BATCH_MAX?: string

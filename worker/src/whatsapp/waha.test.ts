@@ -238,6 +238,48 @@ describe('webhook de WAHA', () => {
   })
 })
 
+describe('vinculación con solo WAHA (Meta apagado, como en producción)', () => {
+  beforeEach(() => {
+    h.env.WHATSAPP_ADMIN_BOT_ENABLED = 'false'
+    h.env.WHATSAPP_DISPLAY_NUMBER = '+1 555 000 0000'
+    h.env.WAHA_DISPLAY_NUMBER = '+57 300 000 9121'
+  })
+
+  it('el comerciante genera su código, el panel ofrece la opción y el enlace lleva al número de WAHA', async () => {
+    const token = await userToken(anaId, 'ana@pruebas.test')
+    const status = await h.request('/api/whatsapp/link', { token, store: 'moda-wa' })
+    expect(await status.json()).toMatchObject({ available: true, linked: false, assistantNumber: '573000009121' })
+    const response = await h.request('/api/whatsapp/link-code', { method: 'POST', token, store: 'moda-wa' })
+    expect(response.status).toBe(200)
+    const body = await response.json() as { code: string; deepLink: string }
+    expect(body.deepLink).toBe(`https://wa.me/573000009121?text=${encodeURIComponent(`VINCULAR ${body.code}`)}`)
+    // And the code really links through WAHA with Meta switched off.
+    await say(`VINCULAR ${body.code}`)
+    expect(last()).toContain('vinculado')
+    expect(h.db.query("SELECT phone FROM whatsapp_identities WHERE status = 'active'")).toEqual([{ phone: ANA_PHONE }])
+  })
+
+  it('con WAHA y Meta apagados no se generan códigos ni aparece la opción', async () => {
+    h.env.WAHA_ENABLED = 'false'
+    const token = await userToken(anaId, 'ana@pruebas.test')
+    expect((await h.request('/api/whatsapp/link-code', { method: 'POST', token, store: 'moda-wa' })).status).toBe(503)
+    expect(await (await h.request('/api/whatsapp/link', { token, store: 'moda-wa' })).json()).toMatchObject({ available: false, assistantNumber: null })
+  })
+
+  it('WAHA encendido pero sin configurar no cuenta como canal activo', async () => {
+    delete h.env.WAHA_API_KEY
+    const token = await userToken(anaId, 'ana@pruebas.test')
+    expect((await h.request('/api/whatsapp/link-code', { method: 'POST', token, store: 'moda-wa' })).status).toBe(503)
+  })
+
+  it('con Meta encendido se sigue usando el número oficial', async () => {
+    h.env.WHATSAPP_ADMIN_BOT_ENABLED = 'true'
+    const token = await userToken(anaId, 'ana@pruebas.test')
+    const body = await (await h.request('/api/whatsapp/link-code', { method: 'POST', token, store: 'moda-wa' })).json() as { deepLink: string }
+    expect(body.deepLink.startsWith('https://wa.me/15550000000?')).toBe(true)
+  })
+})
+
 describe('conversación por WAHA con el motor común', () => {
   it('un número no vinculado solo recibe instrucciones, por el gateway con sus dos credenciales', async () => {
     await say('¿cuánto inventario hay?', INTRUSO_PHONE)
