@@ -1,0 +1,6 @@
+store | 2 | flores-de-ana | Flores de Ana | active | emprendedor | 
+counts | 7 | 14 | 3 | 1 | 1,2,3,4,5,6,7 | PED-20261114-5BE4721E
+owner | 1 | owner | active
+config | Flores de Ana | #1B63D8 | +573001112233
+trial | convertida | 2026-11-21 21:12:37
+invoice | 1 | pagada | 208900

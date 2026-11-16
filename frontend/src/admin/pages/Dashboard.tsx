@@ -8,6 +8,8 @@ import { useCatalog } from '../../contexts/CatalogContext'
 import { getOrders, type OrderApi } from '../../services/api'
 import { formatMoney } from '../../lib/format'
 import { resolveImageUrl } from '../../lib/imageSources'
+import { ROUTER_BASENAME } from '../../lib/tenant'
+import LaunchChecklist from '../components/LaunchChecklist'
 
 export default function Dashboard() {
   const { stats, token, isDemoSession } = useAuth()
@@ -61,6 +63,9 @@ export default function Dashboard() {
           <Link to="/" target="_blank" className="btn-ghost"><ExternalLink size={16}/> Ver tienda</Link>
         </div>
       </div>
+
+      {/* «Listo para vender»: pasos guiados calculados con los datos reales de la tienda */}
+      {backendAvailable && !isDemoSession && <LaunchChecklist token={token} storeUrl={`${window.location.origin}${ROUTER_BASENAME || ''}/`} />}
 
       {/* Aviso modo demostración */}
       {isDemoMode && (

@@ -7,6 +7,8 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useStore } from '../contexts/StoreContext'
+import { Rocket, MailWarning } from 'lucide-react'
+import { storeTrialApi, type StoreTrialStatus } from '../services/api'
 
 interface AdminNavItem {
   to: string
@@ -85,8 +87,9 @@ export function isAdminLinkActive(pathname: string, hash: string, item: AdminNav
 export default function AdminLayout() {
   const location = useLocation()
   const navigate = useNavigate()
-  const { email, logout, isDemoSession, role } = useAuth()
+  const { email, logout, isDemoSession, role, token } = useAuth()
   const { store, backendAvailable } = useStore()
+  const [trial, setTrial] = useState<StoreTrialStatus['trial']>(null)
   const [mobileOpen, setMobileOpen] = useState(false)
   const menuTriggerRef = useRef<HTMLButtonElement>(null)
   const mobileMenuRef = useRef<HTMLDivElement>(null)
@@ -95,6 +98,18 @@ export default function AdminLayout() {
   useEffect(() => {
     setMobileOpen(false)
   }, [location.pathname])
+
+  // Free trial: days left, products used and the path to activate the store (data from the backend).
+  useEffect(() => {
+    if (!token || isDemoSession) return
+    let cancelled = false
+    storeTrialApi.status(token).then((result) => { if (!cancelled) setTrial(result.trial) }).catch(() => undefined)
+    return () => { cancelled = true }
+  }, [token, isDemoSession, location.pathname])
+  const onTrial = Boolean(trial && trial.status !== 'convertida')
+  const navGroups = onTrial
+    ? [{ label: 'Tu prueba gratis', items: [{ to: '/admin/activar-tienda', icon: Rocket, label: 'Activar mi tienda' }] }, ...ADMIN_NAV_GROUPS]
+    : ADMIN_NAV_GROUPS
 
   useEffect(() => {
     if (!mobileOpen) return
@@ -136,13 +151,13 @@ export default function AdminLayout() {
     navigate('/admin/login', { replace: true })
   }
 
-  const pageSection = ADMIN_NAV_GROUPS.find((group) => group.items.some((item) =>
+  const pageSection = navGroups.find((group) => group.items.some((item) =>
     isAdminLinkActive(location.pathname, location.hash, item),
   ))?.label ?? 'Panel'
 
   const NavLinks = ({ onNavigate }: { onNavigate?: () => void }) => (
     <nav className="flex-1 min-h-0 overflow-y-auto px-3 py-5 space-y-5" aria-label="Navegación administrativa">
-      {ADMIN_NAV_GROUPS.map((group) => (
+      {navGroups.map((group) => (
         <div key={group.label}>
           <p className="px-3 mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-ink/55">
             {group.label}
@@ -302,6 +317,22 @@ export default function AdminLayout() {
         </header>
 
         <div className="p-5 sm:p-6 lg:p-8 max-w-6xl mx-auto">
+          {onTrial && trial && (
+            <div role="status" className={`mb-6 flex flex-wrap items-center gap-3 rounded-card border px-4 py-3 text-sm ${trial.status === 'vencida' ? 'border-red-200 bg-red-50 text-red-950' : 'border-violet-200 bg-violet-50 text-violet-950'}`}>
+              <Rocket size={18} className="shrink-0" aria-hidden="true" />
+              <p className="min-w-0 flex-1">
+                {trial.status === 'vencida'
+                  ? <><b>Tu prueba gratis terminó.</b> Tus datos están guardados; la tienda no recibe pedidos hasta que la actives.</>
+                  : <><b>Prueba gratis:</b> {trial.daysLeft === 1 ? 'te queda 1 día' : `te quedan ${trial.daysLeft ?? 0} días`} · {trial.productCount} de {trial.productLimit} productos{trial.openRequest ? <> · Solicitud {trial.openRequest.code} en verificación de pago</> : null}</>}
+              </p>
+              {location.pathname !== '/admin/activar-tienda' && <Link to="/admin/activar-tienda" className="btn-brand !py-1.5 text-xs">Activar mi tienda</Link>}
+            </div>
+          )}
+          {trial && !trial.emailVerified && (
+            <p className="mb-6 flex items-start gap-2 rounded-card border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950" role="status">
+              <MailWarning size={18} className="mt-0.5 shrink-0" aria-hidden="true" /> Tu correo no está confirmado: no recibirás los avisos de tu tienda ni podrás recuperar tu acceso por correo.
+            </p>
+          )}
           {isDemoSession && (
             <p className="mb-6 rounded-card border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950" role="status">
               Sesión demo local. Los cambios quedan en este navegador; no se enviarán al Worker ni a otra tienda.

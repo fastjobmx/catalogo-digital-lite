@@ -148,7 +148,7 @@ describe('users and access (per store)', () => {
   it('invites by email; opening the emailed invitation verifies the address and sends a welcome', async () => {
     const invited = await h.request('/api/admin/team', { method: 'POST', token: ownerA, store: 'tienda-a', body: { email: 'nueva@tienda-a.co', role: 'operator', displayName: 'Nueva' } })
     expect(await json(invited)).toMatchObject({ delivery: 'email', activationUrl: null })
-    expect(sent[0]!.subject).toBe('Te invitaron a administrar Tienda A')
+    expect(sent[0]!.subject).toBe('Te invitaron a administrar Tienda A | TiendIA Exprés')
     const userId = (h.db.query<any>("SELECT id FROM platform_users WHERE email = 'nueva@tienda-a.co'")[0]).id
     expect((await h.request(`/api/admin/users/${userId}/invitation`, { method: 'POST', token: ownerA, store: 'tienda-a' })).status).toBe(200)
     expect(sent).toHaveLength(2)
@@ -157,7 +157,7 @@ describe('users and access (per store)', () => {
     const latest = tokenOf(linkIn(sent[1]!.text, '/activar')!)
     expect((await h.request('/api/auth/activate', { method: 'POST', body: { token: latest, password: 'ClaveNueva2026' } })).status).toBe(200)
     expect(h.db.query<any>(`SELECT email_verified_at IS NOT NULL AS verified FROM platform_users WHERE id = ${userId}`)).toEqual([{ verified: 1 }])
-    expect(sent[2]!.subject).toBe('¡Bienvenido a TiendIA Exprés! Tu tienda está lista para comenzar')
+    expect(sent[2]!.subject).toBe('Te damos la bienvenida a TiendIA Exprés: tu tienda está lista')
     expect(sent[2]!.text).toContain('https://tiendas.test/t/tienda-a')
     expect(sent[2]!.text).not.toMatch(/contraseña:\s*\S/i)
     expect((await h.request(`/api/admin/users/${userId}/invitation`, { method: 'POST', token: ownerA, store: 'tienda-a' })).status).toBe(409)
@@ -186,9 +186,10 @@ describe('users and access (per store)', () => {
 describe('email templates (superadmin)', () => {
   const create = (body: Record<string, unknown>, token = admin) => h.request('/api/platform/email/templates', { method: 'POST', token, body })
 
-  it('starts with the five system templates and lists the variables each one can use', async () => {
+  it('starts with the system templates and lists the variables each one can use', async () => {
     const list = await json(await h.request('/api/platform/email/templates', { token: admin }))
-    expect(list.items.map((item: any) => item.systemKey)).toEqual(['password_reset', 'invitation', 'welcome', 'admin_notice', 'email_verification', 'password_changed'])
+    expect(list.items.map((item: any) => item.systemKey)).toEqual(['password_reset', 'invitation', 'welcome', 'admin_notice', 'email_verification', 'password_changed',
+      'trial_signup', 'trial_welcome', 'signup_existing', 'trial_expiring', 'trial_ended', 'plan_requested', 'plan_activated'])
     const reset = list.items[0]
     expect(reset.variables.map((v: any) => v.key)).toContain('enlace_recuperacion')
     expect(list.items[3].variables.map((v: any) => v.key)).not.toContain('enlace_recuperacion')
@@ -263,13 +264,14 @@ describe('platform brand in emails', () => {
   it('untouched system templates follow the new brand; edited ones are kept', async () => {
     const list = await json(await h.request('/api/platform/email/templates', { token: admin }))
     const reset = list.items[0]
-    expect(reset.html).toContain('Tienda IA Express')
+    expect(reset.html).toContain('TiendIA Exprés')
+    expect(reset.html).not.toContain('Tienda IA Express')
     expect(reset.html).not.toContain('MOSTRALO')
     h.db.sqlite.exec(`UPDATE email_templates SET html = 'viejo {{enlace_recuperacion}}' WHERE system_key = 'welcome'`)
-    h.db.sqlite.exec(`UPDATE email_templates SET html = replace(html, 'Tienda IA Express', 'Marca anterior') WHERE system_key = 'invitation'`)
+    h.db.sqlite.exec(`UPDATE email_templates SET html = replace(html, 'TiendIA Exprés', 'Marca anterior') WHERE system_key = 'invitation'`)
     h.db.sqlite.exec(`UPDATE email_templates SET updated_by = 'platform:yo' WHERE system_key = 'welcome'`)
     const again = await json(await h.request('/api/platform/email/templates', { token: admin }))
-    expect(again.items.find((item: any) => item.systemKey === 'invitation').html).toContain('Tienda IA Express')
+    expect(again.items.find((item: any) => item.systemKey === 'invitation').html).toContain('TiendIA Exprés')
     expect(again.items.find((item: any) => item.systemKey === 'welcome').html).toBe('viejo {{enlace_recuperacion}}')
   })
 })

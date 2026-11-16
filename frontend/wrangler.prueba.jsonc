@@ -1,0 +1,18 @@
+{
+  // Vista previa AISLADA del panel (prueba gratis real). Datos ficticios; solo habla con tiendia-prueba-staging.
+  // Publicar: npm run build -- --mode prueba && wrangler deploy -c wrangler.prueba.jsonc
+  "$schema": "../worker/node_modules/wrangler/config-schema.json",
+  "name": "tiendia-prueba-panel",
+  "main": "cloudflare/worker.js",
+  "compatibility_date": "2025-09-01",
+  "workers_dev": true,
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/*", "!/assets/*", "!/brand/*", "!/seed-images/*", "!/favicon.svg"]
+  },
+  "services": [{ "binding": "API", "service": "tiendia-prueba-staging" }],
+  "observability": { "enabled": true },
+  "vars": { "CANONICAL_ORIGIN": "https://tiendia-prueba-panel.catalogo-lite-worker.workers.dev", "REDIRECT_TO_CANONICAL": "false" }
+}

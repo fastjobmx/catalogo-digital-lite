@@ -1,6 +1,8 @@
 /** Platform billing: invoices from active services and plan prices. No payment is
  * collected automatically; the superadmin marks invoices as paid or void. */
+import type { Env } from '../index'
 import { PlatformError } from './platform'
+import { activatePlanRequest, cancelPlanRequestById } from './freeTrial'
 
 export type Invoice = { id: number; store_id: number; store_name: string; slug: string; period: string; concept: string; amount: number; currency: string; status: string; due_date: string | null; paid_at: string | null }
 
@@ -42,7 +44,10 @@ export async function generateInvoices(db: D1Database, period: string, actor: st
       SELECT s.id, NULL, ?, 'Plan ' || p.name, p.monthly_price, p.currency, ?, ?
       FROM stores s JOIN plans p ON p.code = s.plan_code
       WHERE s.status = 'active' AND p.monthly_price > 0
-        AND NOT EXISTS (SELECT 1 FROM store_invoices i WHERE i.store_id = s.id AND i.service_id IS NULL AND i.period = ? AND i.concept = 'Plan ' || p.name)`).bind(period, due, actor, period),
+        AND NOT EXISTS (SELECT 1 FROM store_invoices i WHERE i.store_id = s.id AND i.service_id IS NULL AND i.period = ? AND i.concept = 'Plan ' || p.name)
+        -- A plan activated from the free trial already paid its first month (monthly) or its whole year (annual).
+        AND NOT EXISTS (SELECT 1 FROM store_plan_requests r WHERE r.store_id = s.id AND r.status = 'activada' AND r.plan_code = s.plan_code
+          AND (strftime('%Y-%m', r.activated_at) = ? OR (r.billing_cycle = 'anual' AND r.activated_at > date(? || '-01', '-12 months'))))`).bind(period, due, actor, period, period, period),
   ]
   const results = await db.batch(statements)
   const created = results.reduce((sum, result) => sum + Number(result.meta.changes || 0), 0)
@@ -61,7 +66,15 @@ export async function listInvoices(db: D1Database, filter: { status?: string; sl
 }
 
 /** Only pending invoices change; paid and void are final. */
-export async function setInvoiceStatus(db: D1Database, id: number, status: 'pagada' | 'anulada', actor: string): Promise<Invoice> {
+export async function setInvoiceStatus(db: D1Database, id: number, status: 'pagada' | 'anulada', actor: string, env: Partial<Env['Bindings']> = {}): Promise<Invoice> {
+  // The invoice of a plan request from the free trial: paying it is the verified payment that enables the plan
+  // (same transaction as the platform's "Pago verificado" button); voiding it cancels the request.
+  const request = await db.prepare(`SELECT id, code FROM store_plan_requests WHERE invoice_id = ? AND status = 'pendiente_pago'`).bind(id).first<{ id: number; code: string }>()
+  if (request) {
+    if (status === 'pagada') await activatePlanRequest(db, env, { id: request.id }, { actor, paymentReference: `Factura #${id} marcada como pagada` })
+    else await cancelPlanRequestById(db, request.id, `Factura #${id} anulada`, actor)
+    return (await db.prepare(`SELECT i.id, i.store_id, s.name AS store_name, s.slug, i.period, i.concept, i.amount, i.currency, i.status, i.due_date, i.paid_at FROM store_invoices i JOIN stores s ON s.id = i.store_id WHERE i.id = ?`).bind(id).first<Invoice>())!
+  }
   const result = await db.prepare(`UPDATE store_invoices SET status = ?, paid_at = CASE WHEN ? = 'pagada' THEN datetime('now') ELSE NULL END, updated_at = datetime('now')
     WHERE id = ? AND status = 'pendiente' RETURNING store_id`).bind(status, status, id).first<{ store_id: number }>()
   if (!result) throw new PlatformError('INVOICE_NOT_PENDING', 'Esa factura no existe o ya no está pendiente.')

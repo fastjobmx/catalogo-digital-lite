@@ -465,7 +465,7 @@ async function confirmOperation(ctx: MasterContext, operationId: string): Promis
         break
       }
       case 'invoice_status': {
-        const invoice = await setInvoiceStatus(ctx.db, Number(params.id), params.status, ctx.actor)
+        const invoice = await setInvoiceStatus(ctx.db, Number(params.id), params.status, ctx.actor, ctx.env)
         message = `🧾 Factura #${invoice.id} de <b>${escapeHtml(invoice.store_name)}</b>: ${invoice.status}.`
         break
       }

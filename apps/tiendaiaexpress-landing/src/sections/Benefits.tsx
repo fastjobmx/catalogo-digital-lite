@@ -11,9 +11,9 @@ const i = (n: number) => ({ '--i': n }) as CSSProperties
 
 export function Trial() {
   const facts = [
-    { icon: 'camera' as const, title: 'Vista previa real', body: `Hasta ${site.trial.products} productos con foto, con el estilo que elijas.` },
-    { icon: 'clock' as const, title: 'Temporal y privada', body: `Dura ${site.trial.days} días. No te pedimos correo ni contraseña.` },
-    { icon: 'store' as const, title: 'Para quedártela', body: 'Cuando quieras tu tienda definitiva, la creamos contigo. La prueba no se convierte en tienda por sí sola.' },
+    { icon: 'store' as const, title: 'Tu tienda real, con su panel', body: `Administra tu tienda desde el primer día: crea hasta ${site.trial.products} productos con fotos, precios y variantes, y recibe pedidos por WhatsApp.` },
+    { icon: 'clock' as const, title: `${site.trial.days} días gratis, sin tarjeta`, body: 'Solo te pedimos tu correo para enviarte el enlace de acceso. No guardamos tarjetas ni cobramos nada automáticamente.' },
+    { icon: 'camera' as const, title: 'Para quedártela', body: 'Si contratas un plan, conservas tus productos y configuración: la misma tienda, el mismo enlace y tus pedidos.' },
   ]
   return (
     <section id="prueba" aria-labelledby="prueba-title" className="on-dark relative overflow-hidden bg-night py-24 text-porcelain md:py-28">
@@ -21,10 +21,10 @@ export function Trial() {
       <div className="pointer-events-none absolute -left-32 bottom-0 size-[34rem] rounded-full bg-[radial-gradient(closest-side,rgba(197,42,241,.3),transparent)]" aria-hidden="true" />
       <div className="wrap relative grid items-center gap-12 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:gap-16">
         <div data-reveal>
-          <SectionHeading id="prueba-title" onDark eyebrow="Sin registro · Gratis" title={<>Prueba tu tienda <span className="accent accent-gradient">sin registro.</span></>} intro="Sube fotos de tus productos y descubre cómo puede verse tu tienda online. Importar tu lista completa desde Excel, CSV o PDF lo haces después, en el panel de tu tienda." />
+          <SectionHeading id="prueba-title" onDark eyebrow="Gratis · Sin tarjeta de crédito" title={<>Prueba gratis durante <span className="accent accent-gradient">{site.trial.days} días.</span></>} intro={`Crea tu tienda real en minutos y adminístrala desde el primer día con el mismo panel de los comercios que ya venden. Si contratas un plan, conservas tus productos y configuración.`} />
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <Button href={site.trialUrl} variant="lime" size="lg" lead="store" icon="arrowUpRight" external>Probar gratis</Button>
-            <Button href="#contacto" variant="outline-light" size="lg">Crear mi tienda</Button>
+            <Button href={site.trialUrl} variant="lime" size="lg" lead="store" icon="arrowUpRight" external>Crear mi tienda gratis</Button>
+            <Button href="#contacto" variant="outline-light" size="lg">Te ayudamos a crearla</Button>
           </div>
         </div>
         <ul className="grid gap-3">

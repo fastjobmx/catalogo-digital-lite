@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import type { Env } from '../index'
 import { adminAuth, requireCapability, requireRole } from '../middleware/auth'
 import { createAdminToken, validateCredentials, getJwtSecret, isAuthConfigurationReady, isSuperadminEmail, verifyPasswordHash } from '../services/auth'
-import { createCatalogCategory, createCatalogProduct, deactivateCatalogCategory, setProductArchived, updateCatalogCategory, updateCatalogProduct, updateStoreConfiguration, updateStoreTemplate, updateVariantStocksById, type AuditContext } from '../services/business'
+import { createCatalogCategory, createCatalogProduct, deactivateCatalogCategory, productLimit, setProductArchived, updateCatalogCategory, updateCatalogProduct, updateStoreConfiguration, updateStoreTemplate, updateVariantStocksById, type AuditContext } from '../services/business'
 import { normalizeStoreBody } from '../lib/storeMap'
 import { findForeignAssetUrl } from '../lib/assets'
 import { TEMPLATE_KEYS } from '../services/templates'
@@ -22,6 +22,8 @@ import { connectOwnKey, declareOwnKeyTier, disconnectOwnKey, OwnKeyError, ownKey
 import { CreditError, createCreditRequest, creditSummary, listCreditCosts, listCreditMovements, listCreditRequests } from '../ai/credits'
 import { getTelegramBatchPhoto, getTelegramBatchReview, listTelegramBatches, updateTelegramBatchReviewItem } from '../services/telegramProductBatches'
 import type { Context } from 'hono'
+import { getTrialStatus, requestPlan, TrialFlowError } from '../services/freeTrial'
+import { launchChecklist } from '../services/launchChecklist'
 
 const app = new Hono<Env>()
 
@@ -366,10 +368,30 @@ app.post('/ai/key/buyer-data', adminAuth, requireRole('owner'), async (c) => {
  return ownKeyAction(c, (storeId, actor) => setBuyerDataPolicy(c.env.DB, c.env, storeId, body, actor))
 })
 app.delete('/ai/key', adminAuth, requireRole('owner'), (c) => ownKeyAction(c, (storeId, actor) => disconnectOwnKey(c.env.DB, c.env, storeId, actor)))
+// Free trial: status, limits, days left, plans and the history of important messages (own store only).
+app.get('/trial', adminAuth, async (c) => c.json(await getTrialStatus(c.env.DB, c.get('storeId')!)))
+// «Listo para vender»: steps computed from the store's real data (own store only).
+app.get('/launch-checklist', adminAuth, async (c) => c.json(await launchChecklist(c.env.DB, c.get('storeId')!)))
+// «Activar mi tienda»: only the owner contracts. The plan is enabled after the platform verifies the payment.
+app.post('/trial/plan-request', adminAuth, requireRole('owner'), async (c) => {
+ const body = await c.req.json().catch(() => null) as Record<string, unknown> | null
+ if (!body) return c.json({ error: 'Invalid JSON body' }, 400)
+ try {
+  const result = await requestPlan(c.env.DB, c.env, c.get('storeId')!, body, c.get('adminEmail') || 'unknown')
+  return c.json(result, result.replayed ? 200 : 201)
+ } catch (error) {
+  if (error instanceof TrialFlowError) return c.json({ error: error.message, code: error.code }, error.status)
+  throw error
+ }
+})
 
 app.post('/credits/requests', adminAuth, requireRole('admin'), async (c) => {
  const body = await c.req.json().catch(() => null) as { credits?: unknown; note?: unknown; packCode?: unknown } | null
  if (!body) return c.json({ error: 'Invalid JSON body' }, 400)
+ // Premium AI credits are not part of the free trial (they unlock with a paid plan).
+ if (await c.env.DB.prepare(`SELECT 1 AS hit FROM store_trials WHERE store_id = ? AND status <> 'convertida'`).bind(c.get('storeId')).first()) {
+  return c.json({ error: 'Los créditos de IA se habilitan cuando activas tu tienda con un plan.', code: 'TRIAL_FEATURE_UNAVAILABLE' }, 403)
+ }
  try {
   return c.json(await createCreditRequest(c.env.DB, c.get('storeId')!, body, c.get('adminEmail') || 'unknown'), 201)
  } catch (error) {
@@ -490,11 +512,19 @@ app.post('/products', adminAuth, requireRole('admin'), async (c) => {
  return c.json(product, 201)
  } catch (error) {
  if (error instanceof Error && error.message === 'SKU_ALREADY_EXISTS') return c.json({ error: 'SKU already exists' }, 409)
- if (error instanceof Error && error.message === 'PLAN_PRODUCT_LIMIT') return c.json({ error: 'Your plan product limit was reached. Archive products or change plan.', code: 'PLAN_PRODUCT_LIMIT' }, 409)
+ if (error instanceof Error && error.message === 'PLAN_PRODUCT_LIMIT') return productLimitResponse(c)
  if (error instanceof Error && error.message === 'CATEGORY_NOT_FOUND') return c.json({ error: 'Category not found' }, 400)
  throw error
  }
 })
+
+/** Product limit reached: during the free trial the answer says which limit applies and what to do. */
+async function productLimitResponse(c: Context<Env>) {
+ const limit = await productLimit(c.env.DB, c.get('storeId')!)
+ if (limit.trial === 'vencida') return c.json({ error: 'Tu prueba gratis terminó. Activa tu tienda con un plan para crear productos.', code: 'TRIAL_EXPIRED' }, 409)
+ if (limit.trial === 'activa') return c.json({ error: `Durante la prueba gratis puedes tener hasta ${limit.max} productos. Archiva uno o activa tu tienda con un plan.`, code: 'TRIAL_PRODUCT_LIMIT', limit: limit.max, count: limit.count }, 409)
+ return c.json({ error: 'Your plan product limit was reached. Archive products or change plan.', code: 'PLAN_PRODUCT_LIMIT' }, 409)
+}
 
 // PUT /api/admin/products/:id - Actualizar producto
 app.put('/products/:id', adminAuth, requireRole('admin'), async (c) => {
@@ -598,7 +628,13 @@ app.put('/products/:id/variants', adminAuth, requireCapability('inventory.manage
 app.post('/products/:id/restore', adminAuth, requireRole('admin'), async (c) => {
   const id = parseInt(c.req.param('id'))
   if (isNaN(id)) return c.json({ error: 'Invalid ID' }, 400)
-  const restored = await setProductArchived(c.env.DB, { id }, false, auditContext(c))
+  let restored: boolean
+  try {
+    restored = await setProductArchived(c.env.DB, { id }, false, auditContext(c))
+  } catch (error) {
+    if (error instanceof Error && error.message === 'PLAN_PRODUCT_LIMIT') return productLimitResponse(c)
+    throw error
+  }
   if (!restored) return c.json({ error: 'Product not found' }, 404)
   return c.json({ success: true, id })
 })

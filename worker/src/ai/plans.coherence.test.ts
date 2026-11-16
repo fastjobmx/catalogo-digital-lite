@@ -185,7 +185,7 @@ describe('the internal "unlimited" marker is never read as a real limit', () => 
       }
     }
     walk(join(process.cwd(), 'src'))
-    expect(readers.sort()).toEqual(['routes/platform.ts', 'services/business.ts', 'services/master/bot.ts'])
+    expect(readers.sort()).toEqual(['routes/platform.ts', 'services/business.ts', 'services/freeTrial.ts', 'services/master/bot.ts'])
     for (const file of readers) {
       const source = readFileSync(join(process.cwd(), 'src', file), 'utf8').split('\n').filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line)).join('\n')
       const uses = source.match(/max_products/g)!.length

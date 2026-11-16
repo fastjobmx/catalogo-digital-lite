@@ -89,7 +89,7 @@ export function Stores() {
             <Button href="#contacto" variant="lime" lead="store">Quiero mi tienda</Button>
             <Button href="#planes" variant="outline-light">Conocer planes</Button>
           </div>
-          <p className="relative text-[0.85rem] text-mist md:col-span-3">¿Lo quieres ver ya? <a href={site.trialUrl} target="_blank" rel="noopener noreferrer" className="font-bold text-porcelain underline decoration-cyan decoration-2 underline-offset-4 hover:text-cyan">Crea tu tienda de prueba gratis<span className="sr-only"> (se abre en una pestaña nueva)</span></a>, sin correo ni contraseña.</p>
+          <p className="relative text-[0.85rem] text-mist md:col-span-3">¿Lo quieres ver ya? <a href={site.trialUrl} target="_blank" rel="noopener noreferrer" className="font-bold text-porcelain underline decoration-cyan decoration-2 underline-offset-4 hover:text-cyan">Crea tu tienda gratis<span className="sr-only"> (se abre en una pestaña nueva)</span></a>, sin tarjeta de crédito.</p>
         </div>
       </div>
     </section>

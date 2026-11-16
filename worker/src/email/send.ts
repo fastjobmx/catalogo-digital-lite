@@ -17,19 +17,43 @@ export function emailConfig(env: Partial<Env['Bindings']>): { provider: EmailPro
 
 export const isEmail = (value: unknown): value is string => typeof value === 'string' && value.length <= 320 && /^[^\s@<>"',;]+@[^\s@<>"',;]+\.[^\s@<>"',;]{2,}$/.test(value)
 
+/** Recipient allowlist for NON-production environments (EMAIL_ALLOWED_RECIPIENTS: comma separated addresses or "@domain"
+ * entries). When it is set, nothing is sent to anyone else, so a staging copy can never mail a real merchant.
+ * Unset (production) = no restriction. */
+export function recipientAllowed(env: Partial<Env['Bindings']>, email: string): boolean {
+  const entries = String(env.EMAIL_ALLOWED_RECIPIENTS || '').split(',').map((value) => value.trim().toLowerCase()).filter(Boolean)
+  if (!entries.length) return true
+  const address = email.trim().toLowerCase()
+  return entries.some((entry) => entry === address || (entry.startsWith('@') && address.endsWith(entry)))
+}
+
 /** Notification categories. Security messages are essential and can never be paused. */
 export const EMAIL_CATEGORIES = {
   seguridad: { label: 'Seguridad y acceso', essential: true },
   bienvenida: { label: 'Bienvenida', essential: false },
   avisos: { label: 'Avisos administrativos', essential: false },
+  cuenta: { label: 'Prueba gratis, contratación y plan', essential: true },
 } as const
 export type EmailCategory = keyof typeof EMAIL_CATEGORIES
-const SECURITY_KEYS: ReadonlySet<string> = new Set(['password_reset', 'email_verification', 'invitation', 'password_changed'])
+const SECURITY_KEYS: ReadonlySet<string> = new Set(['password_reset', 'email_verification', 'invitation', 'password_changed', 'trial_signup', 'signup_existing'])
+/** Messages about the trial and the contract: the merchant needs them to keep the store, so they cannot be paused. */
+const ACCOUNT_KEYS: ReadonlySet<string> = new Set(['trial_expiring', 'trial_ended', 'plan_requested', 'plan_activated'])
+/** Commercial messages: replies go to sales (EMAIL_REPLY_TO_SALES) instead of support. */
+const SALES_KEYS: ReadonlySet<string> = new Set(['trial_expiring', 'trial_ended', 'plan_requested', 'plan_activated'])
 
 export function categoryFor(templateKey: string | null): EmailCategory {
   if (templateKey && SECURITY_KEYS.has(templateKey)) return 'seguridad'
-  if (templateKey === 'welcome') return 'bienvenida'
+  if (templateKey && ACCOUNT_KEYS.has(templateKey)) return 'cuenta'
+  if (templateKey === 'welcome' || templateKey === 'trial_welcome') return 'bienvenida'
   return 'avisos'
+}
+
+/** Reply-To of a message: sales for commercial templates (when configured), support for the rest. */
+export function replyToFor(env: Partial<Env['Bindings']>, templateKey: string | null): string | null {
+  const sales = (env.EMAIL_REPLY_TO_SALES || '').trim()
+  const support = (env.EMAIL_REPLY_TO || '').trim()
+  if (templateKey && SALES_KEYS.has(templateKey) && isEmail(sales)) return sales
+  return isEmail(support) ? support : null
 }
 
 export async function isCategoryEnabled(db: D1Database, category: EmailCategory): Promise<boolean> {
@@ -72,13 +96,13 @@ export async function loadTemplate(db: D1Database, selector: { key?: SystemTempl
 export const isTransient = (code: string) => code === 'NETWORK' || code === 'HTTP_429' || /^HTTP_5\d\d$/.test(code)
 const RETRY_DELAYS_MS = [300, 1200]
 
-type OutgoingMessage = { to: string; subject: string; html: string; text: string; idempotencyKey: string; tag: string }
+type OutgoingMessage = { to: string; subject: string; html: string; text: string; idempotencyKey: string; tag: string; replyTo?: string | null }
 type DeliveryResult = ({ ok: true; id: string | null } | { ok: false; code: string }) & { attempts: number }
 
 async function deliverOnce(env: Partial<Env['Bindings']>, message: OutgoingMessage, fetcher: typeof fetch): Promise<{ ok: true; id: string | null } | { ok: false; code: string }> {
   const config = emailConfig(env)
   if (!config.configured) return { ok: false, code: 'NOT_CONFIGURED' }
-  const replyTo = (env.EMAIL_REPLY_TO || '').trim()
+  const replyTo = message.replyTo === undefined ? (env.EMAIL_REPLY_TO || '').trim() : (message.replyTo || '')
   try {
     const response = await fetcher('https://api.resend.com/emails', {
       method: 'POST',
@@ -146,9 +170,11 @@ export async function sendEmail(db: D1Database, env: Partial<Env['Bindings']>, i
     return { status: existing?.status || 'enviando', messageId: existing?.id || 0, replayed: true, configured: config.configured }
   }
   // Addresses that bounced permanently or reported spam are not contacted again.
-  const result: DeliveryResult = await isSuppressed(db, input.to)
+  const result: DeliveryResult = !recipientAllowed(env, input.to)
+    ? { ok: false, code: 'RECIPIENT_NOT_ALLOWED', attempts: 0 }
+    : await isSuppressed(db, input.to)
     ? { ok: false, code: 'SUPPRESSED', attempts: 0 }
-    : await deliver(env, { to: input.to, ...rendered, idempotencyKey: input.idempotencyKey, tag: input.purpose }, fetcher, sleep)
+    : await deliver(env, { to: input.to, ...rendered, idempotencyKey: input.idempotencyKey, tag: input.purpose, replyTo: replyToFor(env, template.system_key) }, fetcher, sleep)
   const status: EmailStatus = result.ok ? 'enviado' : result.code === 'NOT_CONFIGURED' ? 'no_configurado' : 'fallido'
   await db.prepare(`UPDATE email_messages SET status = ?, provider_message_id = ?, error_code = ?, attempts = ?, updated_at = datetime('now') WHERE id = ?`)
     .bind(status, result.ok ? result.id : null, result.ok ? null : result.code, result.attempts, claim.id).run()

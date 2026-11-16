@@ -59,13 +59,19 @@ async function assertCategoryInStore(db: D1Database, categoryId: unknown, storeI
   if (!row) throw new Error('CATEGORY_NOT_FOUND')
 }
 
-/** Active (non-archived) products against the store plan's max_products. */
-export async function productLimit(db: D1Database, storeId: number): Promise<{ count: number; max: number | null; plan: string | null }> {
+/** Active (non-archived) products against the store plan's max_products. A store on its free trial uses the
+ * trial limit instead, and a trial that ended allows no new products (max 0) while keeping the existing ones. */
+export async function productLimit(db: D1Database, storeId: number): Promise<{ count: number; max: number | null; plan: string | null; trial: 'activa' | 'vencida' | null }> {
   const row = await db.prepare(
-    `SELECT (SELECT COUNT(*) FROM products WHERE store_id = s.id AND is_archived = 0) AS count, CASE WHEN p.products_unlimited = 1 THEN NULL ELSE p.max_products END AS max, p.name AS plan
-     FROM stores s LEFT JOIN plans p ON p.code = s.plan_code WHERE s.id = ?`,
-  ).bind(storeId).first<{ count: number; max: number | null; plan: string | null }>()
-  return { count: Number(row?.count || 0), max: row?.max ?? null, plan: row?.plan ?? null }
+    `SELECT (SELECT COUNT(*) FROM products WHERE store_id = s.id AND is_archived = 0) AS count, CASE WHEN p.products_unlimited = 1 THEN NULL ELSE p.max_products END AS max, p.name AS plan,
+            t.status AS trialStatus, t.product_limit AS trialLimit,
+            CASE WHEN s.trial_ends_at IS NOT NULL AND s.trial_ends_at <= datetime('now') THEN 1 ELSE 0 END AS trialEnded
+     FROM stores s LEFT JOIN plans p ON p.code = s.plan_code LEFT JOIN store_trials t ON t.store_id = s.id WHERE s.id = ?`,
+  ).bind(storeId).first<{ count: number; max: number | null; plan: string | null; trialStatus: string | null; trialLimit: number | null; trialEnded: number }>()
+  const count = Number(row?.count || 0)
+  if (row?.trialStatus === 'vencida' || (row?.trialStatus === 'activa' && row.trialEnded)) return { count, max: 0, plan: 'Prueba gratuita', trial: 'vencida' }
+  if (row?.trialStatus === 'activa' || row?.trialStatus === 'pendiente') return { count, max: Number(row.trialLimit || 7), plan: 'Prueba gratuita', trial: 'activa' }
+  return { count, max: row?.max ?? null, plan: row?.plan ?? null, trial: null }
 }
 
 export async function createCatalogProduct(
@@ -78,14 +84,20 @@ export async function createCatalogProduct(
   const limit = await productLimit(db, context.storeId)
   if (limit.max !== null && limit.count >= limit.max) throw new Error('PLAN_PRODUCT_LIMIT')
   await assertCategoryInStore(db, product.categoryId, context.storeId)
-  const statements = buildCatalogProductStatements(db, product, context, { sku: product.sku })
+  // Trial stores check the limit inside the INSERT too, so two parallel requests cannot both take the last slot.
+  const statements = buildCatalogProductStatements(db, product, context, { sku: product.sku, trialMaxProducts: limit.trial ? limit.max : null })
   let results: D1Result[]
   try {
     results = await db.batch(statements)
   } catch (error) {
     if (error instanceof Error && /unique constraint/i.test(error.message)) throw new Error('SKU_ALREADY_EXISTS')
+    if (limit.trial) {
+      const current = await productLimit(db, context.storeId)
+      if (current.max !== null && current.count >= current.max) throw new Error('PLAN_PRODUCT_LIMIT')
+    }
     throw error
   }
+  if (limit.trial && Number(results[0]?.meta.changes || 0) !== 1) throw new Error('PLAN_PRODUCT_LIMIT')
   const id = Number(results[0]?.meta.last_row_id)
   if (!Number.isSafeInteger(id) || id <= 0) throw new Error('PRODUCT_CREATE_FAILED')
   return { id, sku: product.sku }
@@ -109,7 +121,7 @@ function buildCatalogProductStatements(
   db: D1Database,
   product: CatalogProductInput,
   context: AuditContext,
-  guard: { sku: string; operationId?: string; executionToken?: string; chatId?: string; paramsJson?: string; beforeJson?: string; afterJson?: string; batchId?: string; batchItemId?: number; telegramUserId?: string; maxProducts?: number | null; auditPayload?: unknown },
+  guard: { sku: string; trialMaxProducts?: number | null; operationId?: string; executionToken?: string; chatId?: string; paramsJson?: string; beforeJson?: string; afterJson?: string; batchId?: string; batchItemId?: number; telegramUserId?: string; maxProducts?: number | null; auditPayload?: unknown },
 ): D1PreparedStatement[] {
   const guarded = Boolean(guard.operationId && guard.executionToken && guard.chatId && guard.paramsJson !== undefined && guard.beforeJson !== undefined && guard.afterJson !== undefined)
   const batchGuarded = Boolean(guard.batchId && guard.batchItemId && guard.chatId && guard.telegramUserId)
@@ -128,10 +140,11 @@ function buildCatalogProductStatements(
       : []
   // The batch path checks max_products inside the INSERT statement so two storeside imports cannot
   // both observe the same last slot and publish beyond the plan concurrently.
+  const trialLimit = !guarded && !batchGuarded && guard.trialMaxProducts !== null && guard.trialMaxProducts !== undefined
   const productLimitSql = batchGuarded && guard.maxProducts !== null && guard.maxProducts !== undefined
     ? ' AND (SELECT COUNT(*) FROM products WHERE store_id = ?) < ?'
-    : ''
-  const productLimitBindings = productLimitSql ? [context.storeId, guard.maxProducts] : []
+    : trialLimit ? ' AND (SELECT COUNT(*) FROM products WHERE store_id = ? AND is_archived = 0) < ?' : ''
+  const productLimitBindings = productLimitSql ? [context.storeId, trialLimit ? guard.trialMaxProducts : guard.maxProducts] : []
   const statements: D1PreparedStatement[] = [db.prepare(
     `INSERT INTO products (store_id, sku, name, description, brand, category_id, price, compare_at_price, is_featured, image_urls, is_active, is_archived)
      SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0 WHERE ${gate}${productLimitSql}`,
@@ -435,9 +448,14 @@ export async function setProductArchived(
 ): Promise<boolean> {
   const byId = selector.id !== undefined
   if (!byId && !selector.sku) return false
+  // Restoring counts against the free-trial limit (archived products do not), checked inside the UPDATE.
+  const limit = archived ? null : await productLimit(db, context.storeId)
+  const trialMax = limit?.trial ? limit.max : null
   const result = await db.prepare(
-    `UPDATE products SET is_archived = ?, is_active = ?, updated_at = datetime('now') WHERE ${byId ? 'id' : 'sku'} = ? AND store_id = ?`,
-  ).bind(archived ? 1 : 0, archived ? 0 : 1, byId ? selector.id : selector.sku, context.storeId).run()
+    `UPDATE products SET is_archived = ?, is_active = ?, updated_at = datetime('now') WHERE ${byId ? 'id' : 'sku'} = ? AND store_id = ?
+       ${trialMax !== null ? 'AND (is_archived = 0 OR (SELECT COUNT(*) FROM products WHERE store_id = ? AND is_archived = 0) < ?)' : ''}`,
+  ).bind(archived ? 1 : 0, archived ? 0 : 1, byId ? selector.id : selector.sku, context.storeId, ...(trialMax !== null ? [context.storeId, trialMax] : [])).run()
+  if (!result.meta.changes && trialMax !== null && limit && limit.count >= trialMax) throw new Error('PLAN_PRODUCT_LIMIT')
   if (!result.meta.changes) return false
   await recordBusinessAction(db, archived ? 'product_archived' : 'product_restored', 'product', String(selector.id ?? selector.sku), {}, context)
   return true

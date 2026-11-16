@@ -17,6 +17,7 @@ import { regularizeOwner, storesWithoutVerifiedOwner } from '../services/ownerRe
 import { CreditError, creditSummary, grantCredits, listCreditCosts, listCreditMovements, listCreditRequests, resolveCreditRequest, setCreditCost } from '../ai/credits'
 import { ConversionError, convertTrial, discardActivationRequest, listActivationRequests, trialMetrics } from '../services/trialConversion'
 import { getTrialSettings, setTrialSettings, SettingsError } from '../services/trialSettings'
+import { activatePlanRequest, activationIncidents, cancelPlanRequestById, extendTrial, listPlanRequests, listTrialStores, TrialFlowError, trialStoreMetrics } from '../services/freeTrial'
 import { aiUsageAlerts, currentBillingPeriod, generateInvoices, listInvoices, setDomainStatus, setInvoiceStatus } from '../services/billing'
 
 import { aiCostReport, AiMessageAdminError, platformConsumption, setStoreMessageSettings, storeConsumptionDetail } from '../services/aiMessageAdmin'
@@ -41,6 +42,7 @@ function actor(c: Context<Env>): string {
 }
 
 function fail(c: Context<Env>, error: unknown) {
+  if (error instanceof TrialFlowError) return c.json({ error: error.message, code: error.code }, error.status)
   if (error instanceof ConversionError) return c.json({ error: error.message, code: error.code }, error.status)
   if (error instanceof AiMessageAdminError) return c.json({ error: error.message, code: error.code }, error.status)
   if (error instanceof SettingsError) return c.json({ error: error.message, code: error.code }, 400)
@@ -146,7 +148,7 @@ app.post('/invoices/generate', async (c) => {
 app.post('/invoices/:id/status', async (c) => {
   const body = await c.req.json().catch(() => null) as { status?: string } | null
   if (body?.status !== 'pagada' && body?.status !== 'anulada') return c.json({ error: 'Invalid status' }, 400)
-  try { return c.json(await setInvoiceStatus(c.env.DB, Number(c.req.param('id')), body.status, actor(c))) } catch (error) { return fail(c, error) }
+  try { return c.json(await setInvoiceStatus(c.env.DB, Number(c.req.param('id')), body.status, actor(c), c.env)) } catch (error) { return fail(c, error) }
 })
 
 // Custom domains: pendiente → verificado → activo → retirado (DNS and the Cloudflare custom domain are manual steps).
@@ -288,6 +290,33 @@ app.post('/trials/requests/:id/convert', async (c) => {
 })
 app.post('/trials/requests/:id/discard', async (c) => {
   try { return c.json(await discardActivationRequest(c.env.DB, Number(c.req.param('id')), actor(c))) } catch (error) { return fail(c, error) }
+})
+
+// Real free trial: trial stores, contracts waiting for payment verification and activation incidents.
+app.get('/trial-stores', async (c) => c.json({ items: await listTrialStores(c.env.DB, { status: c.req.query('status') || undefined }) }))
+app.get('/trial-stores/summary', async (c) => c.json(await trialStoreMetrics(c.env.DB)))
+app.get('/trial-stores/incidents', async (c) => c.json({ items: await activationIncidents(c.env.DB) }))
+app.get('/trial-stores/:slug/emails', async (c) => {
+  const store = await getStoreBySlug(c.env.DB, c.req.param('slug'))
+  if (!store) return c.json({ error: 'Store not found', code: 'STORE_NOT_FOUND' }, 404)
+  const { results } = await c.env.DB.prepare(`SELECT id, purpose, to_email AS toEmail, subject, status, delivery_status AS deliveryStatus, error_code AS errorCode, attempts, created_at AS createdAt
+    FROM email_messages WHERE store_id = ? ORDER BY id DESC LIMIT 50`).bind(store.id).all()
+  return c.json({ items: results || [] })
+})
+app.post('/trial-stores/:slug/extend', async (c) => {
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>
+  try { return c.json(await extendTrial(c.env.DB, c.req.param('slug'), body, actor(c))) } catch (error) { return fail(c, error) }
+})
+app.get('/plan-requests', async (c) => c.json({ items: await listPlanRequests(c.env.DB, { status: c.req.query('status') || undefined }) }))
+// The payment is verified by a person through the authorised (manual) procedure; this button records it.
+app.post('/plan-requests/:id/activate', async (c) => {
+  const body = await c.req.json().catch(() => ({})) as { paymentReference?: unknown; confirm?: unknown }
+  if (body.confirm !== true) return c.json({ error: 'Confirma que verificaste el pago antes de activar el plan.', code: 'CONFIRMATION_REQUIRED' }, 400)
+  try { return c.json(await activatePlanRequest(c.env.DB, c.env, { id: Number(c.req.param('id')) }, { actor: actor(c), paymentReference: String(body.paymentReference ?? '') })) } catch (error) { return fail(c, error) }
+})
+app.post('/plan-requests/:id/cancel', async (c) => {
+  const body = await c.req.json().catch(() => ({})) as { reason?: unknown }
+  try { return c.json(await cancelPlanRequestById(c.env.DB, Number(c.req.param('id')), String(body.reason ?? ''), actor(c))) } catch (error) { return fail(c, error) }
 })
 
 app.get('/ai-alerts', async (c) => c.json({ items: await aiUsageAlerts(c.env.DB) }))

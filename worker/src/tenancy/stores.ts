@@ -15,9 +15,11 @@ export interface StoreRecord {
   ai_enabled: number
   ai_monthly_budget_micros: number
   ai_warn_percent: number
+  /** End of the store's free trial (UTC 'YYYY-MM-DD HH:MM:SS'); null when the store is not on trial. */
+  trial_ends_at?: string | null
 }
 
-const STORE_COLUMNS = 'id, slug, name, status, plan_code, template, business_type, ai_enabled, ai_monthly_budget_micros, ai_warn_percent'
+const STORE_COLUMNS = 'id, slug, name, status, plan_code, template, business_type, ai_enabled, ai_monthly_budget_micros, ai_warn_percent, trial_ends_at'
 
 export const RESERVED_SLUGS = new Set([
   'admin', 'api', 't', 'plataforma', 'platform', 'assets', 'www', 'app', 'tienda', 'tiendas',
@@ -94,4 +96,12 @@ export function publicStoreUrl(baseUrl: string | undefined, store: Pick<StoreRec
 export function adminStoreUrl(baseUrl: string | undefined, store: Pick<StoreRecord, 'id' | 'slug'>): string {
   const base = (baseUrl || '').replace(/\/+$/, '')
   return store.id === PRIMARY_STORE_ID ? `${base}/admin` : `${base}/t/${store.slug}/admin`
+}
+
+/** A trial store whose period ended: data is kept, but it is not public and takes no new orders or products. */
+export function isTrialExpired(store: Pick<StoreRecord, 'trial_ends_at'> | null | undefined, now = Date.now()): boolean {
+  const end = store?.trial_ends_at
+  if (!end) return false
+  const ms = Date.parse(`${end.replace(' ', 'T')}Z`)
+  return Number.isFinite(ms) && ms <= now
 }

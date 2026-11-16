@@ -10,6 +10,8 @@ describe('share metadata', () => {
     expect(classifyPath('/admin/login')).toMatchObject({ kind: 'private', slug: null })
     expect(classifyPath('/t/luz-magica/admin/usuarios')).toMatchObject({ kind: 'private', slug: 'luz-magica' })
     expect(classifyPath('/plataforma/correos')).toMatchObject({ kind: 'private' })
+    expect(classifyPath('/registro')).toMatchObject({ kind: 'private', slug: null })
+    expect(classifyPath('/activar')).toMatchObject({ kind: 'private', slug: null })
     expect(classifyPath('/prueba/abc')).toMatchObject({ kind: 'trial' })
     expect(classifyPath('/t/luz-magica/')).toMatchObject({ kind: 'store', slug: 'luz-magica', sku: null })
     expect(classifyPath('/t/luz-magica/product/LM-005')).toMatchObject({ kind: 'store', slug: 'luz-magica', sku: 'LM-005' })
