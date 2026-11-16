@@ -387,8 +387,8 @@ async function understand(ctx: AssistantContext, text: string, turn: Turn): Prom
 
   if (!canModel) return 'fallback'
   turn.path = 'model'
-  await showTyping(ctx).catch(() => undefined)
-  const catalog = await loadCatalog(ctx)
+  // The typing signal, the catalogue and the recent conversation are independent: asked at once, not in a row.
+  const [, catalog, recent] = await Promise.all([showTyping(ctx).catch(() => undefined), loadCatalog(ctx), conversationContext(ctx)])
   const named = (sku: string) => { const product = catalog.find((item) => item.sku === sku); return product ? { sku, name: product.name } : null }
   const timeout = Math.min(20000, Math.max(2000, Number(ctx.env.ASSISTANT_AGENT_TIMEOUT_MS) || 9000))
   // Perceived latency: a short acknowledgement if the model takes long.
@@ -397,7 +397,7 @@ async function understand(ctx: AssistantContext, text: string, turn: Turn): Prom
     focus: session.state.focusSku ? named(session.state.focusSku) : null,
     options: (agent.options || []).map(named).filter((item): item is { sku: string; name: string } => Boolean(item)),
     pending: pending ? plain(shortPreview(pending, ctx.store.currency)) : null,
-    recent: await conversationContext(ctx),
+    recent,
   }
   const outcome = await withAiBudget(ctx, 'interpretacion', () => planTurn(ctx, text, context, timeout)).finally(() => clearTimeout(slow))
   if (!outcome.ok) {

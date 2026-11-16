@@ -115,6 +115,9 @@ const SYSTEM = [
   UNTRUSTED_CONTENT_RULE,
 ]
 
+/** Time given to the fast model before the main one takes over. */
+const FAST_MODEL_BUDGET_MS = 3000
+
 export type PlannerContext = { focus?: { sku: string; name: string } | null; options?: Array<{ sku: string; name: string }>; pending?: string | null; recent?: string }
 
 /** One model call with a hard deadline. Throws on timeout, transport failure or an answer outside the contract. */
@@ -130,13 +133,31 @@ export async function planTurn(ctx: AssistantContext, message: string, context: 
   const deadline = Date.now() + timeoutMs
   const timed: typeof fetch = (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(Math.max(500, deadline - Date.now())) })
   const usage = { promptTokens: 0, outputTokens: 0 }
+  const request = { system: SYSTEM, parts: [{ text: lines.join('\n') }], schema: SCHEMA, maxOutputTokens: 500, thinkingBudget: 0 }
+  // Fast path (ASSISTANT_FAST_MODEL): a lighter model answers this classification in about a second. It gets one
+  // short try; a slow, failed or out-of-contract answer falls through to the main model below, so nothing is lost.
+  const fastModel = String(ctx.env.ASSISTANT_FAST_MODEL || '').trim()
+  if (fastModel) {
+    const fastDeadline = Math.min(deadline, Date.now() + FAST_MODEL_BUDGET_MS)
+    const fastFetch: typeof fetch = (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(Math.max(300, fastDeadline - Date.now())) })
+    try {
+      const result = await callGeminiJson(ctx.env, fastFetch, { ...request, model: fastModel })
+      usage.promptTokens += result.usage.promptTokens; usage.outputTokens += result.usage.outputTokens
+      const parsed = planSchema.safeParse(result.data)
+      if (parsed.success) return { ...result, usage, steps: parsed.data.pasos }
+    } catch (error) {
+      const spent = (error as { usage?: { promptTokens: number; outputTokens: number } }).usage
+      if (spent) { usage.promptTokens += spent.promptTokens; usage.outputTokens += spent.outputTokens }
+    }
+    if (deadline - Date.now() < 2000) throw Object.assign(new Error('Planner out of time after the fast model'), { usage })
+  }
   // Choosing tools is a short classification: no extended reasoning, so the answer arrives fast. A cut or
   // malformed answer is asked once more while there is time. A transport error is retried once only when it came
   // back quickly (a refused or overloaded request), never after a slow one: the wait is not doubled.
   const started = Date.now()
   for (let attempt = 0; ; attempt += 1) {
     try {
-      const result = await callGeminiJson(ctx.env, timed, { system: SYSTEM, parts: [{ text: lines.join('\n') }], schema: SCHEMA, maxOutputTokens: 500, thinkingBudget: 0 })
+      const result = await callGeminiJson(ctx.env, timed, request)
       usage.promptTokens += result.usage.promptTokens; usage.outputTokens += result.usage.outputTokens
       const parsed = planSchema.safeParse(result.data)
       if (parsed.success) return { ...result, usage, steps: parsed.data.pasos }

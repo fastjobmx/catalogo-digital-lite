@@ -105,6 +105,10 @@ export async function interpretWithGemini(
       ...(audio ? [{ inlineData: { mimeType: audio.mimeType, data: audio.data } }] : []),
     ],
     schema: PROPOSAL_SCHEMA,
+    // Text orders are a short classification: without extended reasoning the answer arrives in about a third of
+    // the time (measured with the conversation bank, same results). Voice notes keep the default: transcribing
+    // benefits from it.
+    ...(audio || env.ASSISTANT_FAST_INTERPRET !== 'true' ? {} : { thinkingBudget: 0 }),
   })
   const meta = { usage, model }
   const parsed = proposalShape.safeParse(parsedJson)

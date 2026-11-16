@@ -29,10 +29,11 @@ export function geminiModel(env: Partial<Env['Bindings']>): string {
 export async function callGeminiJson(
   env: Partial<Env['Bindings']>,
   fetcher: typeof fetch,
-  request: { system: string[]; parts: GeminiPart[]; schema: Record<string, unknown>; maxOutputTokens?: number; temperature?: number; thinkingBudget?: number },
+  request: { system: string[]; parts: GeminiPart[]; schema: Record<string, unknown>; maxOutputTokens?: number; temperature?: number; thinkingBudget?: number; model?: string },
 ): Promise<GeminiJsonResult> {
   if (!env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not configured')
-  const model = geminiModel(env)
+  // A caller may ask for a lighter model for a short classification; every other call uses the configured one.
+  const model = (request.model || '').replace(/[^a-zA-Z0-9._-]/g, '') || geminiModel(env)
   // Every paid call goes through the spend guard: reserve → call → settle with the real cost.
   const response = await guardedGeminiFetch(env, fetcher, `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
     method: 'POST',

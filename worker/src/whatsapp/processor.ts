@@ -195,7 +195,9 @@ export async function deliver(outbox: Outbox, html: string, replyMarkup?: Record
       try {
         if (waha) {
           // WAHA: ritmo humano (leído, escribiendo, breve pausa, texto), como recomienda su documentación.
-          await pause(outbox.env, 500 + Math.floor(Math.random() * 700))
+          // The time the assistant took to think already reads as a person typing: only a short, uneven pause
+          // before the first message, and a slightly longer one between consecutive messages.
+          await pause(outbox.env, (outbox.sent ? 350 : 120) + Math.floor(Math.random() * 250))
           waId = await sendWahaText(outbox.env, outbox.sender, String((message.text as { body?: string } | undefined)?.body || ''))
         } else {
           waId = await sendWhatsApp(outbox.env, { phone: outbox.sender.phone, businessUserId: outbox.sender.businessUserId }, message)
@@ -210,7 +212,11 @@ export async function deliver(outbox: Outbox, html: string, replyMarkup?: Record
     ).bind(waId, outbox.sender.key, outbox.identityId, outbox.storeId, String(message.type), failure ? 'error' : 'sent', outbox.inboundId, failure, outbox.provider).run()
     if (failure && !blocked) throw new Error(`WHATSAPP_SEND_${failure}`)
   }
-  if (waha && messages.length) await wahaStopTyping(outbox.env, outbox.sender)
+  // Cosmetic: the reply never waits for it (WhatsApp clears "typing" when the message lands anyway).
+  if (waha && messages.length) {
+    const stop = wahaStopTyping(outbox.env, outbox.sender).catch(() => undefined)
+    if (outbox.env.ENVIRONMENT === 'test') await stop
+  }
   return numbered
 }
 
@@ -232,7 +238,7 @@ async function sendPhotoViaWaha(outbox: Outbox, photo: string): Promise<void> {
     if (!/^image\//.test(image.mimeType)) image = { ...image, mimeType: inspectRasterImage(image.bytes).contentType }
   }
   if (!image) return
-  await pause(outbox.env, 400 + Math.floor(Math.random() * 500))
+  await pause(outbox.env, 150 + Math.floor(Math.random() * 250))
   const waId = await sendWahaImage(outbox.env, outbox.sender, image)
   outbox.sent++
   await outbox.db.prepare(
@@ -264,8 +270,10 @@ export function createChannel(outbox: Outbox): AssistantChannel {
       await this.send(caption, replyMarkup)
     },
     async typing() {
-      if (outbox.provider === 'waha') await wahaSeenAndTyping(env, outbox.sender, outbox.inboundWaId)
-      else await markReadAndTyping(env, outbox.inboundWaId)
+      // "Seen" and "typing…" are sent in the background: the assistant starts working at once instead of
+      // waiting for two round trips to the provider.
+      const signal = (outbox.provider === 'waha' ? wahaSeenAndTyping(env, outbox.sender, outbox.inboundWaId) : markReadAndTyping(env, outbox.inboundWaId)).catch(() => undefined)
+      if (env.ENVIRONMENT === 'test') await signal
     },
     async downloadImage(fileId) {
       let bytes: Uint8Array

@@ -29,6 +29,8 @@ async function runCase(bank: BankCase, engine: Engine): Promise<CaseResult> {
   const h: Harness = createHarness({
     TELEGRAM_BOT_TOKEN: 'bot-token', GEMINI_API_KEY: REAL ? realTestKey() : 'test-key',
     ...(process.env.GEMINI_MODEL ? { GEMINI_MODEL: process.env.GEMINI_MODEL } : {}),
+    ...(process.env.ASSISTANT_FAST_MODEL ? { ASSISTANT_FAST_MODEL: process.env.ASSISTANT_FAST_MODEL } : {}),
+    ...(process.env.ASSISTANT_FAST_INTERPRET ? { ASSISTANT_FAST_INTERPRET: process.env.ASSISTANT_FAST_INTERPRET } : {}),
     ASSISTANT_AGENT_STORE_IDS: engine === 'nueva' ? '*' : '', ASSISTANT_AGENT_TIMEOUT_MS: REAL ? '9000' : '2000',
   })
   const tienda = await seedStore(h.db, { slug: 'calzado-demo', name: 'Calzado Demo', status: 'active' })

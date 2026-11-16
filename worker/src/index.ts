@@ -77,6 +77,10 @@ export type Env = {
  ASSISTANT_AGENT_STORE_IDS?: string
  /** Milliseconds the layer waits for the model before handing the message to the previous engine (default 9000). */
  ASSISTANT_AGENT_TIMEOUT_MS?: string
+ /** Modelo liviano para elegir herramientas (p. ej. gemini-3.1-flash-lite). Vacío = solo el modelo principal. */
+ ASSISTANT_FAST_MODEL?: string
+ /** "true": el intérprete de texto del motor anterior responde sin razonamiento extendido (más rápido). */
+ ASSISTANT_FAST_INTERPRET?: string
  /** Photos and voice inside the conversation (step 2), per store and independent of the text switch. Empty = previous flow. */
  ASSISTANT_MEDIA_STORE_IDS?: string
  /** Seconds photos wait for their description (default 1800), photos per product (max 10) and products prepared from photos per store and day (default 60). */
