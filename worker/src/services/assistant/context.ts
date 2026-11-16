@@ -226,8 +226,25 @@ function banner(ctx: AssistantContext, withStore = false): string {
 }
 
 /** Short conversation memory per store and user (last turns, 24 h). */
+/** API keys and access tokens of the usual providers, and any long random-looking string of letters and digits. */
+const SECRET_PATTERNS = [
+  /\bAIza[0-9A-Za-z_-]{20,}/g, /\bsk-[A-Za-z0-9_-]{16,}/g, /\bgh[pousr]_[A-Za-z0-9]{20,}/g, /\bxox[abprs]-[A-Za-z0-9-]{10,}/g,
+  /\bEAA[A-Za-z0-9]{30,}/g, /\bAKIA[0-9A-Z]{16}\b/g, /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{6,}/g,
+  /\b(?=[A-Za-z0-9_-]*\d)(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])[A-Za-z0-9_-]{32,}\b/g,
+]
+
+/** True when the text carries something that looks like a credential. */
+export function looksLikeSecret(text: string): boolean {
+  return SECRET_PATTERNS.some((pattern) => { pattern.lastIndex = 0; return pattern.test(text) })
+}
+
+/** The text with every credential-looking fragment replaced. Used before anything is stored or sent to the model. */
+export function redactSecrets(text: string): string {
+  return SECRET_PATTERNS.reduce((value, pattern) => value.replace(pattern, '[clave oculta]'), text)
+}
+
 export async function rememberTurn(ctx: AssistantContext, role: 'user' | 'assistant', content: string): Promise<void> {
-  const text = content.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
+  const text = redactSecrets(content.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim())
     .replace(/(contrase(?:ñ|n)a|password|token|c[oó]digo de acceso)\s*(?:es|:)?\s*[^\s,;]+/gi, '$1 [oculto]')
     .replace(/\/(?:start\s+link_|link\s+)[A-Za-z0-9-]{8,80}/gi, '[enlace de acceso oculto]')
     .slice(0, 500)

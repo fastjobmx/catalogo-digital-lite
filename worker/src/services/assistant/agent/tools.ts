@@ -159,7 +159,11 @@ export function renderList(found: CatalogProduct[], input: { query: string | nul
   }
   const lines = found.slice(0, LIST_LIMIT).map((product, index) => `${index + 1}) ${escapeHtml(product.name)} · ${formatMoney(product.price, currency)} · ${totalOf(product) === 0 ? 'agotado' : units(totalOf(product))}`)
   const more = found.length > LIST_LIMIT ? `\n…y ${found.length - LIST_LIMIT} más. Dime un nombre para afinar.` : ''
-  return `${found.length === 1 ? 'Hay 1 producto' : `Hay ${found.length} productos`}${what ? ` ${what}` : ''}${about}:\n${lines.join('\n')}${more}`
+  // The whole catalogue also says how many units there are in total (the sum of the products, never an estimate).
+  const everything = !input.filter || input.filter === 'todos'
+  const total = found.reduce((sum, product) => sum + totalOf(product), 0)
+  const head = `${found.length === 1 ? 'Hay 1 producto' : `Hay ${found.length} productos`}${what ? ` ${what}` : ''}${about}${everything && !input.query ? `, ${units(total)} en total` : ''}`
+  return `${head}:\n${lines.join('\n')}${more}`
 }
 
 /** Up to three candidates, numbered, so the merchant can answer «la 2». */

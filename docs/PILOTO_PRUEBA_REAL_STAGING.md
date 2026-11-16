@@ -66,3 +66,57 @@ el PC; (2) levantar WAHA desde `waha-tiendia` y recrear el túnel; (3) redespleg
 túnel (`WAHA_API_URL`), conservando las demás variables; (4) escribir al número del asistente de staging desde el
 teléfono vinculado (hay dos vinculados: uno terminado en 3472 a la tienda 1 y otro en 2734 a la tienda 94). En
 WhatsApp el punto 4 usa los lotes de fotos: enviar las fotos, escribir `listo`, y después la nota de voz.
+
+---
+
+## Resultado de la prueba real (verificado en D1 de staging el 2026-11-16, solo lectura)
+
+La prueba se ejecutó por Telegram el **2026-11-13 entre 22:09 y 22:17 UTC** (tienda 1) y hubo una segunda sesión
+libre el 2026-11-15 00:54–01:06 UTC en la tienda ficticia 95. 25 mensajes medidos después de la foto inicial.
+Evidencia: `assistant_agent_turns` 2–26, `audit_log` 601–604 y 613, `telegram_operations` (4 aplicadas, 0 repetidas),
+`inventory_movements` 25–26, `order_events` 80. Las respuestas del asistente no siempre se guardan, así que cada
+punto se juzga por lo que quedó en la base.
+
+| # | Punto | Resultado | Evidencia |
+|---|---|---|---|
+| 1 | Saludo y resumen | **Aprobado** | «Ayer no entraron pedidos, siguen 3 pendientes…» (3 pedidos pendientes reales); 1,1 s, sin IA |
+| 2 | Inventario | **Aprobado** | «38: 6 · 39: 15 Total: 21»; 1,3 s, sin IA |
+| 3 | Existencias con confirmación | **Aprobado** | Propuesta «de 6 pasarían a 11», «hagale» la aplicó: auditoría 601, movimiento +5 → 11. El mensaje se escribió con «…y luego hágale» pegado y aun así no se aplicó nada hasta el «hagale» aparte |
+| 4 | Fotos + nota de voz | **Aprobado con un fallo** | 3 fotos guardadas (3 `used`, 0 huérfanas); la nota de voz real se transcribió bien; preguntó si era el mismo producto o uno nuevo; borrador con 38, 39 y 40 × 2 a $180.000 y 3 fotos. **Fallo:** «Es uno nuevo, ponle como nombre Adidas violeta» → el nombre pedido se ignoró y quedó «Tenis rojos de prueba». Un solo acuse por las fotos: no verificable en D1 |
+| 5 | Corregir antes de guardar | **No ejecutado** | No se envió «cambia el precio a 170 mil»; el producto se guardó a $180.000 con el botón (auditoría 602, TEN-ROJ-4195) |
+| 6 | Pedidos ficticios | **Aprobado (por medición)** | Turnos 11–12: `resumen_pedidos` y `listar_pedidos`, 0,8 y 1,0 s; el texto de la respuesta no quedó guardado |
+| 7 | Estado con confirmación | **Aprobado** | «El 1» → «Confírmalo» → «Si»: pedido D8F63F34 pendiente → confirmado (auditoría 603, evento 80) y reserva de 2 unidades de la 39 (15 → 13) |
+| 8 | Dos tareas en un mensaje | **Aprobado** | Mostró 38: 2 · 39: 2 · 40: 2 y propuso $250.000 → $255.000; aplicado 5 s después (auditoría 604). No hay un «sí» escrito: se confirmó con el botón |
+| 9 | Cancelar y recuperar contexto | **Aprobado en parte** | No cambió ningún precio (correcto). Pero al existir ya dos «tenis de prueba» preguntó cuál, «no, déjalo así» cerró la pregunta, y «¿y cuántos quedan?» respondió sobre las KINETIK (último producto resuelto), no sobre los tenis de prueba que pedía el guion |
+| 10 | Otras tiendas intactas | **Aprobado** | Tienda 94 idéntica a la foto inicial (CANARIO 38: 7 · TEN-BLA 34: 10, 35: 5, 36: 12, 37: 8 · ZAP 40: 10, 0 pedidos, auditoría 7). El cambio de precio hecho en la tienda 95 ($185.000 → $195.000) no tocó el mismo código en la tienda 1 (sigue en $185.000) |
+
+**Repetición de webhook:** no probada en real. Sí se comprobó que ninguna de las 4 operaciones quedó aplicada dos veces.
+
+### Latencia y costo reales dentro de Cloudflare (tienda 1, 18 mensajes)
+
+- Sin IA (reglas, intérprete, pedidos): 0,6–2,1 s.
+- Con el modelo (3 mensajes): **9,1 s, 8,0 s y 5,5 s**, bastante más que los 2–3 s medidos en local. Costo US$ 0,0005–0,0007 cada uno.
+- Crear el borrador con las 3 fotos (descarga + visión): **23,5 s**.
+
+### Hallazgos de la sesión libre en la tienda 95 (no eran parte del guion)
+
+1. «cuantas unidadfes tengo en total?» → «No encontré «unidadfes»…»: una pregunta general con un error de tecleo se leyó como nombre de producto. Además el modelo falló en ese turno (`model_failed`, 5,2 s).
+2. «qué me recomiendas para vender más esta semana» (dos veces): la capa lo pasó al motor anterior (`other`); no quedó respuesta guardada, así que no se puede confirmar qué recibió el comerciante.
+3. **Se pegó una clave de API de Google en el chat** (01:06 UTC). El asistente la trató como texto (ruta `fallback`, 11,3 s) y **quedó guardada en claro** en la memoria de conversación de staging (`assistant_messages`, se borra sola a los 7 días). La limpieza automática de mensajes solo oculta lo que viene después de palabras como «contraseña» o «token», no una clave suelta. Esa clave debe darse por expuesta y revocarse.
+
+### Pendientes que salen de esta prueba
+
+- Corregir: renombrar el borrador con «ponle como nombre X»; no tomar una pregunta general por nombre de producto; ocultar claves sueltas (patrones `AIza…`, `sk-…`, etc.) antes de guardar mensajes.
+- Revisar la latencia del modelo dentro de Cloudflare (5–9 s) antes de cualquier piloto.
+- Repetir los puntos 5 y 9 del guion.
+- WhatsApp sigue sin prueba real.
+
+### Correcciones posteriores a la prueba (2026-11-16, commit `b14c397`, solo en la rama; **sin desplegar**)
+
+- **Claves en el chat:** un mensaje que es una clave o un token (Google, OpenAI, GitHub, Slack, Meta, AWS, JWT o una cadena larga de aspecto aleatorio) no se guarda, no llega a la IA y recibe una advertencia. Dentro de una frase se reemplaza por «[clave oculta]» antes de guardar. Aplica a todas las tiendas, con o sin la capa encendida. La fila con la clave pegada el 15 de noviembre se borró de `assistant_messages` de staging (1 fila; 0 restantes).
+- **«Ponle como nombre X»:** funciona al responder «es uno nuevo, ponle como nombre…» y con el borrador abierto («que se llame…», «el nombre es…», «cámbiale el nombre a…»).
+- **Preguntas de totales:** «cuántas unidades tengo en total» (aunque esté mal escrita), «cuántos productos tengo», «cuánto inventario hay en la tienda» responden con el total del catálogo, sin IA.
+- **Contexto tras un «¿cuál?» cancelado:** ya no se adivina el producto anterior; «¿y cuántos quedan?» pregunta entre los mismos candidatos.
+- Pruebas: `agent/piloto.test.ts` (9 casos que reproducen la prueba real). Suite completa 818 pasan. Banco del paso 1 con modelo real: 34/34 y reserva 10/10 (1 corrida).
+- **No está en staging:** staging corre `8d5d61bd`, desplegado desde `feat/ia-planes-creditos`. Para probar estos arreglos hay que integrar `feat/asistente-conversacional` en esa rama y desplegar desde allí (desplegar esta rama sola quitaría de staging lo de planes y créditos).
+- Sin resolver: latencia del modelo dentro de Cloudflare (5–9 s) y los puntos 5 y 9 del guion por repetir.
