@@ -53,4 +53,6 @@ Mensajes del propietario por WhatsApp (WAHA), tienda ficticia 94, medidos en `as
 | «ponle como nombre …» | modelo | 2,7 s |
 | «¿qué se me está acabando?» | regla | 0,8 s |
 
-Antes, en el mismo staging, los turnos con modelo tardaban de 5,5 a 9,1 s. Los 6 mensajes se respondieron sin errores. Pendiente: «ponle como nombre X» sin borrador abierto se leyó como producto nuevo y el asistente preguntó; conviene que proponga renombrar el producto en conversación.
+Antes, en el mismo staging, los turnos con modelo tardaban de 5,5 a 9,1 s. Los 6 mensajes se respondieron sin errores. «ponle como nombre X» sin borrador abierto se leyó como producto nuevo y el asistente preguntó.
+
+**Corregido** (commit `1b3060b`, staging `8646badf`): con un producto en conversación y nada pendiente, «ponle como nombre X», «que se llame X» o «llámalo X» proponen renombrar ese producto y solo cambian al confirmar. Sin IA, en 1,1 s. Probado por el propietario: `ZAP-BLA-3140` pasó a «Zapatillas Running Blancas», auditado como `product_updated`. Suite: 901 pruebas. Detalle menor: en `assistant_agent_turns` ese turno queda rotulado `otro_tema` (solo la etiqueta de medición).
