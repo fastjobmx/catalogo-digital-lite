@@ -30,6 +30,7 @@ import { maintainWhatsApp } from './whatsapp/processor'
 import { consumeWhatsAppJobs } from './whatsapp/photoBatch'
 import signupRoutes from './routes/signup'
 import { processTrialLifecycle } from './services/freeTrial'
+import { backfillEmailVerification } from './services/userAccess'
 import { purgeEmailLogs } from './email/send'
 import { pollDeliveryStatus } from './email/webhooks'
 import { cleanupExpiredTrials } from './services/trials'
@@ -109,6 +110,8 @@ export type Env = {
  EMAIL_TEST_RECIPIENTS?: string
  /** Only for non-production environments: comma separated addresses or "@domain" entries; nothing is sent to anyone else. */
  EMAIL_ALLOWED_RECIPIENTS?: string
+ /** 'true' = send ONE verification email to each activated account whose address was never confirmed (cron). */
+ EMAIL_VERIFICATION_BACKFILL?: string
  /** Reply-To for platform emails (an address with a real inbox or forwarding, e.g. soporte@<domain>). */
  EMAIL_REPLY_TO?: string
  /** Reply-To for commercial emails (trial notices, contract and plan activation), e.g. ventas@<domain>. Unset = EMAIL_REPLY_TO. */
@@ -273,6 +276,8 @@ const worker = {
   context.waitUntil(pollDeliveryStatus(env.DB, env).catch((error) => console.error('Email delivery check failed:', error instanceof Error ? error.message : 'unknown')))
   if (env.ASSETS) context.waitUntil(cleanupExpiredTelegramProductAssets(env.DB, env.ASSETS))
   context.waitUntil(cleanupOrderDocuments(env.DB, env.ASSETS).catch((error) => console.error('Order documents cleanup failed:', error instanceof Error ? error.message : 'unknown')))
+  // One-time catch-up of unconfirmed addresses (only with EMAIL_VERIFICATION_BACKFILL=true; once per account).
+  context.waitUntil(backfillEmailVerification(env.DB, env).catch((error) => console.error('Email verification backfill failed:', error instanceof Error ? error.message : 'unknown')))
   // Real free trial: notices 3 days and 1 day before the end, and the end itself (data is always kept).
   context.waitUntil(processTrialLifecycle(env.DB, env).catch((error) => console.error('Trial lifecycle failed:', error instanceof Error ? error.message : 'unknown')))
   context.waitUntil(cleanupExpiredTrials(env.DB, env.ASSETS).catch((error) => console.error('Trial cleanup failed:', error instanceof Error ? error.message : 'unknown')))
