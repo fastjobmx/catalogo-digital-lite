@@ -5,7 +5,7 @@
 import { createHmac } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import worker from '../index'
-import { createHarness, createStoreUser, seedCatalog, seedStore, userToken, type Harness } from '../testing/harness'
+import { createHarness, createStoreUser, seedCatalog, seedStore, superadminToken, userToken, type Harness } from '../testing/harness'
 import { parseWahaEvent, verifyWahaSignature } from './waha'
 import { maintainWhatsApp } from './processor'
 import { _test as batchTest, consumeWhatsAppJobs } from './photoBatch'
@@ -257,6 +257,16 @@ describe('vinculación con solo WAHA (Meta apagado, como en producción)', () =>
     await say(`VINCULAR ${body.code}`)
     expect(last()).toContain('vinculado')
     expect(h.db.query("SELECT phone FROM whatsapp_identities WHERE status = 'active'")).toEqual([{ phone: ANA_PHONE }])
+  })
+
+  it('el superadministrador ve por qué no puede vincular (en vez de no ver nada) y cada empleado vincula su propio número', async () => {
+    const admin = await superadminToken()
+    expect(await (await h.request('/api/whatsapp/link', { token: admin, store: 'moda-wa' })).json()).toMatchObject({ available: false, linked: false, reason: 'superadmin' })
+    // A seller of the same store gets the option for their own phone, apart from the owner's.
+    const sellerId = await createStoreUser(h.db, { email: 'vendedor@pruebas.test', storeId: tienda, role: 'seller' })
+    const seller = await userToken(sellerId, 'vendedor@pruebas.test')
+    expect(await (await h.request('/api/whatsapp/link', { token: seller, store: 'moda-wa' })).json()).toMatchObject({ available: true, linked: false })
+    expect((await h.request('/api/whatsapp/link-code', { method: 'POST', token: seller, store: 'moda-wa' })).status).toBe(200)
   })
 
   it('con WAHA y Meta apagados no se generan códigos ni aparece la opción', async () => {

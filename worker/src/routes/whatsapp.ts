@@ -133,7 +133,11 @@ app.get('/link', adminAuth, async (c) => {
   c.header('Cache-Control', 'no-store')
   // The panel shows the option only when this says so: channel on, a merchant account and a store in the pilot.
   const available = assistantChannelOn(c.env) && principal.kind === 'user' && pilotAllows(c.env, c.get('storeId')!)
-  if (principal.kind !== 'user') return c.json({ available: false, linked: false })
+  // The superadmin has no merchant account to link: the panel explains it instead of hiding the option.
+  if (principal.kind !== 'user') {
+    const explain = assistantChannelOn(c.env) && pilotAllows(c.env, c.get('storeId')!)
+    return c.json({ available: false, linked: false, ...(explain ? { reason: 'superadmin' } : {}) })
+  }
   const row = await c.env.DB.prepare(`SELECT phone, linked_at AS linkedAt FROM whatsapp_identities WHERE user_id = ? AND status = 'active'`).bind(principal.userId).first<{ phone: string | null; linkedAt: string }>()
   const number = assistantNumber(c.env)
   const base = { available, assistantNumber: available && number ? number : null }

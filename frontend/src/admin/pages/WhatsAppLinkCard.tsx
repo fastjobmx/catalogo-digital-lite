@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Check, Copy, Link2, MessageCircle, RefreshCw, Shield, Unlink } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Check, Copy, Link2, MessageCircle, RefreshCw, Shield, Unlink, Users } from 'lucide-react'
 import { tenantHeaders } from '../../lib/tenant'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
@@ -10,7 +11,12 @@ interface WhatsAppStatus {
   phoneEnding?: string | null
   linkedAt?: string | null
   assistantNumber?: string | null
+  /** 'superadmin': the channel is on for this store, but this account is not a merchant account. */
+  reason?: 'superadmin' | null
 }
+
+/** Each person links their own WhatsApp; a store has as many numbers as people in its team. */
+export const TEAM_NOTE = 'Cada persona del equipo vincula su propio WhatsApp desde su cuenta. Para que un empleado registre pedidos por chat, invítalo en Usuarios y accesos (rol Vendedor u Operador) y que genere aquí su código.'
 
 interface WhatsAppCode {
   code: string
@@ -71,6 +77,26 @@ export default function WhatsAppLinkCard({ token, backendAvailable }: { token: s
   }, [code, status?.linked])
   useEffect(() => { if (status?.linked) setCode(null) }, [status?.linked])
 
+  if (status?.reason === 'superadmin') {
+    return (
+      <section className="card p-7" aria-labelledby="whatsapp-link-title">
+        <div className="flex items-center gap-3.5 mb-4">
+          <div className="grid place-items-center w-11 h-11 rounded-btn bg-canvas border border-line">
+            <MessageCircle size={22} className="text-brand" />
+          </div>
+          <div>
+            <h2 id="whatsapp-link-title" className="text-base font-bold text-ink">Vincular WhatsApp</h2>
+            <p className="text-[11px] text-muted">Asistente TiendIA por WhatsApp</p>
+          </div>
+        </div>
+        <p className="text-sm text-muted leading-relaxed">
+          Entraste con la cuenta de superadministrador, que no pertenece a ningún comercio. Para vincular un WhatsApp, inicia sesión con la cuenta del propietario o de un empleado de esta tienda.
+        </p>
+        <p className="text-sm text-muted leading-relaxed mt-3">{TEAM_NOTE}</p>
+        <Link to="/admin/usuarios" className="btn-ghost w-full mt-4 justify-center"><Users size={16} /> Usuarios y accesos</Link>
+      </section>
+    )
+  }
   if (!status?.available && !status?.linked) return null
 
   const generate = async () => {
@@ -162,6 +188,7 @@ export default function WhatsAppLinkCard({ token, backendAvailable }: { token: s
             Genera un código para administrar tu tienda desde WhatsApp{assistant ? <> escribiendo al asistente <span className="text-ink font-semibold whitespace-nowrap">{assistant}</span></> : null}.
             Es de un solo uso y vence en pocos minutos.
           </p>
+          <p className="text-xs text-muted leading-relaxed">{TEAM_NOTE}</p>
           <button onClick={generate} disabled={busy || !backendAvailable} className="btn-brand w-full">
             <Link2 size={16} /> {busy ? 'Generando…' : 'Generar código'}
           </button>
