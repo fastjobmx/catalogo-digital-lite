@@ -2,8 +2,32 @@ import { useCallback, useEffect, useState } from 'react'
 import { AlertCircle, BadgeCheck, CheckCircle2, KeyRound, Loader2, MailWarning, Send, ShieldOff, ShieldCheck, UserPlus, Users as UsersIcon } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { usersApi, type StoreMember } from '../../services/api'
+import { INVITABLE_ROLES, ROLE_INFO, roleTooltip, type InvitableRole } from '../../lib/roles'
 
-const ROLE_LABELS: Record<string, string> = { owner: 'Propietario', admin: 'Administrador', operator: 'Operador', seller: 'Vendedor', inventory: 'Inventario' }
+const ROLE_LABELS: Record<string, string> = Object.fromEntries(Object.entries(ROLE_INFO).map(([role, info]) => [role, info.label]))
+
+/** What the selected role can and cannot do, shown while choosing it. */
+export function RolePermissions({ role }: { role: InvitableRole }) {
+  const info = ROLE_INFO[role]
+  if (!info) return null
+  return (
+    <div id="role-permissions" className="mt-4 rounded-card border border-line bg-canvas p-4" aria-live="polite">
+      <p className="text-sm font-bold text-ink">{info.label}: <span className="font-normal text-muted">{info.summary}</span></p>
+      <div className="mt-3 grid gap-4 md:grid-cols-2">
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-widest text-emerald-700">Puede</p>
+          <ul className="mt-1.5 space-y-1 text-sm text-ink">{info.can.map((item) => <li key={item} className="flex gap-2"><CheckCircle2 size={15} className="mt-0.5 shrink-0 text-emerald-600" />{item}</li>)}</ul>
+        </div>
+        {info.cannot.length > 0 && (
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-widest text-red-700">No puede</p>
+            <ul className="mt-1.5 space-y-1 text-sm text-muted">{info.cannot.map((item) => <li key={item} className="flex gap-2"><ShieldOff size={15} className="mt-0.5 shrink-0 text-red-500" />{item}</li>)}</ul>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 const STATUS_TONE: Record<StoreMember['status'], string> = {
   activo: 'bg-emerald-50 text-emerald-800 border-emerald-200',
   invitado: 'bg-sky-50 text-sky-800 border-sky-200',
@@ -62,7 +86,8 @@ export default function Users() {
       const result = await usersApi.invite({ email: invite.email.trim(), displayName: invite.displayName.trim(), role: invite.role }, token!)
       setInvite({ email: '', displayName: '', role: 'operator' })
       if (result.delivery === 'manual' && result.activationUrl) { setManualLink(result.activationUrl); return 'Usuario agregado. El envío de correos no está configurado: comparte este enlace de activación en privado (vence en 72 horas).' }
-      return result.delivery === 'email' ? 'Invitación enviada por correo.' : 'Usuario agregado: ya tenía una cuenta activa y ahora puede entrar a esta tienda.'
+      const link = ' Cuando entre al panel, puede vincular su WhatsApp y su Telegram en Configuración para trabajar desde el chat con los permisos de su rol.'
+      return (result.delivery === 'email' ? 'Invitación enviada por correo.' : 'Usuario agregado: ya tenía una cuenta activa y ahora puede entrar a esta tienda.') + link
     })
   }
 
@@ -86,7 +111,7 @@ export default function Users() {
               <p className="font-bold text-ink truncate">{member.displayName || member.email}</p>
               <p className="text-sm text-muted truncate">{member.email}</p>
               <div className="flex flex-wrap items-center gap-1.5 pt-1 text-xs">
-                <span className="rounded-full border border-line px-2 py-0.5 font-bold">{ROLE_LABELS[member.role] || member.role}</span>
+                <span className="rounded-full border border-line px-2 py-0.5 font-bold cursor-help" title={roleTooltip(member.role)}>{ROLE_LABELS[member.role] || member.role}</span>
                 <span className={`rounded-full border px-2 py-0.5 font-bold ${STATUS_TONE[member.status]}`}>{STATUS_LABEL[member.status]}</span>
                 {member.emailVerified
                   ? <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-bold text-emerald-800"><BadgeCheck size={12} /> Correo verificado</span>
@@ -114,11 +139,13 @@ export default function Users() {
           <label className="block space-y-1.5"><span className="block text-xs font-bold uppercase tracking-widest text-muted">Correo</span><input type="email" required className="input-field w-full" value={invite.email} onChange={(e) => setInvite({ ...invite, email: e.target.value })} /></label>
           <label className="block space-y-1.5"><span className="block text-xs font-bold uppercase tracking-widest text-muted">Nombre (opcional)</span><input className="input-field w-full" maxLength={120} value={invite.displayName} onChange={(e) => setInvite({ ...invite, displayName: e.target.value })} /></label>
           <label className="block space-y-1.5"><span className="block text-xs font-bold uppercase tracking-widest text-muted">Rol</span>
-            <select className="input-field w-full" value={invite.role} onChange={(e) => setInvite({ ...invite, role: e.target.value })}>
-              <option value="admin">Administrador</option><option value="operator">Operador</option><option value="seller">Vendedor</option><option value="inventory">Inventario</option>
+            <select className="input-field w-full" value={invite.role} aria-describedby="role-permissions" onChange={(e) => setInvite({ ...invite, role: e.target.value })}>
+              {INVITABLE_ROLES.map((role) => <option key={role} value={role}>{ROLE_INFO[role].label}</option>)}
             </select></label>
           <button type="submit" className="btn-brand" disabled={busy !== null}>{busy === 'invite-new' && <Loader2 size={16} className="animate-spin" />} Invitar</button>
         </form>
+        <RolePermissions role={invite.role as InvitableRole} />
+        <p className="text-xs text-muted mt-3">Cada persona vincula su propio WhatsApp y su propio Telegram desde Configuración, con su cuenta. Así una tienda puede tener varios números, y cada uno solo hace lo que su rol permite.</p>
       </section>
     </div>
   )
