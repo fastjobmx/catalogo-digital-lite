@@ -127,7 +127,7 @@ export async function createAdminToken(email: string, secret: string, claims: { 
 export async function verifyAdminToken(token: string, secret: string): Promise<AdminToken | null> {
  try {
  const secretKey = new TextEncoder().encode(secret)
- const { payload } = await jwtVerify(token, secretKey)
+ const { payload } = await jwtVerify(token, secretKey, { algorithms: ['HS256'] })
   if (typeof payload.email !== 'string' || !payload.email || typeof payload.iat !== 'number' || typeof payload.exp !== 'number') return null
   if (payload.sub !== undefined && !/^\d{1,12}$/.test(String(payload.sub))) return null
   if (payload.sub !== undefined && payload.sa) return null

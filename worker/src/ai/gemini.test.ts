@@ -34,7 +34,15 @@ describe('Gemini structured proposal validation', () => {
       expect(result.needsConfirmation).toBe(true)
       const request = JSON.parse(String(fetcher.mock.calls[0]![1]?.body))
       expect(request.systemInstruction.parts[0].text).toContain('Transcribe el audio completo')
+      // Room for the model's reasoning plus the full transcript (1536 cut real voice notes in production).
+      expect(request.generationConfig.maxOutputTokens).toBe(4096)
     }
+  })
+
+  it('keeps the default output limit for text orders', async () => {
+    const fetcher = vi.fn().mockResolvedValue(response(candidate(JSON.stringify({ action: 'update_price', params: { sku: 'SH-1', price: 90000 }, missing: [], summary: 'Cambiar precio' }))))
+    await interpretWithGemini('Cambia el precio', env, fetcher)
+    expect(JSON.parse(String(fetcher.mock.calls[0]![1]?.body)).generationConfig.maxOutputTokens).toBe(1536)
   })
 
   it('turns invalid params into a clarification instead of an executable proposal', async () => {

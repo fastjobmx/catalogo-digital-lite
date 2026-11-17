@@ -95,7 +95,32 @@ export async function validateGeminiKey(env: Bindings, fetcher: typeof fetch, ap
   const modelsOk = needed.filter((model) => available.has(model))
   const imageListed = Boolean(studioModel(env) && available.has(studioModel(env)!))
   if (modelsOk.length < needed.length) return { status: 'sin_permiso', modelsOk, errorCode: 'MODEL_NOT_AVAILABLE', imageListed }
+  // Optional: the assistant's light model (ASSISTANT_FAST_MODEL). Recorded when the key can use it, never required.
+  const fast = uses.assistant ? fastAssistantModel(env) : null
+  if (fast && available.has(fast) && !modelsOk.includes(fast)) modelsOk.push(fast)
   return { status: 'activa', modelsOk, errorCode: null, imageListed }
+}
+
+/** The assistant's light model for short classifications, when the platform configured one. */
+export function fastAssistantModel(env: Bindings): string | null {
+  const model = String((env as Record<string, unknown>).ASSISTANT_FAST_MODEL || '').replace(/[^a-zA-Z0-9._-]/g, '')
+  return model || null
+}
+
+/** True when the store pays the assistant with its own key but that key was never verified for `model`. A call with
+ * that model would then go out on the platform key (billed to the plan) behind the owner's back, so callers that
+ * have an alternative (the planner's fast path) must skip it. */
+export async function ownKeyMissesModel(db: D1Database, env: Bindings, storeId: number, use: OwnKeyUse, model: string): Promise<boolean> {
+  if (!vaultAvailable(env)) return false
+  try {
+    const row = await db.prepare('SELECT use_assistant, use_studio, models_ok FROM store_ai_keys WHERE store_id = ?').bind(storeId)
+      .first<{ use_assistant: number; use_studio: number; models_ok: string }>()
+    if (!row || !(use === 'assistant' ? row.use_assistant : row.use_studio)) return false
+    return !(JSON.parse(row.models_ok || '[]') as string[]).includes(model)
+  } catch {
+    // Unknown: skip the optional path rather than risk billing the plan for a store that pays with its own key.
+    return true
+  }
 }
 
 /** Key state from an HTTP error of Google, or null when it is a service problem (not the key's fault). */
@@ -274,6 +299,13 @@ export async function updateOwnKeyUses(db: D1Database, env: Bindings, fetcher: t
   const uses = usesFrom(body, { assistant: Boolean(row.use_assistant), studio: Boolean(row.use_studio) })
   const fallback = flag(body.fallbackToPlatform, Boolean(row.fallback_to_platform)) ? 1 : 0
   const validation = await validateGeminiKey(env, fetcher, await decryptApiKey(env, storeId, row), uses)
+  // Turning on a use the key has no model for (typically the Studio on a text-only key) changes nothing: before, it
+  // saved the new uses and marked the whole key «sin_permiso», which also stopped the assistant that was working.
+  const enabling = (uses.assistant && !row.use_assistant) || (uses.studio && !row.use_studio)
+  if (enabling && validation.errorCode === 'MODEL_NOT_AVAILABLE') {
+    await event(db, storeId, 'cambiar_usos', 'rechazado', validation.errorCode, actor)
+    throw new OwnKeyError('KEY_MODEL_NOT_AVAILABLE', `No activamos ese uso: tu clave no tiene acceso al modelo que necesita${uses.studio && !row.use_studio ? ' (el de imágenes del Estudio IA)' : ''}. Tu configuración anterior sigue igual.`, 409)
+  }
   await db.prepare(
     `UPDATE store_ai_keys SET use_assistant = ?, use_studio = ?, fallback_to_platform = ?, status = ?, models_ok = ?, validated_at = datetime('now'), last_error_code = ?, updated_at = datetime('now') WHERE store_id = ?`,
   ).bind(uses.assistant ? 1 : 0, uses.studio ? 1 : 0, fallback, validation.status, JSON.stringify(validation.modelsOk), validation.errorCode, storeId).run()

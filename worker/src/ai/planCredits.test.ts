@@ -6,7 +6,7 @@ import { callGeminiJson } from './geminiClient'
 import { editPhotoWithInstruction } from './imageStudio'
 import { creditSummary, grantCredits, runWithCredits } from './credits'
 import { creditLots, expireCreditLots, grantPlanCredits, walletSummary } from './creditWallet'
-import { decryptApiKey, encryptApiKey } from './ownKey'
+import { decryptApiKey, encryptApiKey, ownKeyMissesModel } from './ownKey'
 import { AiSpendBlockedError, runWithSpend, type SpendContext } from './spendGuard'
 import { aiOverview } from './aiOverview'
 import { noticeText, takeQuotaNotice } from './quotaNotices'
@@ -449,6 +449,28 @@ describe('API propia del comercio', () => {
     const response = await api('PUT', ownerEmp, 'emp', { apiKey: 'AIzaSySoloTextoSoloTextoSoloTexto0000000', useStudio: true })
     expect(response.status).toBe(409)
     expect(await response.json()).toMatchObject({ code: 'KEY_SIN_PERMISO' })
+  })
+
+  it('activar el Estudio en una clave solo de texto se rechaza sin romper el asistente que ya funcionaba', async () => {
+    expect((await api('PUT', ownerEmp, 'emp', { apiKey: 'AIzaSySoloTextoSoloTextoSoloTexto0000000', useAssistant: true })).status).toBe(200)
+    const response = await api('PATCH', ownerEmp, 'emp', { useStudio: true })
+    expect(response.status).toBe(409)
+    expect(await response.json()).toMatchObject({ code: 'KEY_MODEL_NOT_AVAILABLE' })
+    expect(await (await api('GET', adminEmp)).json()).toMatchObject({ status: 'activa', useAssistant: true, useStudio: false })
+    await ask(emp, 'texto-sigue')
+    expect(calls.at(-1)?.key).toBe('AIzaSySoloTextoSoloTextoSoloTexto0000000')
+  })
+
+  it('el modelo rápido del asistente solo se usa con la API propia si esa clave lo tiene verificado', async () => {
+    await connect()
+    expect(await ownKeyMissesModel(h.db, h.env, emp, 'assistant', 'gemini-ligero')).toBe(true)
+    expect(await ownKeyMissesModel(h.db, h.env, neg, 'assistant', 'gemini-ligero')).toBe(false)
+    h.env.ASSISTANT_FAST_MODEL = 'gemini-3.8-flash'
+    expect(await ownKeyMissesModel(h.db, h.env, emp, 'assistant', 'gemini-3.8-flash')).toBe(false)
+    h.env.ASSISTANT_FAST_MODEL = 'gemini-3.1-flash-image'
+    expect((await api('PUT', ownerEmp, 'emp', { apiKey: OWN_KEY, useAssistant: true })).status).toBe(200)
+    expect(await ownKeyMissesModel(h.db, h.env, emp, 'assistant', 'gemini-3.1-flash-image')).toBe(false)
+    delete h.env.ASSISTANT_FAST_MODEL
   })
 
   it('presupuesto global agotado: la tienda con API propia sigue; las de cupo se detienen', async () => {

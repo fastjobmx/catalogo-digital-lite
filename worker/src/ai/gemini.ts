@@ -109,6 +109,9 @@ export async function interpretWithGemini(
     // the time (measured with the conversation bank, same results). Voice notes keep the default: transcribing
     // benefits from it.
     ...(audio || env.ASSISTANT_FAST_INTERPRET !== 'true' ? {} : { thinkingBudget: 0 }),
+    // The model's reasoning tokens count against this limit. A voice note needs room for that reasoning plus the
+    // full transcript: with the default 1536 real notes came back cut (GEMINI_TRUNCATED · voz in production).
+    ...(audio ? { maxOutputTokens: 4096 } : {}),
   })
   const meta = { usage, model }
   const parsed = proposalShape.safeParse(parsedJson)

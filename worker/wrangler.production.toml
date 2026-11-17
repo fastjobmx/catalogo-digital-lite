@@ -38,6 +38,9 @@ EMAIL_REPLY_TO = "soporte@tiendiaexpres.com"
 # Respuestas de los correos comerciales (prueba por vencer o finalizada, contratación y plan activado).
 # ventas@ reenvía al buzón real mediante Cloudflare Email Routing (comprobar la recepción antes de publicar).
 EMAIL_REPLY_TO_SALES = "ventas@tiendiaexpres.com"
+# Envío ÚNICO de verificación a cuentas activadas sin confirmar (cron; no reenvía a quien ya lo recibió).
+# Activa en producción desde bcad5c18 (2026-11-16); escrita aquí para que una publicación no la apague sin querer.
+EMAIL_VERIFICATION_BACKFILL = "true"
 # Únicas direcciones (además del superadmin) que pueden recibir correos de prueba.
 EMAIL_TEST_RECIPIENTS = "explorandocdsm@gmail.com"
 # Estudio IA: modelo que devuelve imágenes y su precio de salida (US$60 por millón de tokens de imagen)

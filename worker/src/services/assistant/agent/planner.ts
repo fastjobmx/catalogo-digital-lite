@@ -3,6 +3,7 @@
  * tools, validates every argument again and writes every number the merchant reads. */
 import { z } from 'zod'
 import { callGeminiJson, UNTRUSTED_CONTENT_RULE, type GeminiJsonResult } from '../../../ai/geminiClient'
+import { ownKeyMissesModel } from '../../../ai/ownKey'
 import type { AssistantContext } from '../context'
 
 export const TOOL_NAMES = [
@@ -137,7 +138,9 @@ export async function planTurn(ctx: AssistantContext, message: string, context: 
   // Fast path (ASSISTANT_FAST_MODEL): a lighter model answers this classification in about a second. It gets one
   // short try; a slow, failed or out-of-contract answer falls through to the main model below, so nothing is lost.
   const fastModel = String(ctx.env.ASSISTANT_FAST_MODEL || '').trim()
-  if (fastModel) {
+  // A store that pays the assistant with its own key only uses the fast path when that key was verified for the
+  // fast model; otherwise the call would silently go out on the platform key and count against the plan.
+  if (fastModel && !(await ownKeyMissesModel(ctx.db, ctx.env, ctx.store.id, 'assistant', fastModel))) {
     const fastDeadline = Math.min(deadline, Date.now() + FAST_MODEL_BUDGET_MS)
     const fastFetch: typeof fetch = (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(Math.max(300, fastDeadline - Date.now())) })
     try {

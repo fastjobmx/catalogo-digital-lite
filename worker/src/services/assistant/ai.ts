@@ -124,7 +124,10 @@ export async function analyzeLogoColors(
         UNTRUSTED_CONTENT_RULE,
       ],
       parts: [{ text: 'Identifica el color de marca principal y un color de acento visibles.' }, { inlineData: image }],
-      maxOutputTokens: 96,
+      // Two hex colors need no extended reasoning. With reasoning on, its tokens used up the old 96-token limit and
+      // the answer came back empty (GEMINI_TRUNCATED · identidad_visual in production).
+      maxOutputTokens: 256,
+      thinkingBudget: 0,
       temperature: 0.1,
       schema: { type: 'object', properties: { primaryColor: { type: 'string' }, accentColor: { type: 'string' } }, required: ['primaryColor', 'accentColor'] },
     })
