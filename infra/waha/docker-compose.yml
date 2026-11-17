@@ -1,14 +1,14 @@
-# WAHA (WhatsApp HTTP API) para el asistente TiendIA Exprés: entorno LOCAL / STAGING aislado.
+# WAHA (WhatsApp HTTP API) para el asistente TiendIA Exprés: corre en el PC de la oficina y atiende a PRODUCCIÓN por el túnel fijo.
 # No es la API oficial de Meta (ver docs/WAHA_PROVEEDOR_WHATSAPP.md, riesgos).
 #
 #   waha      motor GOWS (sin navegador), versión fijada. Solo escucha en 127.0.0.1:3000.
 #   gateway   nginx con lista blanca: lo único que el Worker de Cloudflare puede tocar
 #             (enviar texto, marcar leído/escribiendo, descargar archivos, resolver LID,
 #             consultar el estado). Sin panel, sin Swagger, sin control de sesiones.
-#   tunnel    (perfil "tunnel") túnel HTTPS saliente de Cloudflare hacia el gateway.
+#   tunnel    túnel FIJO de Cloudflare (waha.tiendiaexpres.com) hacia el gateway: así entra el Worker de producción.
 #
-# Arranque:  docker compose up -d            (solo local)
-#            docker compose --profile tunnel up -d   (local + túnel para el Worker de staging)
+# Arranque:  «Encender WhatsApp.cmd» (o docker compose up -d). Apagado: «Apagar WhatsApp.cmd» (o docker compose stop).
+#            docker compose --profile temporal up -d tunnel-temporal   (URL de prueba aleatoria)
 # Secretos:  .env (no versionado). Plantilla: .env.example. Generar con scripts/init-env.mjs.
 
 name: tiendia-waha
@@ -77,13 +77,24 @@ services:
       options: { max-size: "10m", max-file: "5" }
 
   tunnel:
+    # Túnel FIJO de producción: waha.tiendiaexpres.com → gateway. El Worker siempre usa la misma URL.
+    # TUNNEL_TOKEN va en .env (no versionado); se obtiene con «cloudflared tunnel token tiendia-waha».
     image: cloudflare/cloudflared:2026.10.0
-    profiles: ["tunnel"]
     restart: unless-stopped
+    env_file: .env
     depends_on:
       gateway: { condition: service_healthy }
-    # Túnel rápido (URL aleatoria *.trycloudflare.com) para staging. Para una URL fija con
-    # Cloudflare Access, ver docs/WAHA_PROVEEDOR_WHATSAPP.md §Túnel con nombre.
+    command: ["tunnel", "--no-autoupdate", "--url", "http://gateway:8080", "run"]
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  tunnel-temporal:
+    # Solo para pruebas: URL aleatoria *.trycloudflare.com que cambia en cada reinicio.
+    image: cloudflare/cloudflared:2026.10.0
+    profiles: ["temporal"]
+    depends_on:
+      gateway: { condition: service_healthy }
     command: ["tunnel", "--no-autoupdate", "--url", "http://gateway:8080"]
     logging:
       driver: json-file

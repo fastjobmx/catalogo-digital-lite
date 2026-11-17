@@ -46,10 +46,23 @@ EMAIL_TEST_RECIPIENTS = "explorandocdsm@gmail.com"
 # Estudio IA: modelo que devuelve imágenes y su precio de salida (US$60 por millón de tokens de imagen)
 GEMINI_IMAGE_MODEL = "gemini-3.1-flash-image"
 GEMINI_IMAGE_PRICE_OUTPUT_MICROS_PER_MTOK = "60000000"
-# Asistente administrativo por WhatsApp: APAGADO. Activarlo exige aprobación expresa.
-# Piloto vacío = ninguna tienda; poner ids separados por coma solo de comercios autorizados ("*" abriría a todos: no usar).
+# Asistente administrativo por WhatsApp.
+# - API oficial de Meta: APAGADA (WHATSAPP_ADMIN_BOT_ENABLED).
+# - WAHA (vía no oficial) ENCENDIDO desde 2026-11-17 por decisión del propietario: corre en el PC de la oficina
+#   (carpeta waha-tiendia, botones «Encender/Apagar WhatsApp») y entra por el túnel fijo waha.tiendiaexpres.com.
+#   Si el PC está apagado, el bot no responde; Telegram y el panel siguen igual. Apagado inmediato: WAHA_ENABLED = "false".
+#   Secretos (wrangler secret put): WAHA_API_KEY, WAHA_GATEWAY_TOKEN, WAHA_WEBHOOK_HMAC_KEY.
+# - Tiendas habilitadas: "*" = todas (decisión del propietario, 2026-11-17). Para limitar, poner ids separados por coma.
 WHATSAPP_ADMIN_BOT_ENABLED = "false"
-WHATSAPP_PILOT_STORE_IDS = ""
+WHATSAPP_PILOT_STORE_IDS = "*"
+WAHA_ENABLED = "true"
+WAHA_SESSION = "tiendia"
+# Número del bot que ven los comercios para escribirle (público, no es un secreto).
+WAHA_DISPLAY_NUMBER = "573018589121"
+WAHA_API_URL = "https://waha.tiendiaexpres.com"
+WAHA_PHOTO_BATCH_ENABLED = "true"
+WAHA_PHOTO_QUIET_SECONDS = "20"
+WAHA_PHOTO_BATCH_MAX = "100"
 # Secretos adicionales (wrangler secret put): MASTER_BOT_TOKEN, MASTER_WEBHOOK_SECRET,
 # MASTER_ADMIN_TELEGRAM_IDS. Opcional: TELEGRAM_BOT_USERNAME, PLATFORM_AI_MONTHLY_CAP_MICROS.
 
@@ -62,3 +75,14 @@ migrations_dir = "../database/migrations"
 [[r2_buckets]]
 binding = "ASSETS"
 bucket_name = "catalogo-lite-production-assets"
+
+# Cola de trabajos del asistente por WhatsApp (lotes de fotos de WAHA).
+[[queues.producers]]
+binding = "WHATSAPP_JOBS"
+queue = "tiendia-whatsapp-jobs"
+
+[[queues.consumers]]
+queue = "tiendia-whatsapp-jobs"
+max_batch_size = 5
+max_batch_timeout = 1
+max_retries = 3
