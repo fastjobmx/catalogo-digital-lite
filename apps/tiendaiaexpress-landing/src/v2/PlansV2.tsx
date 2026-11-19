@@ -6,8 +6,8 @@
 // highlight); on phones the cards become a swipeable row with a plan selector, so the three can be
 // compared side by side without a very long page. Below: what every plan includes, the fine print and
 // the full comparator (derived from plans.ts), with a sticky first column on small screens.
-// Contradiction kept visible, not hidden: «Varios administradores con roles» stays where plans.ts puts
-// it (Mayorista) until the commercial decision (docs/HOME_V2_PREVIEW.md).
+// «Varios administradores con roles» from Negocio up and the shared assistant quota: owner decisions of
+// 2026-11-19, written in plans.ts.
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { addOns, annualSaving, cop, firstYearMonthly, planMessage, plans, type Billing, type Plan } from '../content/plans'
 import { site, whatsappLink } from '../config/site'

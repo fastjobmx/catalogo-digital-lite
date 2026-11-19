@@ -16,7 +16,7 @@ const MOTION_SCRIPT = "document.documentElement.classList.add(window.matchMedia(
  *           noindex can be read), no canonical, no sitemap.
  *  - true:  <meta robots index>, canonical + og:url = VITE_SITE_URL, sitemap.xml listed in robots.txt.
  */
-function seo(siteUrl: string, allowIndexing: boolean, noindexHosts: string[]): Plugin {
+function seo(siteUrl: string, allowIndexing: boolean, noindexHosts: string[], v2Home = false, v2Media = false): Plugin {
   const scriptHash = createHash('sha256').update(MOTION_SCRIPT).digest('base64')
   const csp = [
     "default-src 'self'",
@@ -24,6 +24,8 @@ function seo(siteUrl: string, allowIndexing: boolean, noindexHosts: string[]): P
     `script-src 'self' 'sha256-${scriptHash}' https://static.cloudflareinsights.com`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
+    // Home V2 builds only: the scrubbed 3D clips are fetched and played from memory (blob:, src/v2/depth.ts).
+    ...(v2Media ? ["media-src 'self' blob:"] : []),
     "font-src 'self'",
     "connect-src 'self' https://cloudflareinsights.com",
     "object-src 'none'",
@@ -37,7 +39,7 @@ function seo(siteUrl: string, allowIndexing: boolean, noindexHosts: string[]): P
     transformIndexHtml(html, ctx) {
       // Preload the two Latin variable fonts used above the fold (avoids layout shift on swap).
       // The Home V2 preview uses Plus Jakarta Sans only: no Manrope preload there (other pages unchanged).
-      const fonts = Object.keys(ctx.bundle ?? {}).filter((f) => /(plus-jakarta-sans|manrope)-latin-wght-normal.*\.woff2$/.test(f) && !(ctx.path.endsWith('home-v2.html') && f.includes('manrope')))
+      const fonts = Object.keys(ctx.bundle ?? {}).filter((f) => /(plus-jakarta-sans|manrope)-latin-wght-normal.*\.woff2$/.test(f) && !((ctx.path.endsWith('home-v2.html') || (v2Home && /(^|\/)index\.html$/.test(ctx.path))) && f.includes('manrope')))
       const preload = fonts.map((f) => `<link rel="preload" href="/${f}" as="font" type="font/woff2" crossorigin />`).join('\n    ')
       html = html.replace('</title>', `</title>\n    ${preload}`)
       const robots = allowIndexing ? 'index, follow, max-image-preview:large' : 'noindex, nofollow'
@@ -99,6 +101,22 @@ function withoutHomeV2Classes(): Plugin {
   }
 }
 
+/** VITE_HOME_V2=home: index.html boots the V2 page instead of the official one (same head: title, meta,
+ * Open Graph, canonical and robots from the seo plugin). Runs before Vite resolves the module script. */
+function v2AsHome(): Plugin {
+  return {
+    name: 'home-v2-as-home',
+    transformIndexHtml: {
+      order: 'pre',
+      handler(html, ctx) {
+        if (!/(^|\/)index\.html$/.test(ctx.path)) return html
+        if (!html.includes('src="/src/main.tsx"')) throw new Error('index.html: /src/main.tsx not found')
+        return html.replace('src="/src/main.tsx"', 'src="/src/v2/main.tsx"')
+      },
+    },
+  }
+}
+
 export default defineConfig(({ mode, isSsrBuild }) => {
   const env = loadEnv(mode, process.cwd(), 'VITE_')
   const siteUrl = (env.VITE_SITE_URL || 'https://tiendaiaexpress.pages.dev').replace(/\/+$/, '')
@@ -106,10 +124,12 @@ export default defineConfig(({ mode, isSsrBuild }) => {
   const noindexHosts = (env.VITE_NOINDEX_HOSTS || '').split(',').map((host) => host.trim().toLowerCase()).filter((host) => /^[a-z0-9.-]+$/.test(host))
   // Platform app (stores, panel, trial). Technical hostname until the official domain is verified.
   const appUrl = (env.VITE_APP_URL || 'https://catalogo-digital-ia.catalogo-lite-worker.workers.dev').replace(/\/+$/, '')
-  // Home V2 prototype (/home-v2): built ONLY with VITE_HOME_V2=preview. Without it, no entry, page or asset of V2.
+  // Home V2: built ONLY with VITE_HOME_V2. «preview» adds /home-v2 next to the official home; «home» makes the
+  // V2 the home page (test URL). Without it (the official build), no entry, page or asset of V2.
   const homeV2 = env.VITE_HOME_V2 === 'preview'
+  const v2Home = env.VITE_HOME_V2 === 'home'
   return {
-    plugins: [react(), ...(homeV2 ? [] : [withoutHomeV2Classes()]), tailwindcss(), ...(isSsrBuild ? [] : [seo(siteUrl, allowIndexing, noindexHosts)])],
+    plugins: [react(), ...(homeV2 || v2Home ? [] : [withoutHomeV2Classes()]), ...(v2Home ? [v2AsHome()] : []), tailwindcss(), ...(isSsrBuild ? [] : [seo(siteUrl, allowIndexing, noindexHosts, v2Home, homeV2 || v2Home)])],
     define: { __SITE_URL__: JSON.stringify(siteUrl), __APP_URL__: JSON.stringify(appUrl) },
     server: { port: 4317, strictPort: true },
     build: {

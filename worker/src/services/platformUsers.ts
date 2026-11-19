@@ -105,6 +105,17 @@ export async function ensureUser(db: D1Database, input: { email?: string | null;
   return Number(result.meta.last_row_id)
 }
 
+/** Plans whose stores have only their owner (owner decision of 2026-11-19: a team with roles from the Negocio
+ * plan up). Only new invitations are refused; existing members, the trial and legacy plans keep their access. */
+export const PLANS_WITHOUT_TEAM: ReadonlySet<string> = new Set(['emprendedor'])
+
+export const TEAM_PLAN_MESSAGE = 'El plan Emprendedor no incluye equipo: los usuarios con roles están desde el plan Negocio.'
+
+export async function storeAllowsTeam(db: D1Database, storeId: number): Promise<boolean> {
+  const row = await db.prepare('SELECT plan_code AS planCode FROM stores WHERE id = ?').bind(storeId).first<{ planCode: string | null }>()
+  return !PLANS_WITHOUT_TEAM.has(row?.planCode || '')
+}
+
 export async function upsertMembership(db: D1Database, input: { storeId: number; userId: number; role: StoreRole; createdBy: string }): Promise<void> {
   await db.prepare(
     `INSERT INTO store_memberships (store_id, user_id, role, status, created_by) VALUES (?, ?, ?, 'active', ?)

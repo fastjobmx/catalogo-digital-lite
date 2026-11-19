@@ -9,7 +9,7 @@ import { TEMPLATE_KEYS } from '../services/templates'
 import { clearAdminLoginFailures, isAdminLoginBlocked, recordAdminLoginFailure } from '../services/loginRateLimit'
 import { INVITABLE_ROLES, listUserMemberships, ROLE_LABELS, type StoreRole } from '../tenancy/access'
 import { PRIMARY_STORE_ID } from '../tenancy/stores'
-import { createAccessToken, ensureUser, findUserByEmail, normalizeEmail, upsertMembership } from '../services/platformUsers'
+import { createAccessToken, ensureUser, findUserByEmail, normalizeEmail, storeAllowsTeam, TEAM_PLAN_MESSAGE, upsertMembership } from '../services/platformUsers'
 import { getStoreAiUsage } from '../ai/usage'
 import { storeConsumption } from '../services/aiMessageAdmin'
 import { studioModel } from '../ai/imageStudio'
@@ -254,6 +254,7 @@ app.post('/team', adminAuth, requireRole('owner'), async (c) => {
  if (isSuperadminEmail(email, c.env)) return c.json({ error: 'This email is reserved' }, 400)
  const actor = c.get('adminEmail') || 'unknown'
  const storeId = c.get('storeId')!
+ if (!(await storeAllowsTeam(c.env.DB, storeId))) return c.json({ error: TEAM_PLAN_MESSAGE, code: 'PLAN_WITHOUT_TEAM' }, 403)
  const userId = await ensureUser(c.env.DB, { email, displayName: typeof body?.displayName === 'string' ? body.displayName : '', createdBy: actor })
  const existingOwner = await c.env.DB.prepare("SELECT role FROM store_memberships WHERE store_id = ? AND user_id = ? AND role = 'owner'").bind(storeId, userId).first()
  if (existingOwner) return c.json({ error: 'The owner role cannot be changed here' }, 409)

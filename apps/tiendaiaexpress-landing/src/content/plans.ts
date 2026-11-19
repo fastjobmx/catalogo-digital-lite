@@ -7,6 +7,9 @@
 //    change limits, credits or permissions of any store. Differences are listed in
 //    docs/LANDING_PLANES_Y_PRECIOS.md and need approval before production limits change.
 //  - Only features verified in the code are listed as available; the rest go to `soon`.
+//  - Owner decisions of 2026-11-19: several administrators from Negocio up (POST /team refuses Emprendedor);
+//    the assistant's monthly AI messages are one quota per store shared by WhatsApp and Telegram
+//    (worker/src/ai/messageQuota.ts).
 
 export type Billing = 'mensual' | 'anual'
 
@@ -45,7 +48,7 @@ export const plans: Plan[] = [
       'Herramientas básicas de fotografía (uso razonable)',
     ],
     ai: [
-      'Asistente en Telegram: hasta 500 mensajes IA al mes',
+      'Asistente en WhatsApp y Telegram: hasta 500 mensajes IA al mes, entre los dos canales',
       '50 mejoras de fotografía con IA al mes',
       '200 descripciones con IA al mes',
     ],
@@ -61,7 +64,8 @@ export const plans: Plan[] = [
     products: 'Hasta 500 productos',
     features: [
       'Todo lo del plan Emprendedor',
-      'Asistente en Telegram de uso ampliado',
+      'Asistente en WhatsApp y Telegram de uso ampliado',
+      'Varios administradores con roles',
       'Guías de envío desde Telegram (foto de la guía)',
       'Pedidos con estados, transportadora y número de guía',
     ],
@@ -82,7 +86,6 @@ export const plans: Plan[] = [
     products: 'Hasta 2.000 productos',
     features: [
       'Todo lo del plan Negocio',
-      'Varios administradores con roles',
       'Soporte prioritario',
     ],
     ai: [

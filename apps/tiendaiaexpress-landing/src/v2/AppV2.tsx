@@ -1,5 +1,5 @@
-// Home V2 prototype (local preview, /home-v2). Built only with VITE_HOME_V2=preview; the official
-// home (src/App.tsx) is not touched. Visual system: src/v2/home-v2.css + src/v2/ui.tsx.
+// Home V2. Built only with VITE_HOME_V2: «preview» adds /home-v2 next to the official home (src/App.tsx,
+// untouched); «home» makes it the home page (index.html), for the test URL. Visual system: src/v2/home-v2.css + src/v2/ui.tsx.
 // New V2 sections where the message or the presentation changes; the official Conditions and Contact
 // are reused as they are (same text, same form logic), dressed by the V2 tokens.
 import { NavV2 } from './NavV2'
@@ -9,7 +9,8 @@ import { BenefitsV2 } from './BenefitsV2'
 import { StoresV2 } from './StoresV2'
 import { AdminV2 } from './AdminV2'
 import { PlansV2 } from './PlansV2'
-import { FaqV2 } from './FaqV2'
+import { FaqV2, faqV2 } from './FaqV2'
+import { StructuredData } from '../seo/StructuredData'
 import { FinalCtaV2 } from './FinalCtaV2'
 import { FooterV2 } from './FooterV2'
 import { StepsV2 } from './StepsV2'
@@ -42,6 +43,7 @@ export function AppV2() {
       </main>
       <FooterV2 />
       <MobileCtaV2 />
+      <StructuredData faq={faqV2} channels="WhatsApp y Telegram" />
     </>
   )
 }

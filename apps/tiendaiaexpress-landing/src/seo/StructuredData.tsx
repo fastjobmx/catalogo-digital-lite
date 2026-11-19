@@ -7,13 +7,14 @@ import { faq } from '../content/copy'
 
 const unit = (code: 'MON' | 'ANN') => ({ '@type': 'QuantitativeValue', value: 1, unitCode: code })
 
-/** What the product does, as listed on the page (Funciones, Estudio Creativo, Administración). */
-const FEATURES = [
+/** What the product does, as listed on the page (Funciones, Estudio Creativo, Administración).
+ * `channels` names where the assistant is offered (the V2 home: WhatsApp and Telegram). */
+const features = (channels: string) => [
   'Tienda online con dirección propia y plantilla de tu marca',
   'Carrito y pedidos completos por WhatsApp',
   'Productos, categorías, tallas, variantes e inventario',
   'Carga de productos con fotos, Excel, CSV o PDF',
-  'Asistente con inteligencia artificial en Telegram para administrar la tienda',
+  `Asistente con inteligencia artificial en ${channels} para administrar la tienda`,
   'Fichas de producto con IA desde una foto',
   'Estudio Creativo: imágenes, carruseles y videos cortos para redes sociales',
   'Mejoras de fotografía de producto con IA',
@@ -22,7 +23,10 @@ const FEATURES = [
   'Sin comisión por venta',
 ]
 
-export function structuredData() {
+/** Defaults = the official home (src/App.tsx); the V2 home passes its own FAQ and channels. */
+export type StructuredDataOptions = { faq?: { q: string; a: string }[]; channels?: string }
+
+export function structuredData({ faq: questions = faq, channels = 'Telegram' }: StructuredDataOptions = {}) {
   const url = `${site.url}/`
   const org = { '@id': `${url}#organizacion` }
   const offers = plans.flatMap((plan) => [
@@ -96,8 +100,8 @@ export function structuredData() {
         inLanguage: 'es-CO',
         url,
         image: `${site.url}/og.png`,
-        description: 'Tienda online con inteligencia artificial y pedidos por WhatsApp, administrable desde el panel web o Telegram, con asistente y Estudio Creativo para publicidad en redes.',
-        featureList: FEATURES,
+        description: `Tienda online con inteligencia artificial y pedidos por WhatsApp, administrable desde el panel web o ${channels}, con asistente y Estudio Creativo para publicidad en redes.`,
+        featureList: features(channels),
         provider: org,
         offers,
       },
@@ -106,14 +110,14 @@ export function structuredData() {
         '@id': `${url}#preguntas`,
         inLanguage: 'es-CO',
         isPartOf: { '@id': `${url}#pagina` },
-        mainEntity: faq.map((item) => ({ '@type': 'Question', name: item.q, acceptedAnswer: { '@type': 'Answer', text: item.a } })),
+        mainEntity: questions.map((item) => ({ '@type': 'Question', name: item.q, acceptedAnswer: { '@type': 'Answer', text: item.a } })),
       },
     ],
   }
 }
 
-export function StructuredData() {
+export function StructuredData(options: StructuredDataOptions = {}) {
   // "<" is escaped so no text can close the script element.
-  const json = JSON.stringify(structuredData()).replace(/</g, '\\u003c')
+  const json = JSON.stringify(structuredData(options)).replace(/</g, '\\u003c')
   return <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: json }} />
 }

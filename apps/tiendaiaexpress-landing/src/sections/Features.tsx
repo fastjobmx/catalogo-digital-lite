@@ -30,7 +30,7 @@ const MORE: { icon: IconName; title: string; body: string; note?: string }[] = [
   { icon: 'file', title: 'Importa tu lista', body: 'Desde Excel o CSV, o desde un PDF con lectura por IA opcional.' },
   { icon: 'ticket', title: 'Cupones de descuento', body: 'Los creas en tu panel y tus clientes los aplican en el carrito.' },
   { icon: 'truck', title: 'Estados y guía de envío', body: 'Recibido, confirmado, enviado y entregado, con transportadora y número de guía.', note: 'Desde el plan Negocio' },
-  { icon: 'users', title: 'Tu equipo, con permisos', body: 'Varios administradores con roles para ventas o inventario.', note: 'Plan Mayorista' },
+  { icon: 'users', title: 'Tu equipo, con permisos', body: 'Varios administradores con roles para ventas o inventario.', note: 'Desde el plan Negocio' },
   { icon: 'stores', title: 'Varias tiendas, una cuenta', body: 'Administra más de una tienda desde la misma cuenta de Telegram.' },
   { icon: 'globe', title: 'Dominio propio', body: 'Tu tienda en tu propia dirección, con configuración asistida.', note: 'Complemento opcional' },
 ]

@@ -1,7 +1,9 @@
 // Home V2 prototype (/home-v2). Only exists in a preview build:
 //   VITE_HOME_V2=preview npm run build:official && node scripts/serve.mjs 4321
 //   BASE_URL=http://localhost:4321 VITE_APP_URL=https://app.tiendiaexpres.com npx playwright test home-v2
-// Against an official build (no /home-v2) every test is skipped.
+// Against an official build (no /home-v2) every test is skipped. The V2 as the home page (test URL build):
+//   npm run build:home-v2 && node scripts/serve.mjs 4323
+//   BASE_URL=http://localhost:4323 HOME_V2_PATH=/ VITE_APP_URL=https://app.tiendiaexpres.com npx playwright test home-v2
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 
@@ -9,7 +11,7 @@ const APP = (process.env.VITE_APP_URL || 'https://catalogo-digital-ia.catalogo-l
 const TRIAL = `${APP}/registro`
 const ADMIN = `${APP}/admin/login`
 const WCAG = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']
-const URL = '/home-v2'
+const URL = process.env.HOME_V2_PATH || '/home-v2'
 
 test.beforeEach(async ({ request }) => {
   const res = await request.get(URL)
@@ -154,14 +156,23 @@ test.describe('home v2', () => {
     await expect(page.locator('#inicio').getByRole('link', { name: 'Ver cómo funciona' })).toHaveAttribute('href', '#como-funciona')
   })
 
+  test('the CSP lets the scrubbed 3D clips play from memory (blob: media)', async ({ request }) => {
+    // scripts/serve.mjs drops the CSP locally, so the deployed header is checked in the file itself.
+    const headers = await (await request.get('/_headers')).text()
+    expect(headers).toContain("media-src 'self' blob:")
+  })
+
   test('copy: buyer vs owner, no invented promises, plans unchanged, no voseo', async ({ request }) => {
     const raw = await (await request.get(URL)).text()
     const text = raw.replace(/<script[\s\S]*?<\/script>/g, ' ').replace(/<[^>]+>/g, ' ')
     expect(text).toContain('Tus clientes no hablan con el asistente')
     expect(text).toContain('Sin tarjeta de crédito')
-    for (const banned of ['24/7', '24 horas', 'ilimitad', 'siempre disponible', 'garantizad']) expect(text.toLowerCase(), banned).not.toContain(banned)
-    // Plans are the official component: same prices and the same feature list (incl. the Mayorista line).
-    for (const price of ['$59.900', '$99.900', '$169.900', 'Varios administradores con roles', 'Asistente en Telegram: hasta 500 mensajes IA al mes']) expect(text).toContain(price)
+    for (const banned of ['24/7', 'ilimitad', 'siempre disponible', 'garantizad']) expect(text.toLowerCase(), banned).not.toContain(banned)
+    // Round-the-clock only for Telegram (owner decision 2026-11-19); WhatsApp in office hours, never a set schedule.
+    for (const m of text.matchAll(/24 horas/g)) expect(text.slice(Math.max(0, m.index! - 60), m.index!), 'las 24 horas solo para Telegram').toContain('Telegram')
+    expect(text).toContain('en horario de oficina')
+    // Plans come from plans.ts: same prices, the team from Negocio and one AI quota for both channels.
+    for (const price of ['$59.900', '$99.900', '$169.900', 'Varios administradores con roles', 'Asistente en WhatsApp y Telegram: hasta 500 mensajes IA al mes, entre los dos canales']) expect(text).toContain(price)
     const voseo = text.match(/(?<![\p{L}])(vos|tenés|querés|podés|sabés|hacés|vendés|creá|mostrá|administrá|escribí|mirá|probalo|armá|cambiá|cargá)(?![\p{L}])/giu)
     expect(voseo ?? []).toEqual([])
   })

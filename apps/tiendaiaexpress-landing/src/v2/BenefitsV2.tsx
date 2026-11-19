@@ -77,7 +77,7 @@ export function BenefitsV2() {
             </ul>
           </Included>
           <Included id="estudio" title="Estudio Creativo" body="Imágenes, carruseles y videos cortos para redes con tus productos. Incluido en todos los planes, sin consumir créditos IA."
-            link={<a href="/#estudio" className="inline-flex min-h-11 items-center text-[0.9375rem] text-(--v2-text) underline-offset-4 after:ml-1 after:content-['›'] hover:underline">Ver ejemplos en la página actual</a>}>
+            link={import.meta.env.VITE_HOME_V2 === 'preview' ? <a href="/#estudio" className="inline-flex min-h-11 items-center text-[0.9375rem] text-(--v2-text) underline-offset-4 after:ml-1 after:content-['›'] hover:underline">Ver ejemplos en la página actual</a> : undefined}>
             <div className="v2-fan flex items-end gap-1 sm:gap-2">
               {[carrusel, oferta, historia].map((src, n) => (
                 <img key={src} src={src} alt="" width={360} height={640} loading="lazy" decoding="async" className={`w-[4.75rem] rounded-t-xl object-cover object-top shadow-[0_16px_30px_-18px_rgba(0,0,0,.35)] md:w-[5.5rem] ${n === 1 ? 'aspect-[9/14]' : 'aspect-[9/12]'}`} />

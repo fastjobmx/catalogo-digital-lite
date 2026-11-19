@@ -1,7 +1,8 @@
 // FAQ of the V2 prototype. Prices, quotas and commercial answers are the official ones (src/content/
 // copy.ts, reused verbatim through `faq`); only the answers about the assistant change, because the
-// official text says it exists only on Telegram. Nothing here states a combined or new AI quota, the
-// availability of a channel or which plan includes several users.
+// official text says it exists only on Telegram. Owner decisions of 2026-11-19: one monthly AI quota
+// shared by WhatsApp and Telegram (plans.ts), WhatsApp in office hours with Telegram as the round-the-clock
+// backup, several users from the Negocio plan up.
 import { useState } from 'react'
 import { faq } from '../content/copy'
 import { site, whatsappLink } from '../config/site'
@@ -23,7 +24,7 @@ export const faqV2: { q: string; a: string }[] = [
   },
   {
     q: '¿En qué canales funciona el asistente?',
-    a: 'En WhatsApp y en Telegram. Vinculas tu número o tu cuenta con un código de un solo uso que generas desde tu cuenta de TiendIA Exprés, y puedes usar uno de los dos o ambos. Un número que no está vinculado no puede administrar ninguna tienda.',
+    a: `En WhatsApp y en Telegram. En WhatsApp te atiende en horario de oficina (hora de Colombia) y en Telegram, las 24 horas: úsalo de respaldo cuando WhatsApp no esté disponible. Los mensajes IA del mes son un solo cupo para los dos canales. Vinculas tu número o tu cuenta con un código de un solo uso que generas desde tu cuenta de TiendIA Exprés. Un número que no está vinculado no puede administrar ninguna tienda.`,
   },
   {
     q: '¿Cómo le escribo al asistente?',

@@ -5,9 +5,11 @@
 //  - stock entry («llegaron 10 pares…») → inventory.ts detectStockMovement → proposeStockMovement;
 //  - product from a photo → draft reviewed before saving (WHATSAPP_HELP_TEXT: photo → product);
 //  - pending orders → intents.ts get_pending_orders (a query: it changes nothing).
-// Roles per operation from ROLE_HELP (worker/src/services/assistant/team.ts); no plan is said to include
-// several users. Stock figures and order codes are examples and say so. Not stated: availability of any
-// channel; shipping labels on WhatsApp (verified only on Telegram).
+// Roles per operation from ROLE_HELP (worker/src/services/assistant/team.ts); a team with roles from the
+// Negocio plan up (owner decision of 2026-11-19, POST /team). Stock figures and order codes are examples and
+// say so. Channels as decided by the owner (2026-11-19): WhatsApp in office hours, Telegram as the round-
+// the-clock backup (no specific hours: site.hours). Not stated: shipping labels on WhatsApp (verified only
+// on Telegram).
 import type { ReactNode } from 'react'
 import { formatCOP, products } from '../content/media'
 import { Icon, type IconName } from '../components/ui/Icon'
@@ -128,7 +130,7 @@ export function AdminV2() {
   return (
     <Section id="administracion" labelledBy="administracion-title">
       <div className={wrap}>
-        <Heading id="administracion-title" center kicker="Por chat" title="Administra hablando." intro={<>Tú y los usuarios que autorices le escriben al asistente en WhatsApp o Telegram. <strong className="font-semibold text-(--v2-text)">Tus clientes no hablan con el asistente.</strong></>} />
+        <Heading id="administracion-title" center kicker="Por chat" title="Administra hablando." intro={<>Tú y los usuarios que autorices le escriben al asistente en WhatsApp, en horario de oficina, o en Telegram, las 24 horas. <strong className="font-semibold text-(--v2-text)">Tus clientes no hablan con el asistente.</strong></>} />
 
         {/* Bento: one idea per card. The large card is the price change as an open book (chat | your store),
             turning with a fine pointer; the three others each show one real operation and tilt the same way. */}
@@ -156,7 +158,7 @@ export function AdminV2() {
             </li>
           ))}
         </ul>
-        <p className={`mx-auto mt-4 max-w-6xl ${type.small}`}>Ejemplos ilustrativos. El asistente entiende texto, notas de voz y fotos; cada cambio queda pendiente hasta que lo confirmas.</p>
+        <p className={`mx-auto mt-4 max-w-6xl ${type.small}`}>Ejemplos ilustrativos. El asistente entiende texto, notas de voz y fotos; cada cambio queda pendiente hasta que lo confirmas. Los usuarios con roles se agregan desde el plan Negocio.</p>
 
         <div className="mx-auto mt-12 max-w-6xl border-t border-(--v2-line) pt-8">
           <ul className="grid gap-3 md:grid-cols-3 md:gap-8">

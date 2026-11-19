@@ -1,34 +1,46 @@
-# Home V2 · vista previa local (no publicada)
+# Home V2 · URL de prueba (sin publicar en producción)
 
-Estado: **prototipo local listo para revisión humana**. No está aceptado, no está fusionado y no se despliega.
-Rama `feat/home-v2` (worktree `.tmp/wt-home-v2`), sin commits: todo está como cambios sin confirmar.
+Estado (2026-11-19): **en URL de prueba para revisión humana**: https://home-v2.tiendaiaexpress.pages.dev (rama de vista
+previa `home-v2` de Cloudflare Pages, `noindex` en meta y en `X-Robots-Tag`, sin canonical ni sitemap). Producción
+(tiendiaexpres.com, rama `main` de Pages) no cambia. Rama git `feat/home-v2` (worktree `.tmp/wt-home-v2`).
 
 ## Cómo verla y compararla con la V1
 
 ```bash
-# Vista previa (incluye /home-v2 con noindex)
+# Vista previa local (incluye /home-v2 con noindex junto a la V1)
 VITE_HOME_V2=preview npm run build:official
 node scripts/serve.mjs 4321          # V2: http://localhost:4321/home-v2 · V1 del mismo build: http://localhost:4321/
+
+# La V2 como página de inicio (lo que se sube a la URL de prueba): .env.home-v2, VITE_HOME_V2=home
+npm run build:home-v2                # index.html = V2 con el <head> oficial (título, OG) y JSON-LD de la V2
+npm run cf:preview:home-v2           # build + wrangler pages deploy --branch home-v2 (nunca --branch main)
 ```
 
-El build oficial (`npm run build:official`, `npm run cf:deploy`) **no cambia**: sin `VITE_HOME_V2=preview` no existe la
-entrada `home-v2`, ni su página, ni sus clases en la hoja de estilos. Verificado el 2026-11-17 con builds limpios: los 130
-archivos de `dist/` son idénticos byte a byte (sha256) a los del commit base `19db4c8`.
+El build oficial (`npm run build:official`, `npm run cf:deploy`) sigue sin V2: sin `VITE_HOME_V2` no existe la entrada
+`home-v2`, ni su página, ni sus clases en la hoja de estilos (CSS y `_headers` idénticos al base `19db4c8`). Desde el
+2026-11-19 su HTML/JS cambia SOLO en los textos de planes decididos abajo (son de `plans.ts`, compartido).
 
-Pruebas: `BASE_URL=http://localhost:4321 VITE_APP_URL=https://app.tiendiaexpres.com npx playwright test tests/home-v2.spec.ts`
-(contra un build oficial las 18 pruebas se omiten solas porque `/home-v2` responde 404).
+Pruebas: `BASE_URL=http://localhost:4321 VITE_APP_URL=https://app.tiendiaexpres.com npx playwright test` (V1 + V2, 119).
+Con la V2 como home: servir `dist/` de `build:home-v2` y añadir `HOME_V2_PATH=/` (en PowerShell: Git Bash convierte «/»).
+El servidor local quita la CSP: una prueba lee `/_headers` para asegurar `media-src 'self' blob:` (los vídeos 3D se
+reproducen desde memoria; sin esa directiva Cloudflare los bloqueaba). Solo los builds de la V2 la llevan.
 
-## Bloqueantes de publicación (decisiones comerciales, no resueltas aquí)
+## Decisiones comerciales (2026-11-19, del propietario)
 
-1. **Varios administradores por plan.** `src/content/plans.ts`, el comparador y Funciones dicen que es exclusivo de
-   Mayorista. El backend (`POST /api/admin/team`, `worker/src/routes/admin.ts`) solo exige rol de propietario y no revisa el
-   plan; el panel tampoco lo limita. La V2 usa lenguaje neutro («tú y los usuarios que autorices») y no toca el
-   comparador. Decidir: (a) qué planes incluyen equipo y (b) si se aplica el límite en el servidor (tarea aparte).
-2. **Cuota IA del asistente.** `plans.ts` dice «Asistente en Telegram: hasta 500 mensajes IA al mes». No está definido si
-   el asistente de WhatsApp comparte esa cuota. La V2 conserva el texto vigente de los planes sin cambios.
-3. **Disponibilidad del bot de WhatsApp.** Funciona con WAHA desde un PC de oficina (`worker/wrangler.production.toml`):
-   si el PC se apaga, no responde. La V2 no promete horario, continuidad ni que Telegram sea un respaldo automático. Antes
-   de publicar: evaluar fiabilidad/continuidad y las condiciones de servicio del canal.
+1. **Varios administradores: Negocio y Mayorista.** `plans.ts` lo lista en Negocio (Mayorista lo hereda), y el
+   comparador y Funciones de la V1 dicen «Desde el plan Negocio». Servidor: `POST /api/admin/team` y la invitación por
+   Telegram (`services/assistant/team.ts`) rechazan nuevas invitaciones en tiendas `emprendedor` (`PLANS_WITHOUT_TEAM`,
+   `services/platformUsers.ts`; prueba `routes/admin-team-plan.test.ts`). Los miembros existentes, la prueba gratis y los
+   planes heredados no cambian. **Sin desplegar el worker**: hasta entonces el servidor no lo limita.
+2. **Cuota IA compartida.** «Asistente en WhatsApp y Telegram: hasta 500 mensajes IA al mes, entre los dos canales» (así
+   la cuenta ya `worker/src/ai/messageQuota.ts`: un libro por tienda para los dos canales).
+3. **WhatsApp en horario de oficina, Telegram de respaldo las 24 horas.** Sin horas concretas (`site.hours`). Está en la
+   pregunta «¿En qué canales funciona el asistente?» y en la introducción de «Administra hablando». No se dice que el
+   cambio a Telegram sea automático.
+
+Pendiente antes de producción: revisión humana en la URL de prueba (teléfono real, Safari/iOS, Firefox), Lighthouse,
+la URL de la Política de privacidad (vacía en `site.ts`; el formulario de contacto recoge datos personales), desplegar el
+worker con el límite de equipo, y decidir si la V1 (Asistente y preguntas, que aún dicen solo Telegram) se retira.
 
 ## Rediseño visual (2026-11-17, segunda ronda)
 

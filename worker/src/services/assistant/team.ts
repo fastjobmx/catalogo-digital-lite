@@ -1,7 +1,7 @@
 /** Store team from Telegram: list members, invite with a one-time link (least
  * privilege role chosen by the owner) and revoke access. Every change is audited. */
 import { can, INVITABLE_ROLES, ROLE_LABELS, type StoreRole } from '../../tenancy/access'
-import { createAccessToken, upsertMembership } from '../platformUsers'
+import { createAccessToken, storeAllowsTeam, TEAM_PLAN_MESSAGE, upsertMembership } from '../platformUsers'
 import { say, unavailableHere, type AssistantContext, actorOf } from './context'
 import { escapeHtml } from './tools'
 
@@ -43,6 +43,7 @@ export async function showTeam(ctx: AssistantContext): Promise<void> {
 }
 
 async function chooseRole(ctx: AssistantContext): Promise<void> {
+  if (!(await storeAllowsTeam(ctx.db, ctx.store.id))) { await say(ctx, TEAM_PLAN_MESSAGE); return }
   const roles = INVITABLE_ROLES.filter((role) => role !== 'admin' || ctx.role === 'owner')
   await say(ctx, `¿Qué rol tendrá la persona? Elige el mínimo que necesite:\n\n${roles.map((role) => `<b>${ROLE_LABELS[role]}</b>: ${ROLE_HELP[role]}`).join('\n')}`, { inline_keyboard: [
     ...roles.map((role) => [{ text: ROLE_LABELS[role], callback_data: cb(ctx, 'role', role) }]),
@@ -53,6 +54,7 @@ async function chooseRole(ctx: AssistantContext): Promise<void> {
 /** Creates an invited account with the chosen role and a 72-hour, single-use link. */
 async function invite(ctx: AssistantContext, role: StoreRole): Promise<void> {
   if (!INVITABLE_ROLES.includes(role) || (role === 'admin' && ctx.role !== 'owner')) { await say(ctx, 'No puedes invitar con ese rol.'); return }
+  if (!(await storeAllowsTeam(ctx.db, ctx.store.id))) { await say(ctx, TEAM_PLAN_MESSAGE); return }
   const actor = actorOf(ctx)
   const created = await ctx.db.prepare(`INSERT INTO platform_users (email, display_name, status, created_by) VALUES (NULL, ?, 'invited', ?)`)
     .bind(`${ROLE_LABELS[role]} invitado`, actor).run()

@@ -7,7 +7,8 @@ import { AppV2 } from './v2/AppV2'
 
 /** Every prerendered page: the key is the HTML file in dist/ (see vite.config.ts and scripts/prerender.mjs). */
 const pages: Record<string, () => ReactNode> = {
-  'index.html': () => <App />,
+  // «home»: the V2 is the home page (test URL build, scripts build:home-v2 / cf:preview:home-v2).
+  'index.html': () => (import.meta.env.VITE_HOME_V2 === 'home' ? <AppV2 /> : <App />),
   'terminos-y-condiciones.html': () => <TermsPage />,
   'servicios-adicionales.html': () => <ServicesPage />,
   // Home V2 prototype: only when the preview build asks for it (VITE_HOME_V2=preview, replaced at build time).

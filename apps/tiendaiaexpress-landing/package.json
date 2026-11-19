@@ -15,6 +15,8 @@
     "test:unit": "node --test scripts/check-plans.mjs",
     "cf:deploy": "npm run build:official && node ../../worker/node_modules/wrangler/bin/wrangler.js pages deploy dist --project-name tiendaiaexpress --branch main --commit-dirty=true",
     "cf:check": "npm run build && node scripts/check-dist.mjs",
+    "build:home-v2": "tsc --noEmit && vite build --mode home-v2 && vite build --mode home-v2 --ssr src/entry-server.tsx --outDir dist-ssr && node scripts/prerender.mjs",
+    "cf:preview:home-v2": "npm run build:home-v2 && node ../../worker/node_modules/wrangler/bin/wrangler.js pages deploy dist --project-name tiendaiaexpress --branch home-v2 --commit-dirty=true",
     "build:official": "tsc --noEmit && vite build --mode official && vite build --mode official --ssr src/entry-server.tsx --outDir dist-ssr && node scripts/prerender.mjs"
   },
   "dependencies": {

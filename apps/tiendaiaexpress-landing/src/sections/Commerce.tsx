@@ -83,14 +83,14 @@ const COMPARE: { group: string; rows: { label: string; cells: [Cell, Cell, Cell]
       { label: 'Tallas, variantes y categorías', cells: [true, true, true] },
       { label: 'Panel web de administración', cells: [true, true, true] },
       { label: 'Pedidos con estados, transportadora y guía', cells: [false, true, true] },
-      { label: 'Varios administradores con roles', cells: [false, false, true] },
+      { label: 'Varios administradores con roles', cells: [false, true, true] },
       { label: 'Soporte prioritario', cells: [false, false, true] },
     ],
   },
   {
     group: 'Asistente e inteligencia artificial',
     rows: [
-      { label: 'Asistente en Telegram', cells: ['Hasta 500 mensajes IA al mes', 'Uso ampliado', 'Uso ampliado'] },
+      { label: 'Asistente en WhatsApp y Telegram', cells: ['Hasta 500 mensajes IA al mes, entre los dos canales', 'Uso ampliado', 'Uso ampliado'] },
       { label: 'Guías de envío desde Telegram', cells: [false, true, true] },
       { label: 'Mejoras de fotografía con IA al mes', cells: ['50', '150', '400'] },
       { label: 'Descripciones con IA', cells: ['200 al mes', 'Uso razonable', 'Uso razonable'] },
