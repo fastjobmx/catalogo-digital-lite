@@ -1,0 +1,343 @@
+/* Home V2 prototype · visual system (loaded ONLY by /home-v2, after global.css).
+   Plain CSS, outside Tailwind layers: these rules win over the site's utilities on this page only.
+   Dark editorial SaaS: calm surfaces, hairlines, one family, lime only for the main action and
+   important states. The reused official components (Contact, Conditions) take these tokens. */
+
+html:root {
+  /* Dark scenes (product moments): pure black, warm white text, neutral greys. */
+  --v2-bg: #000000;
+  --v2-bg-alt: #0b0b0d;
+  --v2-surface: #161617;
+  --v2-raised: #1d1d1f;
+  --v2-line: #2c2c2e;
+  --v2-text: #f5f5f7;
+  --v2-muted: #a1a1a6;
+  --v2-subtle: #86868b;
+  --v2-lime: #d9ff18;
+
+  /* Site tokens re-mapped for the reused components. */
+  --color-night: var(--v2-bg);
+  --color-night-deep: #0a0c11;
+  --color-night-raised: var(--v2-surface);
+  --color-night-line: var(--v2-line);
+  --color-carbon: var(--v2-surface);
+  --color-porcelain: var(--v2-text);
+  --color-mist: var(--v2-muted);
+  --color-lime: var(--v2-lime);
+  --color-cyan: var(--v2-muted);
+  --color-violet-soft: #c9cfdb;
+
+  /* One family on the whole page (already loaded by the site). */
+  --font-body: var(--font-display);
+  background: var(--v2-bg);
+  color-scheme: dark;
+}
+html:root body {
+  background: var(--v2-bg);
+  color: var(--v2-text);
+  font-feature-settings: 'ss01' off;
+}
+
+/* Light scenes (most of the page): white, with light-grey tiles; the same components re-themed by
+   scope. The site tokens follow, so reused components read dark text on light here. */
+.v2-light {
+  --v2-bg: #ffffff;
+  --v2-bg-alt: #f5f5f7;
+  --v2-surface: #f5f5f7;
+  --v2-raised: #e8e8ed;
+  --v2-line: #d2d2d7;
+  --v2-text: #1d1d1f;
+  --v2-muted: #424245;
+  --v2-subtle: #6e6e73;
+  --color-porcelain: var(--v2-text);
+  --color-mist: var(--v2-subtle);
+  background: var(--v2-bg);
+  color: var(--v2-text);
+  color-scheme: light;
+}
+
+/* Editorial type scale: one family, large and tight headlines, measured line length. */
+.v2-h1 {
+  font-size: clamp(2.75rem, 10vw, 4rem);
+  font-weight: 600;
+  line-height: 1.04;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+@media (min-width: 48rem) {
+  .v2-h1 { font-size: clamp(3.5rem, 7vw, 6.5rem); line-height: 0.98; }
+}
+.v2-display {
+  font-size: clamp(2.25rem, 7.5vw, 3.25rem);
+  font-weight: 600;
+  line-height: 1.06;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+}
+@media (min-width: 48rem) {
+  .v2-display { font-size: clamp(3rem, 4.6vw, 4rem); }
+}
+.v2-lead {
+  font-size: clamp(1.1875rem, 1.6vw, 1.3125rem);
+  line-height: 1.4;
+  letter-spacing: -0.005em;
+  font-weight: 500;
+  text-wrap: pretty;
+}
+
+/* Focus: a calm, high-contrast ring everywhere. */
+html:root :focus-visible {
+  outline: 2px solid var(--v2-text);
+  outline-offset: 3px;
+}
+
+/* Reused components: no glow under buttons, no italic or coloured accents in headings. */
+html:root a[class*='bg-lime'],
+html:root button[class*='bg-lime'] {
+  box-shadow: none;
+}
+html:root .display {
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.08;
+}
+html:root .accent,
+html:root .accent-gradient {
+  font-style: normal;
+  color: inherit;
+  background: none;
+  -webkit-text-fill-color: currentColor;
+}
+html:root .accent,
+html:root .accent-gradient,
+html:root .display {
+  text-shadow: none;
+  filter: none;
+}
+html:root .accent-gradient::before,
+html:root .accent-gradient::after {
+  content: none;
+}
+/* Same kicker as the V2 sections: sentence case, no rule. */
+html:root .eyebrow {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--v2-subtle);
+}
+html:root .eyebrow > span[aria-hidden='true'] {
+  display: none;
+}
+/* Same container as the V2 sections (src/v2/ui.tsx `wrap`). */
+html:root .wrap {
+  max-width: 80rem;
+  padding-inline: 1.25rem;
+}
+@media (min-width: 40rem) {
+  html:root .wrap {
+    padding-inline: 2rem;
+  }
+}
+html:root #contacto-title {
+  font-size: clamp(1.85rem, 3.3vw, 2.75rem);
+}
+/* Contact (official component): one lime action per section, the submit button. */
+html:root #contacto {
+  padding-block: 5rem;
+}
+@media (min-width: 48rem) {
+  html:root #contacto {
+    padding-block: 7rem;
+  }
+}
+html:root #contacto a[class*='bg-lime'] {
+  background: transparent;
+  color: var(--v2-text);
+  box-shadow: inset 0 0 0 1px var(--v2-line);
+}
+html:root #contacto a[class*='bg-lime']:hover {
+  background: var(--v2-surface);
+}
+html:root #contacto span.bg-lime {
+  background: var(--v2-surface);
+  color: var(--v2-text);
+  box-shadow: inset 0 0 0 1px var(--v2-line);
+}
+html:root #contacto form {
+  border-radius: 1rem;
+}
+
+/* Commercial conditions (official component) as a light document section. */
+.v2-doc {
+  --color-paper: var(--v2-bg);
+  --color-night: var(--v2-text);
+  --color-ink-soft: var(--v2-subtle);
+  --color-violet-ink: var(--v2-subtle);
+  border-top: 1px solid var(--v2-line);
+}
+/* Contact (official component) on light grey: dark text, white form, light fields. */
+.v2-contact {
+  --color-night: var(--v2-bg-alt);
+  --color-night-raised: #ffffff;
+  --color-night-deep: #f5f5f7;
+}
+.v2-contact button[class*='bg-lime'] { color: #1d1d1f; }
+.v2-contact .text-\[\#e7a6fb\] { color: #b3261e; }
+.v2-contact #contacto .bg-white\/5 { background: #ffffff; box-shadow: none; }
+.v2-doc #condiciones-title {
+  font-size: clamp(1.6rem, 2.6vw, 2.1rem);
+}
+
+/* ── Motion language ──────────────────────────────────────────────────────
+   Purposeful, short, never looping. Everything below is gated by html.motion (set before first
+   paint only when the visitor has not asked for reduced motion; absent without JS): without it the
+   page is complete and still. Only transform and opacity move. Tokens:
+   micro 160 ms · panel 240 ms · entrance 520 ms · one decelerating curve. */
+html:root {
+  --v2-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --v2-t-micro: 160ms;
+  --v2-t-panel: 240ms;
+  --v2-t-enter: 520ms;
+}
+
+/* 1 · Hero entrance: CSS only, once, staggered by --d (ms). Done in ≈ 1.1 s; nothing waits for it. */
+@keyframes v2-enter {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes v2-enter-stage {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: none; }
+}
+html.motion .v2-enter {
+  animation: v2-enter var(--v2-t-enter) var(--v2-ease) both;
+  animation-delay: calc(var(--d, 0) * 1ms);
+}
+html.motion .v2-enter-stage {
+  animation: v2-enter-stage 650ms var(--v2-ease) both;
+  animation-delay: calc(var(--d, 0) * 1ms);
+}
+
+/* 4 · Section reveals, once. Hidden only after the V2 script confirmed it runs (html.v2-js) and only
+   for groups not yet revealed: no JS, no IntersectionObserver or an error = everything visible. */
+html.motion.v2-js [data-v2-reveal]:not(.is-in) [data-v2-item] {
+  opacity: 0;
+  transform: translateY(10px);
+}
+html.motion.v2-js [data-v2-reveal='fade']:not(.is-in) [data-v2-item] {
+  transform: none;
+}
+html.motion [data-v2-reveal] [data-v2-item] {
+  transition: opacity var(--v2-t-enter) var(--v2-ease), transform var(--v2-t-enter) var(--v2-ease);
+  transition-delay: calc(var(--i, 0) * 90ms);
+}
+/* «Cómo funciona»: each step number lights up in order, explaining the sequence. */
+html.motion.v2-js [data-v2-reveal].is-in .v2-step-num {
+  color: var(--v2-text);
+  transition: color 400ms var(--v2-ease);
+  transition-delay: calc(var(--i, 0) * 260ms + 300ms);
+}
+
+/* 2 · Demo. Messages enter once; the price slides from the old value to the new one. */
+@keyframes v2-bubble {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+html.motion .v2-bubble {
+  animation: v2-bubble 360ms var(--v2-ease) both;
+}
+@keyframes v2-dot {
+  0%, 100% { opacity: 0.35; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(-2px); }
+}
+html.motion .v2-typing span {
+  animation: v2-dot 900ms ease-in-out infinite;
+}
+html.motion .v2-typing span:nth-child(2) { animation-delay: 150ms; }
+html.motion .v2-typing span:nth-child(3) { animation-delay: 300ms; }
+.v2-price { display: inline-grid; overflow: hidden; vertical-align: bottom; }
+.v2-price > span { grid-area: 1 / 1; }
+.v2-price > .v2-price-new { opacity: 0; transform: translateY(100%); }
+.v2-price[data-updated='true'] > .v2-price-old { opacity: 0; transform: translateY(-100%); }
+.v2-price[data-updated='true'] > .v2-price-new { opacity: 1; transform: none; }
+html.motion .v2-price > span {
+  transition: opacity 360ms var(--v2-ease), transform 420ms var(--v2-ease);
+}
+@keyframes v2-pop {
+  from { opacity: 0; transform: scale(0.9); }
+  to { opacity: 1; transform: none; }
+}
+html.motion .v2-pop {
+  animation: v2-pop 280ms var(--v2-ease) both;
+  animation-delay: 220ms;
+}
+@keyframes v2-tint {
+  0% { background-color: rgb(217 255 24 / 0.22); }
+  100% { background-color: rgb(217 255 24 / 0); }
+}
+html.motion .v2-tint {
+  animation: v2-tint 1.2s var(--v2-ease) both;
+}
+/* Saving: a hairline that runs once under the price while the store updates. */
+@keyframes v2-run {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+.v2-run { transform-origin: left; }
+html.motion .v2-run { animation: v2-run 600ms linear both; }
+/* Step progress: fills during the active step (duration from --dur). */
+.v2-fill { transform-origin: left; transform: scaleX(0); }
+.v2-fill[data-state='done'] { transform: scaleX(1); }
+html.motion .v2-fill[data-state='active'] { animation: v2-run var(--dur, 1s) linear both; }
+html:not(.motion) .v2-fill[data-state='active'] { transform: scaleX(0.5); }
+/* Paused (by the visitor, off screen or hidden tab): every running animation of the demo freezes. */
+[data-paused='true'] *, [data-paused='true'] *::before, [data-paused='true'] *::after {
+  animation-play-state: paused !important;
+}
+
+/* 3 · Admin explorer: the panel content swaps with a short fade (height stays fixed). */
+@keyframes v2-swap {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+html.motion .v2-swap {
+  animation: v2-swap 220ms var(--v2-ease) both;
+}
+html.motion .v2-swap .v2-swap-late {
+  animation: v2-swap 240ms var(--v2-ease) both;
+  animation-delay: 140ms;
+}
+
+/* 5 · Micro-interactions: sliding selection indicators, disclosure content, mobile menu items. */
+html.motion .v2-indicator {
+  transition: transform var(--v2-t-panel) var(--v2-ease);
+}
+html.motion details[open] > .v2-disclose {
+  animation: v2-swap var(--v2-t-panel) var(--v2-ease) both;
+}
+html.motion #menu-movil li {
+  transition: opacity var(--v2-t-panel) var(--v2-ease), transform var(--v2-t-panel) var(--v2-ease);
+}
+html.motion #menu-movil.invisible li {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+/* Long real message inside a fixed frame: fades out at the bottom instead of cutting. */
+.v2-fade-bottom {
+  -webkit-mask-image: linear-gradient(180deg, #000 78%, transparent);
+  mask-image: linear-gradient(180deg, #000 78%, transparent);
+}
+
+/* Story scene: the two product cards swap depth (front / back) with the step. */
+html.motion .v2-layer {
+  transition: transform 650ms var(--v2-ease), opacity 500ms var(--v2-ease);
+}
+
+/* Story beats on desktop: the inactive ones step back in colour (still AA: #8d929d on #08090d is 6.1:1). */
+@media (min-width: 64rem) {
+  .v2-beat-dim, .v2-beat-dim *:not(.v2-tag) { color: var(--v2-subtle) !important; }
+}
+#como-funciona li[data-beat], #como-funciona li[data-beat] * { transition: color 400ms var(--v2-ease); }

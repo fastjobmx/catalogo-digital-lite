@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="es-CO">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>Concepto G · composición del escenario de producto (maqueta estática)</title>
+<style>
+@font-face { font-family: 'PJS'; src: url('../../apps/tiendaiaexpress-landing/node_modules/@fontsource-variable/plus-jakarta-sans/files/plus-jakarta-sans-latin-wght-normal.woff2') format('woff2'); font-weight: 200 800; }
+:root { --bg:#08090d; --text:#f5f5f7; --muted:#a1a6b0; --dim:#6f7480; --lime:#d9ff18; --ink:#1d1d1f; --gray:#6e6e73; }
+* { box-sizing: border-box; margin: 0; }
+html, body { background: var(--bg); color: var(--text); font-family: 'PJS', system-ui, sans-serif; -webkit-font-smoothing: antialiased; overflow: hidden; }
+body { position: relative; width: 100vw; height: 100vh; }
+img { display: block; }
+
+/* Navigation */
+.nav { position: absolute; inset: 0 0 auto; height: 64px; display: flex; align-items: center; justify-content: space-between; padding: 0 64px; z-index: 50; }
+.logo { display: flex; align-items: center; gap: 8px; font-weight: 800; font-style: italic; font-size: 19px; letter-spacing: -0.04em; }
+.logo img { width: 40px; }
+.logo b { color: #c52af1; font-weight: 800; }
+.logo i { font-style: italic; background: var(--lime); color: var(--bg); font-size: 12px; padding: 3px 6px; border-radius: 6px; }
+.links { display: flex; gap: 30px; font-size: 14px; color: var(--muted); font-weight: 500; }
+.navcta { display: flex; align-items: center; gap: 22px; font-size: 14px; color: var(--muted); }
+.pill { background: var(--lime); color: #0b0c10; font-weight: 600; border-radius: 999px; padding: 11px 20px; font-size: 14px; }
+.menu { display: none; width: 40px; height: 40px; border-radius: 50%; border: 1px solid #2a2d35; }
+
+/* Hero copy */
+.hero { position: absolute; left: 0; right: 0; top: 96px; text-align: center; transition: opacity .3s; }
+.kicker { font-size: 15px; font-weight: 600; color: var(--muted); }
+.h1 { margin-top: 14px; font-size: 72px; line-height: 1; font-weight: 800; letter-spacing: -0.055em; }
+.h1 span { display: inline; }
+.lead { margin: 18px auto 0; max-width: 640px; font-size: 19px; line-height: 1.5; color: #c4c8d0; letter-spacing: -0.01em; }
+.ctas { margin-top: 26px; display: flex; justify-content: center; align-items: center; gap: 26px; }
+.ctas .pill { font-size: 16px; padding: 15px 26px; }
+.ctas a { color: var(--text); font-weight: 600; font-size: 16px; text-decoration: underline; text-underline-offset: 6px; text-decoration-color: #3a3e48; }
+
+/* Narration (story) */
+.narr { position: absolute; left: 0; right: 0; top: 96px; text-align: center; opacity: 0; }
+.narr small { display: block; font-size: 14px; font-weight: 600; color: var(--dim); letter-spacing: .02em; }
+.narr h2 { margin-top: 8px; font-size: 52px; line-height: 1; font-weight: 800; letter-spacing: -0.05em; }
+
+/* Stage */
+.stage { position: absolute; left: 50%; top: 392px; width: 1290px; margin-left: -645px; height: 680px; }
+.cam { position: absolute; inset: 0; transform-origin: 30% 30%; }
+.store { position: absolute; left: 0; top: 0; width: 1000px; background: #fff; color: var(--ink); border-radius: 26px; overflow: hidden; box-shadow: 0 60px 120px -40px rgba(0,0,0,.9); }
+.url { background: #f3f3f5; font-size: 12px; color: var(--gray); text-align: center; padding: 9px; }
+.shead { display: flex; align-items: center; gap: 28px; padding: 22px 32px 6px; }
+.shead strong { font-size: 19px; letter-spacing: -0.03em; }
+.shead span { font-size: 14px; color: var(--gray); }
+.shead span.on { color: var(--ink); font-weight: 600; }
+.shead em { margin-left: auto; font-style: normal; font-size: 13px; color: var(--gray); }
+.grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; padding: 18px 32px 34px; }
+.card { position: relative; border-radius: 18px; transition: transform .5s; }
+.card img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 16px; background: #eef0f3; }
+.card p { margin-top: 12px; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.price { margin-top: 3px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-size: 18px; font-weight: 700; letter-spacing: -0.02em; }
+.price > * { white-space: nowrap; }
+.price s { font-size: 14px; font-weight: 500; color: var(--gray); display: none; }
+.price .new { display: none; }
+.tag { display: none; background: var(--lime); color: #0b0c10; font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 99px; align-self: center; }
+
+.chat { position: absolute; left: 958px; top: 64px; width: 332px; background: rgba(22,24,30,.94); border-radius: 26px; padding: 16px 16px 18px; box-shadow: 0 50px 100px -30px rgba(0,0,0,.95); backdrop-filter: blur(14px); transition: transform .5s; }
+.chead { display: flex; align-items: center; gap: 10px; padding: 0 4px 12px; }
+.chead i { width: 30px; height: 30px; border-radius: 50%; background: #0c0d11; display: grid; place-items: center; }
+.chead i::before { content: ''; width: 12px; height: 12px; border-radius: 50%; background: #25d366; }
+.chead b { font-size: 15px; } .chead span { display: block; font-size: 12px; color: var(--dim); font-weight: 500; }
+.msgs { display: flex; flex-direction: column; gap: 9px; }
+.me, .bot { max-width: 90%; padding: 11px 15px; border-radius: 20px; font-size: 15px; line-height: 1.35; }
+.me { align-self: flex-end; background: #2b2f39; border-bottom-right-radius: 6px; }
+.bot { align-self: flex-start; background: #0c0d11; border-bottom-left-radius: 6px; }
+.typing { display: flex; gap: 5px; padding: 14px 16px; }
+.typing span { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); }
+.sum { width: 100%; max-width: 100%; }
+.sum small { display: block; font-size: 11px; font-weight: 700; color: var(--dim); letter-spacing: .07em; text-transform: uppercase; }
+.sum .pp { margin-top: 6px; font-size: 18px; font-weight: 700; } .sum .pp s { font-size: 14px; color: var(--dim); font-weight: 500; margin-right: 4px; }
+.btns { display: flex; gap: 6px; margin-top: 12px; } .btns span { padding: 8px 12px; border-radius: 10px; font-size: 13px; font-weight: 600; background: #1f222b; color: #c9ccd3; }
+.btns span.ok { background: var(--lime); color: #0b0c10; }
+.s2, .s3, .s4, .typing { display: none !important; }
+
+/* State 0 · hero: request visible, nothing changed yet */
+/* State 1 · mensaje */
+body[data-f='1'] .hero, body[data-f='2'] .hero, body[data-f='3'] .hero { opacity: 0; }
+body[data-f='1'] .narr.n1, body[data-f='2'] .narr.n2, body[data-f='3'] .narr.n3 { opacity: 1; }
+body[data-f='1'] .stage, body[data-f='2'] .stage, body[data-f='3'] .stage { top: 200px; }
+body[data-f='1'] .cam { transform: scale(1.06); transform-origin: 50% 0; }
+body[data-f='1'] .typing { display: flex !important; }
+body[data-f='1'] .chat { transform: scale(1.06) translate(-14px, 6px); }
+/* State 2 · confirmación: the camera moves toward the chat */
+body[data-f='2'] .cam { transform: translateX(-36px) scale(1.06); transform-origin: 50% 0; }
+body[data-f='2'] .chat { transform: scale(1.1) translate(-30px, 0); }
+body[data-f='2'] .s2 { display: block !important; }
+body[data-f='2'] .s3 { display: block !important; }
+/* State 3 · resultado: the camera goes to the product that changed */
+body[data-f='3'] .cam { transform: scale(1.14); transform-origin: 30% 4%; }
+body[data-f='3'] .nord { transform: scale(1.1); z-index: 5; box-shadow: 0 30px 60px -20px rgba(0,0,0,.35), 0 0 0 3px var(--lime); background: #fff; padding: 10px 10px 14px; margin: -10px; }
+body[data-f='3'] .nord .old { display: none; }
+body[data-f='3'] .nord s, body[data-f='3'] .nord .new { display: inline; }
+body[data-f='3'] .nord .tag { display: inline-block; }
+body[data-f='3'] .nord .price { font-size: 22px; }
+body[data-f='3'] .chat { transform: translate(-70px, 210px) scale(.84); }
+body[data-f='3'] .s2, body[data-f='3'] .s3, body[data-f='3'] .s4 { display: block !important; }
+body[data-f='3'] .msgs .me.req, body[data-f='3'] .msgs .sum { display: none !important; }
+
+/* Option B (discarded): product full-bleed, headline over the interface */
+body[data-v='b'] .hero { text-align: left; left: 104px; top: 168px; z-index: 30; }
+body[data-v='b'] .h1 span { display: block; } body[data-v='b'] .lead { margin-left: 0; max-width: 440px; } body[data-v='b'] .ctas { justify-content: flex-start; }
+body[data-v='b'] .stage { top: 132px; width: 1360px; margin-left: -680px; }
+body[data-v='b'] .store { width: 1360px; }
+body[data-v='b'] .veil { display: block; }
+.veil { display: none; position: absolute; left: 0; top: 0; width: 720px; height: 100%; background: linear-gradient(90deg, rgba(8,9,13,.96) 55%, rgba(8,9,13,0)); z-index: 20; border-radius: 26px 0 0 26px; }
+body[data-v='b'] .chat { left: 1010px; top: 300px; }
+body[data-v='b'] .grid { grid-template-columns: repeat(5, 1fr); }
+
+/* ── Phone (390 px): one column, the cause and the effect on the same screen ── */
+@media (max-width: 600px) {
+  .nav { height: 56px; padding: 0 18px; } .links, .navcta { display: none; } .menu { display: block; } .logo img { width: 34px; } .logo { font-size: 17px; }
+  .hero { top: 76px; padding: 0 20px; }
+  .kicker { font-size: 14px; }
+  .h1 { font-size: 44px; line-height: 1.02; margin-top: 10px; } .h1 span { display: block; }
+  .lead { font-size: 17px; margin-top: 14px; }
+  .ctas { flex-direction: column; gap: 14px; margin-top: 22px; } .ctas .pill { width: 100%; text-align: center; padding: 15px; } .ctas a { font-size: 15px; }
+  .narr { top: 74px; } .narr h2 { font-size: 36px; } .narr small { font-size: 13px; }
+  .stage { left: 16px; right: 16px; width: auto; margin: 0; top: 440px; height: 520px; }
+  .store { width: 100%; border-radius: 22px; }
+  .shead { padding: 14px 16px 4px; gap: 12px; } .shead span, .shead em { display: none; } .shead strong { font-size: 16px; }
+  .grid { grid-template-columns: 1fr; padding: 10px 16px 16px; }
+  .grid .card:not(.nord) { display: none; }
+  .nord { display: grid; grid-template-columns: 132px 1fr; gap: 14px; align-items: center; }
+  .card img { aspect-ratio: 1; }
+  .nord p { margin-top: 0; font-size: 16px; }
+  .chat { left: auto; right: 0; top: 238px; width: 300px; padding: 12px; border-radius: 22px; }
+  .chead { padding-bottom: 8px; } .me, .bot { font-size: 14.5px; }
+  body[data-f='1'] .stage, body[data-f='2'] .stage, body[data-f='3'] .stage { top: 168px; }
+  body[data-f='1'] .chat { transform: none; top: 250px; left: 0; width: auto; }
+  body[data-f='2'] .cam { transform: none; }
+  body[data-f='2'] .store { transform: scale(.94); transform-origin: top center; }
+  body[data-f='2'] .chat { transform: none; top: 214px; left: 0; width: auto; }
+  body[data-f='3'] .cam { transform: none; }
+  body[data-f='3'] .store { transform: scale(1.03); transform-origin: top center; }
+  body[data-f='3'] .nord { transform: none; margin: 0; padding: 0; box-shadow: none; }
+  body[data-f='3'] .nord img { box-shadow: 0 0 0 3px var(--lime); }
+  body[data-f='3'] .nord .price { font-size: 24px; flex-wrap: wrap; }
+  body[data-f='3'] .chat { transform: none; top: 250px; left: 0; width: auto; }
+  body[data-v='b'] .hero { left: 0; top: 120px; padding: 0 22px; } body[data-v='b'] .stage { top: 100px; left: 0; right: 0; width: auto; margin: 0; } body[data-v='b'] .veil { width: 100%; background: linear-gradient(180deg, rgba(8,9,13,.95) 52%, rgba(8,9,13,.2)); border-radius: 0; } body[data-v='b'] .chat { top: 470px; left: 40px; right: 16px; width: auto; } body[data-v='b'] .store { border-radius: 0; }
+}
+</style>
+</head>
+<body>
+<header class="nav">
+  <div class="logo"><img src="../../apps/tiendaiaexpress-landing/src/assets/brand/isotipo-carrito-96.webp" alt="" /><span>Tiend<b>IA</b></span><i>Exprés</i></div>
+  <nav class="links"><span>Cómo funciona</span><span>Tiendas</span><span>Administración</span><span>Planes</span><span>Preguntas</span></nav>
+  <div class="navcta"><span>Ingresar</span><span class="pill">Probar gratis</span></div>
+  <span class="menu"></span>
+</header>
+
+<section class="hero">
+  <p class="kicker">Tu tienda online. Tu control por chat.</p>
+  <h1 class="h1"><span>Tu tienda.</span> <span>Bajo tu control.</span></h1>
+  <p class="lead">Tus clientes compran en tu tienda. Tú actualizas productos, precios y existencias desde un chat privado.</p>
+  <div class="ctas"><span class="pill">Crear mi tienda gratis →</span><a>Ver cómo funciona ↓</a></div>
+</section>
+
+<div class="narr n1"><small>1 de 3</small><h2>Un mensaje.</h2></div>
+<div class="narr n2"><small>2 de 3</small><h2>Lo confirmas.</h2></div>
+<div class="narr n3"><small>3 de 3</small><h2>Tu tienda, actualizada.</h2></div>
+
+<div class="stage">
+  <div class="cam">
+    <div class="store">
+      <div class="veil"></div>
+      <p class="url">app.tiendiaexpres.com/t/sneakerhub-premium</p>
+      <div class="shead"><strong>SneakerHub Premium</strong><span class="on">Todo</span><span>Urbano</span><span>Running</span><span>Accesorios</span><em>Carrito (0)</em></div>
+      <div class="grid">
+        <div class="card"><img src="../../apps/tiendaiaexpress-landing/src/assets/sneakerhub/product-ASTRAL-03.webp" alt="" /><p>Astral Wave Runner</p><div class="price">$ 174.900</div></div>
+        <div class="card nord"><img src="../../apps/tiendaiaexpress-landing/src/assets/sneakerhub/product-NORD-02.webp" alt="" /><div><p>Nord Drift High</p><div class="price"><s>$ 219.900</s><span class="old">$ 219.900</span><span class="new">$ 199.900</span><span class="tag">Actualizado</span></div></div></div>
+        <div class="card"><img src="../../apps/tiendaiaexpress-landing/src/assets/sneakerhub/product-VANTA-01.webp" alt="" /><p>Vanta Court Low</p><div class="price">$ 189.900</div></div>
+        <div class="card"><img src="../../apps/tiendaiaexpress-landing/src/assets/sneakerhub/product-KINETIK-06.webp" alt="" /><p>Kinetik Aero Carbon</p><div class="price">$ 389.900</div></div>
+        <div class="card bonly"><img src="../../apps/tiendaiaexpress-landing/src/assets/sneakerhub/product-TERA-08.webp" alt="" /><p>Tera Trail GTX</p><div class="price">$ 279.900</div></div>
+      </div>
+    </div>
+    <div class="chat">
+      <div class="chead"><i></i><div><b>Asistente TiendIA</b><span>Chat privado de administración</span></div></div>
+      <div class="msgs">
+        <div class="me req">Cambia el precio del NORD-02 a 199.900</div>
+        <div class="bot typing"><span></span><span></span><span></span></div>
+        <div class="bot sum s2"><small>Resumen del cambio</small><div>Nord Drift High</div><div class="pp"><s>$ 219.900</s> → $ 199.900</div><div class="btns"><span class="ok">Confirmar</span><span>Corregir</span><span>Cancelar</span></div></div>
+        <div class="me s3">Confirmar</div>
+        <div class="bot s4">✓ Listo, precio actualizado.</div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+  const q = new URLSearchParams(location.search)
+  document.body.dataset.v = q.get('v') || 'a'
+  document.body.dataset.f = q.get('f') || '0'
+  if (document.body.dataset.v !== 'b') document.querySelectorAll('.bonly').forEach((e) => e.remove())
+</script>
+</body>
+</html>

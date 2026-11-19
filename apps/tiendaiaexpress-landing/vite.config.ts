@@ -36,7 +36,8 @@ function seo(siteUrl: string, allowIndexing: boolean, noindexHosts: string[]): P
     name: 'mostralopues-seo',
     transformIndexHtml(html, ctx) {
       // Preload the two Latin variable fonts used above the fold (avoids layout shift on swap).
-      const fonts = Object.keys(ctx.bundle ?? {}).filter((f) => /(plus-jakarta-sans|manrope)-latin-wght-normal.*\.woff2$/.test(f))
+      // The Home V2 preview uses Plus Jakarta Sans only: no Manrope preload there (other pages unchanged).
+      const fonts = Object.keys(ctx.bundle ?? {}).filter((f) => /(plus-jakarta-sans|manrope)-latin-wght-normal.*\.woff2$/.test(f) && !(ctx.path.endsWith('home-v2.html') && f.includes('manrope')))
       const preload = fonts.map((f) => `<link rel="preload" href="/${f}" as="font" type="font/woff2" crossorigin />`).join('\n    ')
       html = html.replace('</title>', `</title>\n    ${preload}`)
       const robots = allowIndexing ? 'index, follow, max-image-preview:large' : 'noindex, nofollow'
@@ -85,6 +86,19 @@ function seo(siteUrl: string, allowIndexing: boolean, noindexHosts: string[]): P
   }
 }
 
+/** Outside the Home V2 preview build, Tailwind must not see src/v2: its classes would otherwise end up
+ * in the official stylesheet. Adds the exclusion to global.css in memory (the file is not edited). */
+function withoutHomeV2Classes(): Plugin {
+  return {
+    name: 'home-v2-exclude',
+    enforce: 'pre',
+    transform(code, id) {
+      if (!id.replace(/\\/g, '/').endsWith('/src/styles/global.css')) return
+      return code.replace("@import 'tailwindcss';", "@import 'tailwindcss';\n@source not '../v2';")
+    },
+  }
+}
+
 export default defineConfig(({ mode, isSsrBuild }) => {
   const env = loadEnv(mode, process.cwd(), 'VITE_')
   const siteUrl = (env.VITE_SITE_URL || 'https://tiendaiaexpress.pages.dev').replace(/\/+$/, '')
@@ -92,8 +106,10 @@ export default defineConfig(({ mode, isSsrBuild }) => {
   const noindexHosts = (env.VITE_NOINDEX_HOSTS || '').split(',').map((host) => host.trim().toLowerCase()).filter((host) => /^[a-z0-9.-]+$/.test(host))
   // Platform app (stores, panel, trial). Technical hostname until the official domain is verified.
   const appUrl = (env.VITE_APP_URL || 'https://catalogo-digital-ia.catalogo-lite-worker.workers.dev').replace(/\/+$/, '')
+  // Home V2 prototype (/home-v2): built ONLY with VITE_HOME_V2=preview. Without it, no entry, page or asset of V2.
+  const homeV2 = env.VITE_HOME_V2 === 'preview'
   return {
-    plugins: [react(), tailwindcss(), ...(isSsrBuild ? [] : [seo(siteUrl, allowIndexing, noindexHosts)])],
+    plugins: [react(), ...(homeV2 ? [] : [withoutHomeV2Classes()]), tailwindcss(), ...(isSsrBuild ? [] : [seo(siteUrl, allowIndexing, noindexHosts)])],
     define: { __SITE_URL__: JSON.stringify(siteUrl), __APP_URL__: JSON.stringify(appUrl) },
     server: { port: 4317, strictPort: true },
     build: {
@@ -102,7 +118,7 @@ export default defineConfig(({ mode, isSsrBuild }) => {
       assetsInlineLimit: (file: string, content: Buffer) => !/\.woff2?$/.test(file) && content.length < 2048,
       chunkSizeWarningLimit: 900,
       rollupOptions: isSsrBuild ? undefined : {
-        input: Object.fromEntries([['index', resolve(__dirname, 'index.html')], ...LEGAL_PAGES.map((p) => [p, resolve(__dirname, `${p}.html`)])]),
+        input: Object.fromEntries([['index', resolve(__dirname, 'index.html')], ...LEGAL_PAGES.map((p) => [p, resolve(__dirname, `${p}.html`)]), ...(homeV2 ? [['home-v2', resolve(__dirname, 'home-v2.html')]] : [])]),
       },
     },
   }
