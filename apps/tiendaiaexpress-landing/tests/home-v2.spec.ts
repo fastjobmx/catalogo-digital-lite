@@ -29,10 +29,16 @@ function watchRequests(page: Page) {
 }
 
 test.describe('home v2', () => {
-  test('is prerendered, noindex, with one h1 and no console errors', async ({ page, request }) => {
+  test('is prerendered, noindex (or the indexable official home), with one h1 and no console errors', async ({ page, request }) => {
     const raw = await (await request.get(URL)).text()
-    expect(raw).toContain('<meta name="robots" content="noindex, nofollow" />')
-    expect(raw).not.toContain('rel="canonical"')
+    if (raw.includes('<meta name="robots" content="index, follow')) {
+      // Official build (.env.official): the V2 is the home page of the canonical domain.
+      expect(URL).toBe('/')
+      expect(raw).toMatch(/<link rel="canonical" href="https:\/\/[^"]+\/" \/>/)
+    } else {
+      expect(raw).toContain('<meta name="robots" content="noindex, nofollow" />')
+      expect(raw).not.toContain('rel="canonical"')
+    }
     expect(raw).toContain('Bajo tu control.')
     const errors: string[] = []
     page.on('pageerror', (e) => errors.push(e.message))

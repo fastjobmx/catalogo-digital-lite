@@ -7,6 +7,13 @@ import { expect, test, type Page } from '@playwright/test'
 const APP = (process.env.VITE_APP_URL || 'https://catalogo-digital-ia.catalogo-lite-worker.workers.dev').replace(/\/+$/, '')
 const WCAG = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']
 
+// The official home is the V2 since 2026-11-19 (.env.official): these tests cover the V1 page (src/App.tsx), which
+// the preview build still serves at "/" (VITE_HOME_V2=preview). The V2 plans are covered by home-v2.spec.ts.
+test.beforeEach(async ({ request }) => {
+  const raw = await (await request.get('/')).text()
+  test.skip(raw.includes('hs-world'), 'The home page of this build is the V2')
+})
+
 const card = (page: Page, name: string) => page.locator('#planes article').filter({ has: page.getByRole('heading', { name, exact: true }) })
 const chooseAnnual = (page: Page) => page.locator('#planes label').filter({ hasText: 'Pago anual' }).click()
 

@@ -1,8 +1,17 @@
-# Home V2 · URL de prueba (sin publicar en producción)
+# Home V2 · en producción
 
-Estado (2026-11-19): **en URL de prueba para revisión humana**: https://home-v2.tiendaiaexpress.pages.dev (rama de vista
-previa `home-v2` de Cloudflare Pages, `noindex` en meta y en `X-Robots-Tag`, sin canonical ni sitemap). Producción
-(tiendiaexpres.com, rama `main` de Pages) no cambia. Rama git `feat/home-v2` (worktree `.tmp/wt-home-v2`).
+Estado (2026-11-20, por orden del propietario): **la V2 es la página de inicio de https://tiendiaexpres.com** (despliegue
+de Pages `c7904b46`, rama `main`, desde el commit `28d5e98` + este). Punto de retorno: el despliegue anterior `df5a85da`
+(V1, commit `19db4c8`), que se reactiva desde Cloudflare Pages › Deployments › Rollback. La URL de prueba
+https://home-v2.tiendaiaexpress.pages.dev sigue con `noindex`.
+
+`.env.official` lleva `VITE_HOME_V2=home`: `npm run build:official` y `npm run cf:deploy` construyen y suben la V2. Una
+variable `VITE_HOME_V2` en la terminal manda (`VITE_HOME_V2=preview` vuelve a dar la V1 en `/` y la V2 en `/home-v2`).
+Las pruebas de la V1 (`commercial.spec.ts` y dos de `site.spec.ts`) se omiten solas cuando la página de inicio es la V2.
+
+Verificado en vivo: título, canónico y `index` en tiendiaexpres.com, `noindex` en www y pages.dev, sitemap, páginas
+legales, 404, y en Chromium a 1440 y 390 px los 9 vídeos 3D, WebGL, sin errores de consola, sin respuestas 4xx/5xx y sin
+desbordamiento horizontal. Pruebas: 92 en el build oficial (28 de la V1 omitidas) y 119 en el de vista previa.
 
 ## Cómo verla y compararla con la V1
 
@@ -38,7 +47,7 @@ reproducen desde memoria; sin esa directiva Cloudflare los bloqueaba). Solo los 
    pregunta «¿En qué canales funciona el asistente?» y en la introducción de «Administra hablando». No se dice que el
    cambio a Telegram sea automático.
 
-Pendiente antes de producción: revisión humana en la URL de prueba (teléfono real, Safari/iOS, Firefox), Lighthouse,
+Pendiente tras la publicación: revisión humana en la URL de prueba (teléfono real, Safari/iOS, Firefox), Lighthouse,
 la URL de la Política de privacidad (vacía en `site.ts`; el formulario de contacto recoge datos personales), desplegar el
 worker con el límite de equipo, y decidir si la V1 (Asistente y preguntas, que aún dicen solo Telegram) se retira.
 

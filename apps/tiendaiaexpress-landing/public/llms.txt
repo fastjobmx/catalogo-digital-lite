@@ -6,7 +6,7 @@
 
 - Una tienda online propia, con dirección propia y plantilla con la marca del negocio.
 - Los clientes arman el carrito y envían el pedido completo por WhatsApp (productos, tallas y datos de entrega). El comercio confirma y acuerda el pago con su cliente.
-- Un asistente con inteligencia artificial en Telegram para administrar la tienda escribiendo: agregar productos, cambiar precios, cargar existencias y revisar pedidos. Pide confirmación antes de guardar cambios.
+- Un asistente privado con inteligencia artificial en WhatsApp (en horario de oficina) y en Telegram (las 24 horas) para administrar la tienda escribiendo: agregar productos, cambiar precios, cargar existencias y revisar pedidos. Pide confirmación antes de guardar cambios.
 - Estudio Creativo: imágenes, carruseles y videos cortos para redes sociales, generados con los productos, el nombre y el precio reales de la tienda.
 - Fichas de producto con IA desde una foto y mejoras de fotografía de producto con IA, según las cuotas del plan.
 - Panel web de administración, inventario por talla, cupones de descuento y pedidos con estados.

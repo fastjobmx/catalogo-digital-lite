@@ -5,6 +5,8 @@ const APP = (process.env.VITE_APP_URL || 'https://catalogo-digital-ia.catalogo-l
 const DEMO = `${APP}/`
 const ADMIN = `${APP}/admin/login`
 const TRIAL = `${APP}/registro`
+/** The V1 home (src/App.tsx); the official build serves the V2 at "/" since 2026-11-19 (home-v2.spec.ts covers it). */
+const homeIsV2 = async (request: { get: (url: string) => Promise<{ text: () => Promise<string> }> }) => (await (await request.get('/')).text()).includes('hs-world')
 
 test.describe('page', () => {
   test('loads without console errors, with one h1 and prerendered content', async ({ page, request }) => {
@@ -73,7 +75,8 @@ test.describe('page', () => {
     expect(await page.locator('img:not([alt])').count()).toBe(0)
   })
 
-  test('reduced motion shows every section without entrance animations', async ({ browser }) => {
+  test('reduced motion shows every section without entrance animations', async ({ browser, request }) => {
+    test.skip(await homeIsV2(request), 'V1 sections')
     const ctx = await browser.newContext({ reducedMotion: 'reduce' })
     const page = await ctx.newPage()
     await page.goto('/')
@@ -84,7 +87,8 @@ test.describe('page', () => {
     await ctx.close()
   })
 
-  test('the header has one trial button and one panel link, and every section of the menu exists', async ({ page }) => {
+  test('the header has one trial button and one panel link, and every section of the menu exists', async ({ page, request }) => {
+    test.skip(await homeIsV2(request), 'V1 header')
     await page.goto('/')
     const header = page.locator('#root > header')
     await expect(header.locator(`a[href="${TRIAL}"]`)).toHaveCount(1)
