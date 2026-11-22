@@ -77,7 +77,8 @@ export default function Header() {
     setSearchOpen(false)
   }
 
-  const openCart = () => document.dispatchEvent(new CustomEvent('open-cart'))
+  // The bag opens the full cart page (review, change sizes and choose how to pay).
+  const openCart = () => { setMobileMenuOpen(false); navigate('/carrito') }
 
   return (
     <header className={`header--${headerLayout} ${header.sticky ? 'sticky top-0 z-40' : 'relative z-40'}`} data-header-layout={headerLayout}>
@@ -195,7 +196,7 @@ export default function Header() {
             <button
               onClick={openCart}
               className="relative grid place-items-center w-11 h-11 text-ink hover:opacity-60 transition-opacity"
-              aria-label={`Abrir carrito, ${totalItems} ${totalItems === 1 ? 'artículo' : 'artículos'}`}
+              aria-label={`Ver carrito, ${totalItems} ${totalItems === 1 ? 'artículo' : 'artículos'}`}
             >
               <ShoppingBag size={20} strokeWidth={1.6} />
               {totalItems > 0 && (

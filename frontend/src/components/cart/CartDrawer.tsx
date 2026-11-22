@@ -6,7 +6,7 @@ import { useStore } from '../../contexts/StoreContext'
 import { useCatalog } from '../../contexts/CatalogContext'
 import { ApiRequestError, createOrder, getProducts, validateCoupon } from '../../services/api'
 import { CART_CHANGED_MESSAGE, revalidateItems } from '../../lib/cartRevalidate'
-import { saveCheckoutDraft } from '../../lib/checkoutDraft'
+import { readCheckoutDraft, saveCheckoutDraft } from '../../lib/checkoutDraft'
 import { formatMoney } from '../../lib/format'
 import { buildWhatsAppOrderMessage, getCheckoutIdempotencyKey, goToWhatsApp, prepareWhatsAppTab, productPageUrl, shouldOpenWhatsAppInSameTab, whatsappLink } from '../../lib/whatsapp'
 import { canSharePhotos, recordBuyerAction } from '../../lib/orderShare'
@@ -61,7 +61,17 @@ export default function CartDrawer() {
   }
 
   useEffect(() => {
-    const handleOpen = () => setIsOpen(true)
+    const handleOpen = () => {
+      // Data already typed in the cart page or checkout is not asked twice.
+      const draft = readCheckoutDraft()
+      setCustomerName((value) => value || draft.name)
+      setCustomerPhone((value) => value || draft.phone)
+      setCustomerEmail((value) => value || draft.email)
+      setCustomerCity((value) => value || draft.city)
+      setDeliveryInfo((value) => value || draft.address)
+      setCustomerNotes((value) => value || draft.notes)
+      setIsOpen(true)
+    }
     document.addEventListener('open-cart', handleOpen)
     return () => document.removeEventListener('open-cart', handleOpen)
   }, [])
@@ -197,6 +207,9 @@ export default function CartDrawer() {
             Tu carrito
             {totalItems > 0 && <span className="text-sm font-medium text-muted">({totalItems})</span>}
           </h2>
+          {items.length > 0 && <Link to="/carrito" onClick={() => setIsOpen(false)} className="ml-auto mr-1 text-xs font-semibold text-ink underline underline-offset-2 hover:opacity-70">
+            Ver carrito completo
+          </Link>}
           <button
             onClick={() => setIsOpen(false)}
             className="p-2 rounded-btn hover:bg-canvas transition-colors text-ink"

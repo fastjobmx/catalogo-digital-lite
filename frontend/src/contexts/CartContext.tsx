@@ -22,6 +22,8 @@ interface CartContextValue {
   addItem: (item: Omit<CartItem, 'quantity'>, quantity?: number) => void
   removeItem: (productId: string, variantId?: string) => void
   updateQuantity: (productId: string, variantId: string | undefined, quantity: number) => void
+  /** Swaps an item to another variant of the same product (size/color), keeping its place in the cart. */
+  changeVariant: (productId: string, fromVariantId: string | undefined, next: Omit<CartItem, 'quantity'>) => void
   clearCart: () => void
   syncItems: (items: CartItem[]) => void
   totalItems: number
@@ -42,6 +44,22 @@ export function loadCartFromStorage(storage?: Pick<Storage, 'getItem'>): CartIte
   } catch {
     return []
   }
+}
+
+/** Moves a cart line to another variant of the same product, in place. If that variant was already in the cart the
+ * two lines become one; the quantity never exceeds the new variant's stock, and a sold-out variant is refused. */
+export function swapCartVariant(prev: CartItem[], productId: string, fromVariantId: string | undefined, next: Omit<CartItem, 'quantity'>): CartItem[] {
+  const index = prev.findIndex(i => i.productId === productId && i.variantId === fromVariantId)
+  const current = prev[index]
+  if (!current || next.variantId === fromVariantId) return prev
+  const limit = next.availableStock ?? Number.POSITIVE_INFINITY
+  if (limit < 1) return prev
+  const duplicate = prev.findIndex(i => i.productId === next.productId && i.variantId === next.variantId)
+  if (duplicate >= 0) {
+    const merged = { ...prev[duplicate]!, ...next, quantity: Math.min(limit, prev[duplicate]!.quantity + current.quantity) }
+    return prev.flatMap((item, i) => (i === index ? [merged] : i === duplicate ? [] : [item]))
+  }
+  return prev.map((item, i) => (i === index ? { ...next, quantity: Math.min(limit, current.quantity) } : item))
 }
 
 export function CartProvider({ children }: { children: ReactNode }) {
@@ -101,6 +119,10 @@ export function CartProvider({ children }: { children: ReactNode }) {
     }))
   }
 
+  const changeVariant = (productId: string, fromVariantId: string | undefined, next: Omit<CartItem, 'quantity'>) => {
+    setItems(prev => swapCartVariant(prev, productId, fromVariantId, next))
+  }
+
   const clearCart = () => setItems([])
   const syncItems = (nextItems: CartItem[]) => setItems(nextItems)
 
@@ -126,6 +148,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         addItem,
         removeItem,
         updateQuantity,
+        changeVariant,
         clearCart,
         syncItems,
         totalItems,

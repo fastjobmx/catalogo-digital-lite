@@ -1,5 +1,6 @@
 import { MessageCircle } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useStore } from '../contexts/StoreContext'
 import { whatsappLink } from '../lib/whatsapp'
 import { IS_PUBLIC_DEMO } from '../lib/publicDemo'
@@ -8,6 +9,7 @@ export default function WhatsAppButton() {
   const { store } = useStore()
   if (IS_PUBLIC_DEMO) return null
   const [footerVisible, setFooterVisible] = useState(false)
+  const { pathname } = useLocation()
 
   useEffect(() => {
     const footer = document.querySelector('footer')
@@ -25,7 +27,8 @@ export default function WhatsAppButton() {
     store.defaultWhatsappMessage || 'Hola, quiero información sobre la tienda.',
   )
   // El footer tiene su propio enlace de contacto; evita tapar el copyright.
-  if (!url || footerVisible) return null
+  // Cart and checkout have their own bottom actions; the floating bubble would cover them.
+  if (!url || footerVisible || /\/(carrito|checkout)\/?$/.test(pathname)) return null
 
   return (
     <a
