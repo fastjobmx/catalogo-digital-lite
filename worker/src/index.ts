@@ -14,6 +14,7 @@ import platformRoutes from './routes/platform'
 import authRoutes from './routes/auth'
 import masterRoutes from './routes/master'
 import creativeRoutes from './routes/creative'
+import paymentsRoutes from './routes/payments'
 import { maintainCreativeJobs } from './creative/jobs'
 import { processPendingPhotoJobs } from './creative/photoEngine'
 import { processPendingVideoJobs } from './creative/videoEngine'
@@ -237,6 +238,7 @@ app.route('/api/upload', uploadRoutes)
 app.route('/api/assets', uploadRoutes)
 app.route('/api/trial', trialRoutes)
 app.route('/api/orders', ordersRoutes)
+app.route('/api/payments', paymentsRoutes)
 app.route('/api/telegram', telegramRoutes)
 app.route('/api/auth', authRoutes)
 app.route('/api/master', masterRoutes)

@@ -48,6 +48,7 @@ const EVENT_LABELS: Record<string, string> = {
   delivery_receiver: 'Receptor', delivery_notes: 'Observaciones de entrega', delivery_reference: 'Referencia de entrega', internal_note: 'Notas internas',
   shipping_document: 'Foto de guía registrada',
   comprador_whatsapp: 'Comprador (no confirma envío)',
+  pago_en_linea: 'Pago en línea (Bold)',
 }
 
 /** What the buyer did after registering the order. WhatsApp never reports back: none of these
@@ -59,6 +60,12 @@ export const BUYER_WHATSAPP_ACTIONS: Record<string, string> = {
   foto_no_disponible: 'su celular no permitió compartir la foto',
 }
 
+/** Result of an online payment attempt, as confirmed by Bold. */
+export const ONLINE_PAYMENT_RESULTS: Record<string, string> = {
+  aprobado: 'aprobado', rechazado: 'rechazado', fallido: 'falló', anulado: 'anulado (devuelto)', en_proceso: 'en proceso',
+  monto_distinto: 'aprobado por un monto distinto: revisar',
+}
+
 export function eventLabel(type: string): string { return EVENT_LABELS[type] || type.replaceAll('_', ' ') }
 export function valueLabel(type: string, value: string | null): string {
   if (value == null) return '—'
@@ -67,5 +74,6 @@ export function valueLabel(type: string, value: string | null): string {
   if (type === 'shipping_status') return SHIPPING_STATUS[value]?.label || value
   if (type === 'delivery_method') return DELIVERY_METHODS[value] || value
   if (type === 'comprador_whatsapp') return BUYER_WHATSAPP_ACTIONS[value] || value
+  if (type === 'pago_en_linea') return ONLINE_PAYMENT_RESULTS[value] || value
   return value
 }

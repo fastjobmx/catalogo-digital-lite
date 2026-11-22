@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
-import { getStoreConfig, isBackendAvailable, type StoreConfigApi } from '../services/api'
+import { getStoreConfig, isBackendAvailable, type StoreConfigApi, type OnlinePaymentConfig } from '../services/api'
 import { DEMO_CATALOG_VERSION } from '../data/catalogVersion'
 import { STORE_PRESET_CTA } from '../data/storePresetCta'
 import { isIndependentInstallation, storeStorageKey } from '../lib/installation'
@@ -45,6 +45,8 @@ export interface StoreConfig {
  paymentInfo: string | null
  defaultWhatsappMessage: string
  theme: ThemeConfig
+ /** Online payment the store offers (e.g. Bold with a fixed shipping fee). */
+ onlinePayment?: OnlinePaymentConfig | null
 }
 
 const INDEPENDENT_INSTALLATION = isIndependentInstallation()
@@ -171,6 +173,7 @@ function mapApiToStoreConfig(api: StoreConfigApi): StoreConfig {
  deliveryMethods: api.deliveryMethods,
  pickupAvailable: api.pickupAvailable,
  paymentInfo: api.paymentInfo,
+ onlinePayment: api.onlinePayment ?? null,
  defaultWhatsappMessage: api.defaultWhatsappMessage,
  // Los colores de marca antiguos actúan como respaldo si el JSON aún no
  // incluye la paleta completa (migración sin perder personalizaciones).

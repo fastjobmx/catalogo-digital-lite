@@ -9,6 +9,7 @@ import type { Env } from '../index'
 import { adminAuth, requireCapability } from '../middleware/auth'
 import { publicStore } from '../middleware/tenant'
 import { isTrialExpired } from '../tenancy/stores'
+import { BOLD_MIN_AMOUNT, publicBoldConfig } from '../services/bold'
 
 const app = new Hono<Env>()
 
@@ -41,6 +42,8 @@ const createOrderSchema = z.object({
   couponCode: z.string().trim().max(30).optional(),
   /** Explicit opt-in to receive promotions by WhatsApp; never pre-checked. */
   marketingConsent: z.boolean().optional(),
+  /** Pay online now with the store's gateway: the store's fixed shipping is added and the total is charged. */
+  payOnline: z.literal('bold').optional(),
 })
 
 const ALLOWED_STATUSES = ['pendiente', 'confirmado', 'preparando', 'enviado', 'entregado', 'cancelado'] as const
@@ -103,6 +106,7 @@ function mapOrder(o: Record<string, any>) {
     revision: Number(o.revision || 1), createdAt: String(o.created_at || ''), updatedAt: String(o.updated_at || ''),
     carrier: o.carrier ?? null, trackingNumber: o.tracking_number ?? null, shippedAt: o.shipped_at ?? null, deliveredAt: o.delivered_at ?? null,
     shippingStatus: o.shipping_status ?? null, effectiveShippingStatus: effectiveShippingStatus(o as never), trackingUrl: o.tracking_url ?? null, shippingNotes: o.shipping_notes ?? null,
+    paymentProvider: o.payment_provider ?? null,
     delivery: { method: o.delivery_confirmation_method ?? null, receiver: o.delivery_receiver ?? null, notes: o.delivery_notes ?? null, reference: o.delivery_reference ?? null },
   }
 }
@@ -119,10 +123,11 @@ app.post('/', publicStore, zValidator('json', createOrderSchema), async (c) => {
   const idempotencyKey = (c.req.header('Idempotency-Key') || '').trim()
   if (!/^[\w.-]{16,100}$/.test(idempotencyKey)) return c.json({ error: 'A valid Idempotency-Key is required' }, 400)
   const fingerprint = await digest(JSON.stringify(body))
-  const previous = await db.prepare('SELECT id, store_id, display_id, request_fingerprint, subtotal, discount_total, currency, status, payment_status, items_json FROM orders WHERE idempotency_key = ?').bind(idempotencyKey).first<Record<string, any>>()
+  const previous = await db.prepare('SELECT id, store_id, display_id, request_fingerprint, subtotal, discount_total, shipping_cost, payment_provider, currency, status, payment_status, items_json FROM orders WHERE idempotency_key = ?').bind(idempotencyKey).first<Record<string, any>>()
   if (previous) {
     if (Number(previous.store_id) !== storeId || previous.request_fingerprint !== fingerprint) return c.json({ error: 'This checkout key was already used for a different order' }, 409)
-    return c.json({ id: Number(previous.id), displayId: String(previous.display_id), subtotal: Number(previous.subtotal), discountTotal: Number(previous.discount_total || 0), total: null, currency: String(previous.currency), status: String(previous.status), paymentStatus: String(previous.payment_status), items: parseItems(previous.items_json), replayed: true })
+    const prevShipping = previous.payment_provider && previous.shipping_cost != null ? Number(previous.shipping_cost) : null
+    return c.json({ id: Number(previous.id), displayId: String(previous.display_id), subtotal: Number(previous.subtotal), discountTotal: Number(previous.discount_total || 0), shippingCost: prevShipping, payOnline: previous.payment_provider ?? null, total: prevShipping == null ? null : Number(previous.subtotal) - Number(previous.discount_total || 0) + prevShipping, currency: String(previous.currency), status: String(previous.status), paymentStatus: String(previous.payment_status), items: parseItems(previous.items_json), replayed: true })
   }
 
   const rateKey = await orderRateKey(c.req.header('CF-Connecting-IP') || 'unknown')
@@ -175,16 +180,27 @@ app.post('/', publicStore, zValidator('json', createOrderSchema), async (c) => {
     couponCode = check.coupon.code
     couponId = check.coupon.id
   }
+  // Online payment: the total must be known now, so the store's fixed shipping fee is part of the order.
+  let shippingCost: number | null = null
+  let paymentMethod = body.paymentMethod || null
+  if (body.payOnline === 'bold') {
+    const bold = await publicBoldConfig(db, storeId)
+    const release = async () => { if (couponId) await db.prepare('UPDATE coupons SET uses = uses - 1 WHERE id = ? AND uses > 0').bind(couponId).run() }
+    if (!bold) { await release(); return c.json({ error: 'Esta tienda no tiene activo el pago en línea.', code: 'BOLD_DISABLED' }, 409) }
+    shippingCost = bold.shippingFee
+    if (subtotal - discount + shippingCost < BOLD_MIN_AMOUNT) { await release(); return c.json({ error: 'El valor mínimo para pagar en línea es $1.000.', code: 'AMOUNT_TOO_LOW' }, 409) }
+    paymentMethod = 'Pago en línea (Bold)'
+  }
   const displayId = generateDisplayId()
   let result
   try {
     result = await db.prepare(`INSERT INTO orders (store_id, display_id, customer_name, customer_phone, customer_email, customer_city,
       delivery_address, delivery_method, payment_method, items_json, subtotal, total, currency, status, payment_status,
-      shipping_cost, whatsapp_sent, notes, idempotency_key, request_fingerprint, inventory_managed, coupon_code, discount_total, marketing_consent)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendiente', 'pendiente', NULL, 0, ?, ?, ?, 1, ?, ?, ?)`)
+      shipping_cost, whatsapp_sent, notes, idempotency_key, request_fingerprint, inventory_managed, coupon_code, discount_total, marketing_consent, payment_provider)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendiente', 'pendiente', ?, 0, ?, ?, ?, 1, ?, ?, ?, ?)`)
       .bind(storeId, displayId, body.customerName || null, body.customerPhone || null, body.customerEmail || null, body.customerCity || null,
-        body.deliveryAddress || null, body.deliveryMethod || null, body.paymentMethod || null, JSON.stringify(snapshots), subtotal,
-        subtotal - discount, currency, body.notes || null, idempotencyKey, fingerprint, couponCode, discount, body.marketingConsent ? 1 : 0).run()
+        body.deliveryAddress || null, body.payOnline ? 'envío fijo' : body.deliveryMethod || null, paymentMethod, JSON.stringify(snapshots), subtotal,
+        subtotal - discount + (shippingCost ?? 0), currency, shippingCost, body.notes || null, idempotencyKey, fingerprint, couponCode, discount, body.marketingConsent ? 1 : 0, body.payOnline || null).run()
   } catch {
     if (couponId) await db.prepare('UPDATE coupons SET uses = uses - 1 WHERE id = ? AND uses > 0').bind(couponId).run()
     const raced = await db.prepare('SELECT id, store_id, display_id, request_fingerprint, subtotal, currency, status, payment_status, items_json FROM orders WHERE idempotency_key = ?').bind(idempotencyKey).first<Record<string, any>>()
@@ -197,7 +213,7 @@ app.post('/', publicStore, zValidator('json', createOrderSchema), async (c) => {
   if (consentPhone) await recordMarketingConsent(db, storeId, consentPhone, body.customerName || null).catch(() => undefined)
   // Tell the store team in Telegram without delaying the buyer's checkout.
   try { c.executionCtx.waitUntil(notifyNewOrder(c.env, db, { storeId, orderId }).catch(() => undefined)) } catch { /* no execution context in some tests */ }
-  return c.json({ id: orderId, displayId, subtotal, discountTotal: discount, couponCode, total: null, currency, status: 'pendiente', paymentStatus: 'pendiente', items: snapshots, replayed: false }, 201)
+  return c.json({ id: orderId, displayId, subtotal, discountTotal: discount, couponCode, shippingCost, total: shippingCost == null ? null : subtotal - discount + shippingCost, currency, status: 'pendiente', paymentStatus: 'pendiente', payOnline: body.payOnline || null, items: snapshots, replayed: false }, 201)
 })
 
 // Public coupon preview for the cart. The order endpoint validates it again.

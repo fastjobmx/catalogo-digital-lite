@@ -165,7 +165,7 @@ export type ShipmentInput = {
 export type DeliveryInput = { deliveredAt?: string | null; method?: DeliveryMethod | null; receiver?: string | null; notes?: string | null; reference?: string | null }
 
 export type TransitionInput = {
-  storeId: number; orderId: number; expectedRevision: number; actor: string; source: 'telegram' | 'admin'
+  storeId: number; orderId: number; expectedRevision: number; actor: string; source: 'telegram' | 'admin' | 'pasarela'
   /** Role of the actor: reversions need owner or admin. */
   canRevert?: boolean
   status?: OrderStatus; paymentStatus?: PaymentStatus; shippingStatus?: ShippingStatus | null

@@ -7,6 +7,7 @@ import { updateStoreConfig, type StoreConfigApi } from '../../services/api'
 import { storeStorageKey } from '../../lib/installation'
 import { tenantHeaders } from '../../lib/tenant'
 import WhatsAppLinkCard from './WhatsAppLinkCard'
+import BoldPaymentsCard from './BoldPaymentsCard'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
 
@@ -391,6 +392,9 @@ export default function Settings() {
 
           {/* Asistente por WhatsApp: solo aparece si el servidor lo habilita para esta cuenta y tienda */}
           {!isDemoSession && <WhatsAppLinkCard token={token} backendAvailable={backendAvailable} />}
+
+          {/* Pago en línea con Bold (llaves del Botón de pagos y envío fijo) */}
+          {!isDemoSession && <BoldPaymentsCard token={token} backendAvailable={backendAvailable} />}
         </div>
       </div>
 

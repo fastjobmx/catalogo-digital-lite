@@ -57,7 +57,7 @@ async function masterKey(env: Bindings, version: number): Promise<CryptoKey> {
   return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt'])
 }
 
-const aad = (storeId: number, version: number) => new TextEncoder().encode(`store:${storeId}|gemini|v${version}`)
+const aad = (storeId: number, version: number, purpose = 'gemini') => new TextEncoder().encode(`store:${storeId}|${purpose}|v${version}`)
 
 export async function encryptApiKey(env: Bindings, storeId: number, apiKey: string): Promise<{ ciphertext: string; iv: string; version: number }> {
   const version = currentKeyVersion(env)
@@ -68,6 +68,20 @@ export async function encryptApiKey(env: Bindings, storeId: number, apiKey: stri
 
 export async function decryptApiKey(env: Bindings, storeId: number, row: { ciphertext: string; iv: string; key_version: number }): Promise<string> {
   const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(row.iv), additionalData: aad(storeId, row.key_version) }, await masterKey(env, row.key_version), unb64(row.ciphertext))
+  return new TextDecoder().decode(plain)
+}
+
+/** Same vault for other per-store secrets (e.g. a payment gateway key). The purpose is bound into the additional
+ * data, so a ciphertext saved for one purpose or store can never be opened as another. */
+export async function encryptStoreSecret(env: Bindings, storeId: number, purpose: string, value: string): Promise<{ ciphertext: string; iv: string; version: number }> {
+  const version = currentKeyVersion(env)
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const sealed = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: aad(storeId, version, purpose) }, await masterKey(env, version), new TextEncoder().encode(value))
+  return { ciphertext: b64(new Uint8Array(sealed)), iv: b64(iv), version }
+}
+
+export async function decryptStoreSecret(env: Bindings, storeId: number, purpose: string, row: { ciphertext: string; iv: string; key_version: number }): Promise<string> {
+  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(row.iv), additionalData: aad(storeId, row.key_version, purpose) }, await masterKey(env, row.key_version), unb64(row.ciphertext))
   return new TextDecoder().decode(plain)
 }
 

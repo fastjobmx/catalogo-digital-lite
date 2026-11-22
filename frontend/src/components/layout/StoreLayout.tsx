@@ -2,6 +2,7 @@ import { Link, Outlet } from 'react-router-dom'
 import Header from './Header'
 import Footer from './Footer'
 import CartDrawer from '../cart/CartDrawer'
+import BoldReturnNotice from '../cart/BoldReturnNotice'
 import WhatsAppButton from '../WhatsAppButton'
 import { useCatalog } from '../../contexts/CatalogContext'
 import { useStore } from '../../contexts/StoreContext'
@@ -25,6 +26,7 @@ export default function StoreLayout() {
       </main>
       <Footer />
       <CartDrawer />
+      <BoldReturnNotice />
       <WhatsAppButton />
     </div>
   )

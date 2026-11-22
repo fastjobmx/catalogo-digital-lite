@@ -107,6 +107,8 @@ export interface StoreConfigApi {
  paymentInfo: string | null
   defaultWhatsappMessage: string
   themeConfig?: Partial<ThemeConfig> | null
+  /** Online payment offered by the store (nothing secret). */
+  onlinePayment?: OnlinePaymentConfig | null
   template?: string
 }
 
@@ -408,6 +410,7 @@ export interface CreateOrderPayload {
   items: OrderItemPayload[]
   couponCode?: string
   marketingConsent?: boolean
+  payOnline?: 'bold'
 }
 
 export interface CreateOrderResponse {
@@ -415,7 +418,9 @@ export interface CreateOrderResponse {
   displayId: string
   subtotal: number
   discountTotal: number
+  shippingCost?: number | null
   total: number | null
+  payOnline?: 'bold' | null
   currency: string
   status: string
   paymentStatus: string
@@ -436,6 +441,27 @@ export async function createOrder(payload: CreateOrderPayload, idempotencyKey: s
     headers: { 'Idempotency-Key': idempotencyKey },
     body: JSON.stringify(payload),
   })
+}
+
+export interface OnlinePaymentConfig { bold?: { mode: 'test' | 'live'; shippingFee: number } }
+export interface BoldButtonData { apiKey: string; reference: string; amount: number; currency: string; signature: string; mode: 'test' | 'live'; description: string; redirectionUrl: string }
+export interface BoldPaymentStatus { displayId: string; attemptStatus: string; paymentStatus: string; amount: number; currency: string; mode: 'test' | 'live' }
+
+/** Signed Bold button for an order this browser registered for online payment. */
+export async function createBoldCheckout(body: { displayId: string; checkoutKey: string; returnUrl: string }): Promise<BoldButtonData> {
+  return fetchApi<BoldButtonData>('/api/payments/bold/checkout', { method: 'POST', body: JSON.stringify(body) })
+}
+
+/** Status confirmed by Bold (never the redirect parameters). */
+export async function getBoldPaymentStatus(body: { reference: string; checkoutKey: string }): Promise<BoldPaymentStatus> {
+  return fetchApi<BoldPaymentStatus>('/api/payments/bold/status', { method: 'POST', body: JSON.stringify(body) })
+}
+
+export interface BoldSettings { configured: boolean; enabled: boolean; mode: 'test' | 'live'; identityKey: string; secretHint: string; shippingFee: number; updatedAt: string | null; updatedBy: string | null; webhookUrl: string }
+export const boldSettingsApi = {
+  get: (token: string) => fetchApi<BoldSettings>('/api/admin/payments/bold', { headers: { Authorization: `Bearer ${token}` } }),
+  save: (payload: { identityKey?: string; secretKey?: string; mode?: 'test' | 'live'; enabled?: boolean; shippingFee?: number }, token: string) =>
+    fetchApi<BoldSettings>('/api/admin/payments/bold', { method: 'PUT', headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(payload) }),
 }
 
 /** Buyer action after the order was registered (attempt only; WhatsApp never confirms delivery). */

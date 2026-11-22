@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import type { Env } from '../index'
 import { mapStoreRow } from '../lib/storeMap'
 import { publicStore } from '../middleware/tenant'
+import { publicBoldConfig } from '../services/bold'
 
 const app = new Hono<Env>()
 
@@ -23,7 +24,8 @@ app.get('/', publicStore, async (c) => {
     return c.json({ error: 'Store not configured' }, 404)
   }
 
-  return c.json({ ...mapStoreRow(result as Record<string, unknown>), slug: store.slug, status: store.status })
+  const bold = await publicBoldConfig(db, store.id)
+  return c.json({ ...mapStoreRow(result as Record<string, unknown>), slug: store.slug, status: store.status, onlinePayment: bold ? { bold } : null })
 })
 
 export default app
