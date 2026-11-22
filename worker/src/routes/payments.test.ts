@@ -11,25 +11,31 @@ const ORIGIN = 'https://tiendas.test'
 let h: Harness
 let token: string
 let ids: Record<string, number>
+let ownerId: number
+let storeId: number
 
 beforeEach(async () => {
   h = createHarness({ AI_KEYS_MASTER_KEY: MASTER })
-  const storeId = await seedStore(h.db, { slug: 'muy-parcero', name: 'MUY PARCERO' })
+  storeId = await seedStore(h.db, { slug: 'muy-parcero', name: 'MUY PARCERO' })
   ids = await seedCatalog(h.db, storeId, { products: [{ sku: 'GORRA', name: 'Gorra parcera', price: 45000, variants: [{ size: 'U', stock: 4 }] }] })
-  const owner = await createStoreUser(h.db, { email: 'owner@parcero.test', password: 'clave-segura-123', storeId, role: 'owner' })
-  token = await userToken(owner, 'owner@parcero.test')
+  ownerId = await createStoreUser(h.db, { email: 'owner@parcero.test', password: 'clave-segura-123', storeId, role: 'owner' })
+  token = await userToken(ownerId, 'owner@parcero.test')
 })
 afterEach(() => vi.unstubAllGlobals())
 
 const configure = (body: Record<string, unknown> = {}) => h.request('/api/admin/payments/bold', { method: 'PUT', token, store: 'muy-parcero', body: { identityKey: IDENTITY, secretKey: SECRET, mode: 'test', enabled: true, shippingFee: 12000, ...body } })
 const item = { productId: String(0), variantId: String(0), sku: 'x', name: 'x', price: 1, quantity: 2 }
-const orderBody = (extra: Record<string, unknown> = {}) => ({ customerName: 'Ana', customerPhone: '+57 300 111 2233', customerCity: 'Medellín', deliveryAddress: 'Calle 10', items: [{ ...item, productId: String(ids.GORRA), variantId: String(ids['GORRA#U']) }], payOnline: 'bold', ...extra })
+const orderBody = (extra: Record<string, unknown> = {}) => ({ customerName: 'Ana', customerPhone: '+57 300 111 2233', customerCity: 'Medellín', deliveryAddress: 'Calle 10', customerEmail: 'ana@cliente.test', items: [{ ...item, productId: String(ids.GORRA), variantId: String(ids['GORRA#U']) }], payOnline: 'bold', ...extra })
 const KEY = 'bold-checkout-key-0001'
 const placeOrder = (extra: Record<string, unknown> = {}, key = KEY) => h.request('/api/orders', { method: 'POST', store: 'muy-parcero', headers: { 'Idempotency-Key': key }, body: orderBody(extra) })
 const checkout = (displayId: string, key = KEY) => h.request('/api/payments/bold/checkout', { method: 'POST', store: 'muy-parcero', headers: { Origin: ORIGIN }, body: { displayId, checkoutKey: key, returnUrl: `${ORIGIN}/t/muy-parcero?x=1` } })
 const sendWebhook = async (payload: unknown, signature?: string) => {
   const raw = JSON.stringify(payload)
-  return worker.fetch(new Request('https://api.test/api/payments/bold/webhook', { method: 'POST', body: raw, headers: { 'Content-Type': 'application/json', 'x-bold-signature': signature ?? await webhookSignature(raw, SECRET) } }), h.env, { waitUntil() {}, passThroughOnException() {}, props: {} } as unknown as ExecutionContext)
+  // Background work (team and buyer notices) is awaited so each test sees its effects.
+  const tasks: Promise<unknown>[] = []
+  const response = await worker.fetch(new Request('https://api.test/api/payments/bold/webhook', { method: 'POST', body: raw, headers: { 'Content-Type': 'application/json', 'x-bold-signature': signature ?? await webhookSignature(raw, SECRET) } }), h.env, { waitUntil(task: Promise<unknown>) { tasks.push(task) }, passThroughOnException() {}, props: {} } as unknown as ExecutionContext)
+  await Promise.all(tasks)
+  return response
 }
 const saleEvent = (reference: string, total: number, type = 'SALE_APPROVED', id = 'evt-1') => ({ id, type, subject: 'pay-1', data: { payment_id: 'pay-1', payment_method: 'CARD_WEB', metadata: { reference }, amount: { total, currency: 'COP' } } })
 const paymentStatus = (displayId: string) => h.db.query<{ payment_status: string }>('SELECT payment_status FROM orders WHERE display_id = ?', displayId)[0]?.payment_status
@@ -67,6 +73,13 @@ describe('Bold settings', () => {
 })
 
 describe('Bold checkout', () => {
+  it('asks for the buyer email to send the payment receipt', async () => {
+    await configure()
+    const response = await placeOrder({ customerEmail: undefined })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ code: 'EMAIL_REQUIRED' })
+  })
+
   it('rejects online orders while Bold is off', async () => {
     expect((await placeOrder()).status).toBe(409)
   })
@@ -131,5 +144,75 @@ describe('Bold results', () => {
     vi.stubGlobal('fetch', fetcher)
     const response = await h.request('/api/payments/bold/status', { method: 'POST', store: 'muy-parcero', body: { reference: button.reference, checkoutKey: KEY } })
     expect(await response.json()).toMatchObject({ displayId: order.displayId, attemptStatus: 'aprobado', paymentStatus: 'verificado' })
+  })
+})
+
+describe('Bold notices', () => {
+  const NOTICE_ENV = {
+    TELEGRAM_BOT_TOKEN: '123:test-token', EMAIL_PROVIDER: 'resend', RESEND_API_KEY: 're_test', EMAIL_FROM: 'TiendIA <no-reply@tiendas.test>',
+    WAHA_ENABLED: 'true', WAHA_API_URL: 'https://waha.test', WAHA_API_KEY: 'waha-key', WAHA_GATEWAY_TOKEN: 'gateway', WAHA_WEBHOOK_HMAC_KEY: 'hmac', WAHA_SESSION: 'tiendia',
+  }
+  type Call = { url: string; body: Record<string, any> }
+  let calls: Call[]
+
+  beforeEach(async () => {
+    Object.assign(h.env, NOTICE_ENV)
+    await h.db.prepare("UPDATE platform_users SET telegram_user_id = '555001' WHERE id = ?").bind(ownerId).run()
+    await h.db.prepare('INSERT INTO whatsapp_identities (user_id, phone, linked_store_id) VALUES (?, ?, ?)').bind(ownerId, '573001234567', storeId).run()
+    calls = []
+    vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const target = String(url)
+      calls.push({ url: target, body: JSON.parse(String(init?.body || '{}')) })
+      if (target.includes('api.telegram.org')) return new Response(JSON.stringify({ ok: true, result: { message_id: 1 } }), { status: 200 })
+      if (target.includes('api.resend.com')) return new Response(JSON.stringify({ id: 'email-1' }), { status: 200 })
+      return new Response(JSON.stringify({ id: 'wa-1' }), { status: 200 })
+    }))
+  })
+
+  const telegram = () => calls.filter((call) => call.url.includes('api.telegram.org'))
+  const whatsapp = () => calls.filter((call) => call.url.endsWith('/api/sendText'))
+  const emails = () => calls.filter((call) => call.url.includes('api.resend.com'))
+
+  it('an approved payment reaches the team on Telegram and WhatsApp and the buyer by email, once', async () => {
+    const { order, button } = await paidFlow()
+    calls = []
+    await sendWebhook(saleEvent(button.reference, 102000))
+    expect(telegram()).toHaveLength(1)
+    expect(telegram()[0]!.body).toMatchObject({ chat_id: 555001 })
+    expect(telegram()[0]!.body.text).toContain('Pago confirmado por Bold')
+    expect(telegram()[0]!.body.text).toContain(order.displayId)
+    expect(whatsapp()).toHaveLength(1)
+    expect(whatsapp()[0]!.body).toMatchObject({ chatId: '573001234567@c.us', session: 'tiendia' })
+    expect(whatsapp()[0]!.body.text).toContain('Pago confirmado por Bold')
+    expect(emails()).toHaveLength(1)
+    expect(emails()[0]!.body.to).toEqual(['ana@cliente.test'])
+    expect(emails()[0]!.body.subject).toContain(order.displayId)
+    expect(emails()[0]!.body.html).toContain('$102.000')
+    expect(emails()[0]!.body.text).toContain('Gorra parcera')
+    expect(emails()[0]!.body.reply_to).toBeUndefined()
+    expect(h.db.query<{ template_key: string; status: string }>('SELECT template_key, status FROM email_messages')).toEqual([{ template_key: 'order_paid', status: 'enviado' }])
+
+    calls = []
+    await sendWebhook(saleEvent(button.reference, 102000, 'SALE_APPROVED', 'evt-repeat'))
+    await h.request('/api/payments/bold/status', { method: 'POST', store: 'muy-parcero', body: { reference: button.reference, checkoutKey: KEY } })
+    expect(calls).toEqual([])
+  })
+
+  it('a void warns the team without emailing the buyer again', async () => {
+    const { button } = await paidFlow()
+    await sendWebhook(saleEvent(button.reference, 102000))
+    calls = []
+    await sendWebhook(saleEvent(button.reference, 102000, 'VOID_APPROVED', 'evt-2'))
+    expect(telegram()[0]!.body.text).toContain('anuló')
+    expect(whatsapp()).toHaveLength(1)
+    expect(emails()).toHaveLength(0)
+  })
+
+  it('a different amount warns the team only', async () => {
+    const { button } = await paidFlow()
+    calls = []
+    await sendWebhook(saleEvent(button.reference, 1000))
+    expect(telegram()[0]!.body.text).toContain('monto distinto')
+    expect(emails()).toHaveLength(0)
   })
 })

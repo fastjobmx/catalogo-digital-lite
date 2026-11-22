@@ -186,6 +186,7 @@ app.post('/', publicStore, zValidator('json', createOrderSchema), async (c) => {
   if (body.payOnline === 'bold') {
     const bold = await publicBoldConfig(db, storeId)
     const release = async () => { if (couponId) await db.prepare('UPDATE coupons SET uses = uses - 1 WHERE id = ? AND uses > 0').bind(couponId).run() }
+    if (!body.customerEmail) { await release(); return c.json({ error: 'Escribe tu correo para recibir la confirmación del pago.', code: 'EMAIL_REQUIRED' }, 400) }
     if (!bold) { await release(); return c.json({ error: 'Esta tienda no tiene activo el pago en línea.', code: 'BOLD_DISABLED' }, 409) }
     shippingCost = bold.shippingFee
     if (subtotal - discount + shippingCost < BOLD_MIN_AMOUNT) { await release(); return c.json({ error: 'El valor mínimo para pagar en línea es $1.000.', code: 'AMOUNT_TOO_LOW' }, 409) }

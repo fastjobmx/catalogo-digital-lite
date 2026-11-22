@@ -274,12 +274,15 @@ export async function handleOrderIntent(ctx: AssistantContext, intent: { referen
 /** New storefront order: tell the store team in Telegram (best effort, never blocks the checkout). */
 export async function notifyNewOrder(env: Env['Bindings'], db: D1Database, order: { storeId: number; orderId: number }): Promise<void> {
   if (!env.TELEGRAM_BOT_TOKEN) return
-  const row = await db.prepare(`SELECT o.id, o.display_id, o.subtotal, o.currency, o.items_json, s.name FROM orders o JOIN stores s ON s.id = o.store_id WHERE o.id = ? AND o.store_id = ?`)
-    .bind(order.orderId, order.storeId).first<{ id: number; display_id: string; subtotal: number; currency: string; items_json: string; name: string }>()
+  const row = await db.prepare(`SELECT o.id, o.display_id, o.subtotal, o.currency, o.items_json, o.payment_provider, s.name FROM orders o JOIN stores s ON s.id = o.store_id WHERE o.id = ? AND o.store_id = ?`)
+    .bind(order.orderId, order.storeId).first<{ id: number; display_id: string; subtotal: number; currency: string; items_json: string; payment_provider: string | null; name: string }>()
   if (!row) return
   const recipients = await orderRecipients(db, order.storeId, await legacyOwnerIds(db, env))
   const units = parseOrderItems(row.items_json).reduce((sum, item) => sum + Number(item.quantity || 0), 0)
-  const text = `🛒 <b>Nuevo pedido en ${escapeHtml(row.name)}</b>\n${escapeHtml(row.display_id)} · ${units} u. · ${formatMoney(row.subtotal, row.currency)}\n\n📥 Recibido: es una solicitud por WhatsApp, todavía no es una venta. Confírmalo cuando el cliente acepte.`
+  const next = row.payment_provider === 'bold'
+    ? '💳 El cliente eligió pagar en línea con Bold. Te avisaremos aquí cuando Bold confirme el pago; mientras tanto no lo despaches.'
+    : '📥 Recibido: es una solicitud por WhatsApp, todavía no es una venta. Confírmalo cuando el cliente acepte.'
+  const text = `🛒 <b>Nuevo pedido en ${escapeHtml(row.name)}</b>\n${escapeHtml(row.display_id)} · ${units} u. · ${formatMoney(row.subtotal, row.currency)}\n\n${next}`
   await Promise.all(recipients.map((chatId) => sendTelegramMessage(env.TELEGRAM_BOT_TOKEN!, Number(chatId), text, 'HTML', {
     inline_keyboard: [[{ text: '🧾 Ver pedido', callback_data: `ord:${order.storeId}:view:${row.id}` }]],
   }).catch(() => undefined)))

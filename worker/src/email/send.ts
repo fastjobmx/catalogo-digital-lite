@@ -33,6 +33,7 @@ export const EMAIL_CATEGORIES = {
   bienvenida: { label: 'Bienvenida', essential: false },
   avisos: { label: 'Avisos administrativos', essential: false },
   cuenta: { label: 'Prueba gratis, contratación y plan', essential: true },
+  compras: { label: 'Comprobantes de pago a compradores', essential: true },
 } as const
 export type EmailCategory = keyof typeof EMAIL_CATEGORIES
 const SECURITY_KEYS: ReadonlySet<string> = new Set(['password_reset', 'email_verification', 'invitation', 'password_changed', 'trial_signup', 'signup_existing'])
@@ -44,6 +45,7 @@ const SALES_KEYS: ReadonlySet<string> = new Set(['trial_expiring', 'trial_ended'
 export function categoryFor(templateKey: string | null): EmailCategory {
   if (templateKey && SECURITY_KEYS.has(templateKey)) return 'seguridad'
   if (templateKey && ACCOUNT_KEYS.has(templateKey)) return 'cuenta'
+  if (templateKey === 'order_paid') return 'compras'
   if (templateKey === 'welcome' || templateKey === 'trial_welcome') return 'bienvenida'
   return 'avisos'
 }
@@ -52,6 +54,8 @@ export function categoryFor(templateKey: string | null): EmailCategory {
 export function replyToFor(env: Partial<Env['Bindings']>, templateKey: string | null): string | null {
   const sales = (env.EMAIL_REPLY_TO_SALES || '').trim()
   const support = (env.EMAIL_REPLY_TO || '').trim()
+  // Buyers' receipts: questions about an order belong to the store, never to the platform's support desk.
+  if (templateKey === 'order_paid') return null
   if (templateKey && SALES_KEYS.has(templateKey) && isEmail(sales)) return sales
   return isEmail(support) ? support : null
 }

@@ -417,7 +417,9 @@ describe('email templates of the trial and the contract', () => {
       expect(template.html, key).toContain('name="viewport"')
       expect(template.html, key).toContain('max-width:560px')
       expect(template.html + template.subject, key).not.toContain('Tienda IA Express')
-      expect(template.html, key).toContain('soporte@tiendiaexpres.com')
+      // Buyer receipts point to the store, not to the platform's support desk.
+      if (key === 'order_paid') expect(template.html, key).not.toContain('soporte@tiendiaexpres.com')
+      else expect(template.html, key).toContain('soporte@tiendiaexpres.com')
       const rendered = renderTemplate(template, SAMPLE_VALUES)
       expect(rendered.html + rendered.text, key).not.toMatch(/\{\{|contraseña:\s*\S/i)
     }

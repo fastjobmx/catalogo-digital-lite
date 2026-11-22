@@ -47,16 +47,21 @@ app.post('/bold/status', publicStore, zValidator('json', z.object({ reference: z
     ? await c.env.DB.prepare('SELECT display_id, payment_status, idempotency_key FROM orders WHERE id = ? AND store_id = ?').bind(attempt.order_id, store.id).first<{ display_id: string; payment_status: string; idempotency_key: string }>()
     : null
   if (!attempt || !order || order.idempotency_key !== body.checkoutKey) return c.json({ error: 'Pago no encontrado', code: 'NOT_FOUND' }, 404)
-  const status = await refreshAttemptFromBold(c.env.DB, attempt)
+  const status = await refreshAttemptFromBold(c.env.DB, attempt, fetch, { env: c.env, defer: deferOf(c) })
   const paymentStatus = (await c.env.DB.prepare('SELECT payment_status FROM orders WHERE id = ?').bind(attempt.order_id).first<{ payment_status: string }>())?.payment_status
   return c.json({ displayId: order.display_id, attemptStatus: status, paymentStatus, amount: attempt.amount, currency: attempt.currency, mode: attempt.mode })
 })
+
+/** Notices run after the answer when the platform offers it (tests have no execution context: they wait inline). */
+function deferOf(c: { executionCtx: { waitUntil(task: Promise<unknown>): void } }): ((task: Promise<unknown>) => void) | undefined {
+  try { const ctx = c.executionCtx; return (task) => ctx.waitUntil(task) } catch { return undefined }
+}
 
 // Bold webhook (one URL for every store: the reference identifies the store, whose secret checks the signature).
 app.post('/bold/webhook', async (c) => {
   const raw = await c.req.text()
   if (raw.length > 64_000) return c.json({ error: 'Payload too large' }, 413)
-  const outcome = await handleBoldWebhook(c.env.DB, c.env, raw, c.req.header('x-bold-signature') || '')
+  const outcome = await handleBoldWebhook(c.env.DB, c.env, raw, c.req.header('x-bold-signature') || '', deferOf(c))
   return c.json({ result: outcome.result }, outcome.status as 200)
 })
 

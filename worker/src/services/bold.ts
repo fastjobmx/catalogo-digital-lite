@@ -12,6 +12,7 @@
 import type { Env } from '../index'
 import { decryptStoreSecret, encryptStoreSecret, hintOf } from '../ai/ownKey'
 import { transitionOrder } from './orders'
+import { notifyPaymentResult } from './paymentNotices'
 
 type Bindings = Env['Bindings']
 
@@ -161,7 +162,10 @@ const FINAL_STATES: AttemptStatus[] = ['aprobado', 'rechazado', 'fallido', 'anul
 
 /** Applies a result reported by Bold to an attempt and, when it is an approval for the exact amount, to its order.
  * Idempotent: repeated or late reports never move a final state backwards; only a void can follow an approval. */
-export async function applyBoldResult(db: D1Database, attempt: AttemptRow, result: { status: string; total?: number | null; txId?: string | null; method?: string | null; source: 'webhook' | 'consulta' }) {
+/** Where the result came from: with an environment the team and the buyer are notified (in the background when `defer` exists). */
+export type NoticeHooks = { env: Bindings; defer?: (task: Promise<unknown>) => void; payerEmail?: string | null }
+
+export async function applyBoldResult(db: D1Database, attempt: AttemptRow, result: { status: string; total?: number | null; txId?: string | null; method?: string | null; source: 'webhook' | 'consulta' }, hooks?: NoticeHooks) {
   let next = FINAL_FROM_BOLD[result.status]
   if (!next) return attempt.status
   if (next === 'aprobado' && result.total != null && Math.round(Number(result.total)) !== Number(attempt.amount)) next = 'monto_distinto'
@@ -186,11 +190,20 @@ export async function applyBoldResult(db: D1Database, attempt: AttemptRow, resul
       if (done.ok || done.code !== 'STALE') break
     }
   }
+  // Only the request that moved the attempt gets here, so each result is announced once.
+  if (hooks && (next === 'aprobado' || next === 'anulado' || next === 'monto_distinto')) {
+    const task = notifyPaymentResult(hooks.env, db, {
+      storeId: attempt.store_id, orderId: attempt.order_id, reference: attempt.reference, status: next, amount: Number(attempt.amount),
+      currency: attempt.currency, mode: attempt.mode as 'test' | 'live', approvedTotal: result.total ?? null, txId: result.txId ?? null, method: result.method ?? null, payerEmail: hooks.payerEmail ?? null,
+    }).catch(() => undefined)
+    if (hooks.defer) hooks.defer(task)
+    else await task
+  }
   return next
 }
 
 /** Asks Bold for the attempt's state (used when the buyer comes back; webhooks are the main path). */
-export async function refreshAttemptFromBold(db: D1Database, attempt: AttemptRow, fetcher: typeof fetch = fetch): Promise<AttemptStatus> {
+export async function refreshAttemptFromBold(db: D1Database, attempt: AttemptRow, fetcher: typeof fetch = fetch, hooks?: NoticeHooks): Promise<AttemptStatus> {
   if (FINAL_STATES.includes(attempt.status)) return attempt.status
   const gateway = await getGateway(db, attempt.store_id)
   if (!gateway) return attempt.status
@@ -199,9 +212,9 @@ export async function refreshAttemptFromBold(db: D1Database, attempt: AttemptRow
     response = await fetcher(`${BOLD_API}/v2/payment-voucher/${encodeURIComponent(attempt.reference)}`, { headers: { Authorization: `x-api-key ${gateway.identity_key}` } })
   } catch { return attempt.status }
   if (!response.ok) return attempt.status
-  const data = await response.json().catch(() => null) as { payment_status?: string; total?: number; transaction_id?: string; payment_method?: string } | null
+  const data = await response.json().catch(() => null) as { payment_status?: string; total?: number; transaction_id?: string; payment_method?: string; payer_email?: string } | null
   if (!data?.payment_status || data.payment_status === 'NO_TRANSACTION_FOUND') return attempt.status
-  return applyBoldResult(db, attempt, { status: data.payment_status, total: data.total ?? null, txId: data.transaction_id ?? null, method: data.payment_method ?? null, source: 'consulta' })
+  return applyBoldResult(db, attempt, { status: data.payment_status, total: data.total ?? null, txId: data.transaction_id ?? null, method: data.payment_method ?? null, source: 'consulta' }, hooks && { ...hooks, payerEmail: data.payer_email ?? null })
 }
 
 export async function findAttempt(db: D1Database, reference: string): Promise<AttemptRow | null> {
@@ -209,8 +222,8 @@ export async function findAttempt(db: D1Database, reference: string): Promise<At
 }
 
 /** Signed webhook from Bold. Returns a short result code (stored, never the payload). */
-export async function handleBoldWebhook(db: D1Database, env: Bindings, rawBody: string, signature: string): Promise<{ status: number; result: string }> {
-  let event: { id?: string; type?: string; subject?: string; data?: { payment_id?: string; payment_method?: string; metadata?: { reference?: string }; amount?: { total?: number } } }
+export async function handleBoldWebhook(db: D1Database, env: Bindings, rawBody: string, signature: string, defer?: (task: Promise<unknown>) => void): Promise<{ status: number; result: string }> {
+  let event: { id?: string; type?: string; subject?: string; data?: { payment_id?: string; payment_method?: string; payer_email?: string; metadata?: { reference?: string }; amount?: { total?: number } } }
   try { event = JSON.parse(rawBody) } catch { return { status: 400, result: 'json_invalido' } }
   const reference = String(event.data?.metadata?.reference || '')
   const eventId = String(event.id || event.subject || '')
@@ -225,7 +238,7 @@ export async function handleBoldWebhook(db: D1Database, env: Bindings, rawBody: 
   const inserted = await db.prepare(`INSERT OR IGNORE INTO payment_webhook_events (provider, event_id, event_type, reference, store_id, result) VALUES ('bold', ?, ?, ?, ?, 'recibido')`)
     .bind(eventId, type, reference, attempt.store_id).run()
   if (!Number(inserted.meta.changes || 0)) return { status: 200, result: 'duplicado' }
-  const next = await applyBoldResult(db, attempt, { status: type, total: event.data?.amount?.total ?? null, txId: event.data?.payment_id ?? null, method: event.data?.payment_method ?? null, source: 'webhook' })
+  const next = await applyBoldResult(db, attempt, { status: type, total: event.data?.amount?.total ?? null, txId: event.data?.payment_id ?? null, method: event.data?.payment_method ?? null, source: 'webhook' }, { env, defer, payerEmail: event.data?.payer_email ?? null })
   await db.prepare(`UPDATE payment_webhook_events SET result = ? WHERE provider = 'bold' AND event_id = ?`).bind(next, eventId).run()
   return { status: 200, result: next }
 }

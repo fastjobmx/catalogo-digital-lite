@@ -27,6 +27,13 @@ export const EMAIL_VARIABLES = {
   codigo_solicitud: 'Código de la contratación (ACT-XXXXXX)',
   valor_plan: 'Valor a pagar por el plan elegido',
   ciclo_pago: 'Forma de pago del plan (mensual o anual)',
+  numero_pedido: 'Número del pedido del comprador (PED-…)',
+  total_pagado: 'Valor pagado en línea',
+  medio_pago: 'Medio de pago usado en la pasarela',
+  referencia_pago: 'Referencia o número de transacción de la pasarela',
+  detalle_pedido: 'Productos del pedido, uno por línea',
+  direccion_entrega: 'Dirección y ciudad de entrega',
+  contacto_comercio: 'Contacto del comercio (WhatsApp)',
 } as const
 export type EmailVariable = keyof typeof EMAIL_VARIABLES
 
@@ -39,7 +46,7 @@ export const LINK_VARIABLES: Partial<Record<EmailVariable, SystemTemplateKey>> =
 }
 
 export const SYSTEM_TEMPLATE_KEYS = ['password_reset', 'invitation', 'welcome', 'admin_notice', 'email_verification', 'password_changed',
-  'trial_signup', 'trial_welcome', 'signup_existing', 'trial_expiring', 'trial_ended', 'plan_requested', 'plan_activated'] as const
+  'trial_signup', 'trial_welcome', 'signup_existing', 'trial_expiring', 'trial_ended', 'plan_requested', 'plan_activated', 'order_paid'] as const
 export type SystemTemplateKey = typeof SYSTEM_TEMPLATE_KEYS[number]
 
 export class TemplateError extends Error {
@@ -118,7 +125,7 @@ const FOOTER_TEXT = `TiendIA Exprés · Tu tienda online, más fácil.
 Nunca te pediremos tu contraseña por correo.
 ${SUPPORT_TEXT}`
 
-function layout(body: string, preheader: string) {
+function layout(body: string, preheader: string, footer?: string) {
   return `<!doctype html>
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light"><title>{{nombre_plataforma}}</title></head>
 <body style="margin:0;padding:0;background:${BRAND.soft};font-family:Arial,Helvetica,sans-serif;color:${BRAND.ink};-webkit-text-size-adjust:100%;">
@@ -134,9 +141,9 @@ function layout(body: string, preheader: string) {
 ${body}
 </td></tr>
 <tr><td style="padding:22px 26px 26px 26px;border-top:1px solid ${BRAND.line};font-size:12px;line-height:1.6;color:${BRAND.muted};">
-<strong style="color:${BRAND.ink};">TiendIA Exprés</strong> · Tu tienda online, más fácil.<br>
+${footer ?? `<strong style="color:${BRAND.ink};">TiendIA Exprés</strong> · Tu tienda online, más fácil.<br>
 Este es un mensaje automático de {{nombre_plataforma}}. Nunca te pediremos tu contraseña por correo.<br>
-¿Necesitas ayuda? Escribe a <a href="mailto:${SUPPORT.email}" style="color:${BRAND.violetText};">${SUPPORT.email}</a> o por WhatsApp al <a href="${SUPPORT.whatsappUrl}" style="color:${BRAND.violetText};">${SUPPORT.whatsappDisplay}</a>.
+¿Necesitas ayuda? Escribe a <a href="mailto:${SUPPORT.email}" style="color:${BRAND.violetText};">${SUPPORT.email}</a> o por WhatsApp al <a href="${SUPPORT.whatsappUrl}" style="color:${BRAND.violetText};">${SUPPORT.whatsappDisplay}</a>.`}
 </td></tr>
 </table>
 </td></tr></table>
@@ -432,6 +439,37 @@ Tu panel: {{enlace_panel}}
 
 ${FOOTER_TEXT}`,
   },
+  order_paid: {
+    name: 'Comprador: pago en línea confirmado',
+    subject: 'Pago confirmado: tu pedido {{numero_pedido}} en {{nombre_comercio}}',
+    html: layout(`${h1('¡Gracias por tu compra, {{nombre_usuario}}!')}
+<p style="margin:0 0 12px 0;">Recibimos tu pago en <strong>{{nombre_comercio}}</strong>. La pasarela de pagos lo confirmó y el comercio ya puede preparar tu pedido.</p>
+${facts([['Pedido', '<strong>{{numero_pedido}}</strong>'], ['Total pagado', '<strong>{{total_pagado}}</strong>'], ['Medio de pago', '{{medio_pago}}'], ['Referencia', '{{referencia_pago}}'], ['Entrega en', '{{direccion_entrega}}']])}
+<p style="margin:16px 0 6px 0;"><strong>Tu pedido:</strong></p>
+<p style="margin:0 0 12px 0;padding:12px 14px;background:${BRAND.soft};border-radius:8px;font-size:14px;white-space:pre-line;">{{detalle_pedido}}</p>
+<p style="margin:0 0 12px 0;">El comercio te contactará para coordinar el envío. Si tienes preguntas sobre tu pedido, escríbele: <strong>{{contacto_comercio}}</strong>.</p>
+${securityNote('Guarda este correo como comprobante. No vuelvas a pagar este pedido.')}`, 'Tu pago fue confirmado. Este es el resumen de tu pedido.', `<strong style="color:${BRAND.ink};">{{nombre_comercio}}</strong> · Tienda creada con {{nombre_plataforma}}.<br>
+Recibes este correo porque hiciste una compra con pago en línea en {{nombre_comercio}}. Para dudas sobre tu pedido, contacta al comercio: {{contacto_comercio}}.<br>
+<a href="{{enlace_tienda}}" style="color:${BRAND.violetText};word-break:break-all;">{{enlace_tienda}}</a>`),
+    text: `¡Gracias por tu compra, {{nombre_usuario}}!
+
+Recibimos tu pago en {{nombre_comercio}}. La pasarela de pagos lo confirmó y el comercio ya puede preparar tu pedido.
+
+Pedido: {{numero_pedido}}
+Total pagado: {{total_pagado}}
+Medio de pago: {{medio_pago}}
+Referencia: {{referencia_pago}}
+Entrega en: {{direccion_entrega}}
+
+Tu pedido:
+{{detalle_pedido}}
+
+El comercio te contactará para coordinar el envío. Dudas sobre tu pedido: {{contacto_comercio}}.
+Guarda este correo como comprobante. No vuelvas a pagar este pedido.
+
+{{nombre_comercio}} · {{enlace_tienda}}
+Tienda creada con {{nombre_plataforma}}.`,
+  },
 }
 
 /** Example values for previews and test sends. Links are clearly fake and do nothing. */
@@ -457,4 +495,11 @@ export const SAMPLE_VALUES: RenderValues = {
   codigo_solicitud: 'ACT-7K2M9Q',
   valor_plan: '$208.900 COP',
   ciclo_pago: 'Mensual (incluye el pago inicial)',
+  numero_pedido: 'PED-20261122-E3DF2F22',
+  total_pagado: '$591.800',
+  medio_pago: 'Tarjeta de crédito',
+  referencia_pago: 'T_EJEMPLO123',
+  detalle_pedido: '2 × Camiseta básica (M · Negro): $579.800\nEnvío: $12.000',
+  direccion_entrega: 'Calle 10 # 20-30, Manizales',
+  contacto_comercio: 'WhatsApp +57 300 000 0000',
 }

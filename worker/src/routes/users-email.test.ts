@@ -189,7 +189,7 @@ describe('email templates (superadmin)', () => {
   it('starts with the system templates and lists the variables each one can use', async () => {
     const list = await json(await h.request('/api/platform/email/templates', { token: admin }))
     expect(list.items.map((item: any) => item.systemKey)).toEqual(['password_reset', 'invitation', 'welcome', 'admin_notice', 'email_verification', 'password_changed',
-      'trial_signup', 'trial_welcome', 'signup_existing', 'trial_expiring', 'trial_ended', 'plan_requested', 'plan_activated'])
+      'trial_signup', 'trial_welcome', 'signup_existing', 'trial_expiring', 'trial_ended', 'plan_requested', 'plan_activated', 'order_paid'])
     const reset = list.items[0]
     expect(reset.variables.map((v: any) => v.key)).toContain('enlace_recuperacion')
     expect(list.items[3].variables.map((v: any) => v.key)).not.toContain('enlace_recuperacion')

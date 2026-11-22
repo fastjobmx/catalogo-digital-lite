@@ -163,6 +163,10 @@ export default function CartDrawer() {
   // Pago en línea con Bold: el pedido se registra con el envío fijo y el servidor firma el botón de Bold.
   const handleBoldCheckout = async () => {
     if (checkoutBlocked() || !boldConfig) return
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(customerEmail.trim())) {
+      setCheckoutMessage('Escribe tu correo: ahí te enviamos la confirmación del pago.')
+      return
+    }
     setSendState(null)
     setBoldState(null)
     setCheckoutBusy(true)
@@ -376,7 +380,7 @@ export default function CartDrawer() {
                   className="input-field text-sm"
                 />
                 <input type="tel" placeholder="Teléfono con indicativo (ej. +57…)" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} className="input-field text-sm" />
-                <input type="email" placeholder="Correo (opcional)" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} className="input-field text-sm" />
+                <input type="email" placeholder={boldConfig ? 'Correo (obligatorio para pagar en línea)' : 'Correo (opcional)'}value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} className="input-field text-sm" />
                 <input type="text" placeholder="Ciudad" value={customerCity} onChange={(e) => setCustomerCity(e.target.value)} className="input-field text-sm" />
                 <input
                   type="text"
