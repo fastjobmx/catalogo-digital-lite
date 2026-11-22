@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import worker from '../index'
 import { createHarness, createStoreUser, seedCatalog, seedStore, userToken, type Harness } from '../testing/harness'
-import { integritySignature, webhookSignature } from '../services/bold'
+import { integritySignature, reconcileBoldPayments, webhookSignature } from '../services/bold'
 
 const MASTER = btoa(String.fromCharCode(...new Uint8Array(32).map((_, i) => (i * 11 + 5) % 256)))
 const IDENTITY = 'test_identity_KEY_1234567890abcd'
@@ -154,6 +154,7 @@ describe('Bold notices', () => {
   }
   type Call = { url: string; body: Record<string, any> }
   let calls: Call[]
+  let boldAnswer: Record<string, unknown> = { payment_status: 'NO_TRANSACTION_FOUND' }
 
   beforeEach(async () => {
     Object.assign(h.env, NOTICE_ENV)
@@ -167,6 +168,7 @@ describe('Bold notices', () => {
       calls.push({ url: target, body: JSON.parse(String(init?.body || '{}')) })
       if (target.includes('api.telegram.org')) return new Response(JSON.stringify({ ok: true, result: { message_id: 1 } }), { status: 200 })
       if (target.includes('api.resend.com')) return new Response(JSON.stringify({ id: 'email-1' }), { status: 200 })
+      if (target.includes('payments.api.bold.co')) return new Response(JSON.stringify(boldAnswer), { status: 200 })
       return new Response(JSON.stringify({ id: 'wa-1' }), { status: 200 })
     }))
   })
@@ -210,12 +212,14 @@ describe('Bold notices', () => {
     expect(calls).toEqual([])
   })
 
-  it('buyer replies go to the store email; a store without logo gets no broken image', async () => {
+  it('the receipt asks for WhatsApp instead of replies; a store without logo gets no broken image', async () => {
     await h.db.prepare("UPDATE store_config SET logo_url = NULL, email = 'ventas@parcero.test', button_color = '#26372d', theme_config = '{}' WHERE id = ?").bind(storeId).run()
     const { button } = await paidFlow()
     calls = []
     await sendWebhook(saleEvent(button.reference, 102000))
-    expect(emails()[0]!.body.reply_to).toBe('ventas@parcero.test')
+    expect(emails()[0]!.body.reply_to).toBeUndefined()
+    expect(emails()[0]!.body.html).toContain('No respondas a este correo')
+    expect(emails()[0]!.body.text).toContain('escríbenos por WhatsApp al +57 300 111 2233')
     expect(emails()[0]!.body.html).not.toContain('<img')
     expect(emails()[0]!.body.html).toContain('letter-spacing:0.3px;">MUY PARCERO</div>')
     expect(emails()[0]!.body.html).toContain('color:#FFFFFF;text-decoration:none;">Escríbenos por WhatsApp')
@@ -237,5 +241,62 @@ describe('Bold notices', () => {
     await sendWebhook(saleEvent(button.reference, 1000))
     expect(telegram()[0]!.body.text).toContain('monto distinto')
     expect(emails()).toHaveLength(0)
+  })
+
+  const orderRow = (displayId: string) => h.db.query<{ status: string; payment_status: string }>('SELECT status, payment_status FROM orders WHERE display_id = ?', displayId)[0]!
+  const stock = () => h.db.query<{ stock: number }>('SELECT stock FROM product_variants WHERE id = ?', ids['GORRA#U'])[0]!.stock
+
+  it('an approved payment confirms the order and sets its stock aside', async () => {
+    const { order, button } = await paidFlow()
+    expect(stock()).toBe(4)
+    calls = []
+    await sendWebhook(saleEvent(button.reference, 102000))
+    expect(orderRow(order.displayId)).toEqual({ status: 'confirmado', payment_status: 'verificado' })
+    expect(stock()).toBe(2)
+    expect(telegram()[0]!.body.text).toContain('apartadas del inventario')
+  })
+
+  it('without stock left the order stays paid but unconfirmed, the team is warned and the buyer gets no receipt', async () => {
+    const { order, button } = await paidFlow()
+    await h.db.prepare('UPDATE product_variants SET stock = 1 WHERE id = ?').bind(ids['GORRA#U']).run()
+    calls = []
+    await sendWebhook(saleEvent(button.reference, 102000))
+    expect(orderRow(order.displayId)).toEqual({ status: 'pendiente', payment_status: 'verificado' })
+    expect(stock()).toBe(1)
+    expect(telegram()[0]!.body.text).toContain('sin existencias')
+    expect(emails()).toHaveLength(0)
+  })
+
+  it('a second payment of the same order is flagged as a duplicate to refund', async () => {
+    const { order, button } = await paidFlow()
+    const second = await (await checkout(order.displayId)).json() as { reference: string }
+    await sendWebhook(saleEvent(button.reference, 102000))
+    calls = []
+    await sendWebhook(saleEvent(second.reference, 102000, 'SALE_APPROVED', 'evt-second'))
+    expect(telegram()[0]!.body.text).toContain('Pago duplicado')
+    expect(whatsapp()[0]!.body.text).toContain('Pago duplicado')
+    expect(emails()).toHaveLength(0)
+    expect(stock()).toBe(2)
+  })
+
+  it('the cron confirms open payments with Bold when the webhook never came', async () => {
+    const { order } = await paidFlow()
+    await h.db.prepare("UPDATE payment_attempts SET created_at = datetime('now', '-10 minutes')").run()
+    boldAnswer = { payment_status: 'APPROVED', total: 102000, transaction_id: 'TX-CRON', payment_method: 'PSE', payer_email: 'ana@cliente.test' }
+    calls = []
+    expect(await reconcileBoldPayments(h.env, h.db)).toEqual({ checked: 1, changed: 1 })
+    expect(orderRow(order.displayId)).toEqual({ status: 'confirmado', payment_status: 'verificado' })
+    expect(telegram()).toHaveLength(1)
+    expect(emails()).toHaveLength(1)
+    calls = []
+    expect(await reconcileBoldPayments(h.env, h.db)).toEqual({ checked: 0, changed: 0 })
+    expect(calls).toEqual([])
+  })
+
+  it('the cron leaves fresh and old attempts alone', async () => {
+    await paidFlow()
+    expect((await reconcileBoldPayments(h.env, h.db)).checked).toBe(0)
+    await h.db.prepare("UPDATE payment_attempts SET created_at = datetime('now', '-4 days')").run()
+    expect((await reconcileBoldPayments(h.env, h.db)).checked).toBe(0)
   })
 })

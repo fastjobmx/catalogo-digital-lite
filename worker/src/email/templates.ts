@@ -194,7 +194,7 @@ ${body}
 WhatsApp: <a href="{{enlace_whatsapp_comercio}}" style="color:${BRAND.ink};">{{contacto_comercio}}</a>
 <div>{{correo_comercio}}</div>
 <a href="{{enlace_tienda}}" style="color:${BRAND.ink};word-break:break-all;">{{enlace_tienda}}</a>
-<p style="margin:14px 0 0 0;font-size:11px;color:#A1A1AA;">Recibes este correo porque compraste con pago en línea en {{nombre_comercio}}. Tienda creada con {{nombre_plataforma}}.</p>
+<p style="margin:14px 0 0 0;font-size:11px;color:#A1A1AA;">Recibes este correo porque compraste con pago en línea en {{nombre_comercio}}. Es un mensaje automático: no lo respondas, escríbenos por WhatsApp. Tienda creada con {{nombre_plataforma}}.</p>
 </td></tr>
 </table>
 </td></tr></table>
@@ -485,11 +485,11 @@ ${FOOTER_TEXT}`,
 ${facts([['Pedido', '<strong>{{numero_pedido}}</strong>'], ['Total pagado', '<strong>{{total_pagado}}</strong>'], ['Medio de pago', '{{medio_pago}}'], ['Referencia', '{{referencia_pago}}'], ['Entrega en', '{{direccion_entrega}}']])}
 <p style="margin:18px 0 6px 0;"><strong>Tu pedido</strong></p>
 <p style="margin:0 0 16px 0;padding:12px 14px;background:#F5F5F4;border-left:4px solid {{color_comercio}};border-radius:8px;font-size:14px;line-height:1.7;white-space:pre-line;">{{detalle_pedido}}</p>
-<p style="margin:0 0 4px 0;">Te escribiremos para coordinar el envío. ¿Tienes alguna pregunta sobre tu pedido?</p>
+<p style="margin:0 0 4px 0;">Te escribiremos para coordinar el envío. ¿Tienes alguna pregunta sobre tu pedido? <strong>Escríbenos por WhatsApp</strong>: este correo no recibe respuestas.</p>
 <table role="presentation" cellpadding="0" cellspacing="0" style="margin:18px 0 22px 0;"><tr><td style="background:{{color_comercio}};border-radius:999px;">
 <a href="{{enlace_whatsapp_comercio}}" style="display:inline-block;padding:14px 28px;font-size:16px;font-weight:bold;color:{{color_texto_comercio}};text-decoration:none;">Escríbenos por WhatsApp</a>
 </td></tr></table>
-<p style="margin:0 0 16px 0;padding:12px 14px;background:#F5F5F4;border-radius:8px;font-size:14px;">Guarda este correo como comprobante de pago. No vuelvas a pagar este pedido.</p>`, 'Tu pago fue confirmado. Este es el resumen de tu pedido.'),
+<p style="margin:0 0 16px 0;padding:12px 14px;background:#F5F5F4;border-radius:8px;font-size:14px;">Guarda este correo como comprobante de pago. No vuelvas a pagar este pedido.<br><strong>No respondas a este correo:</strong> para cualquier duda escríbenos por WhatsApp al {{contacto_comercio}}.</p>`, 'Tu pago fue confirmado. Este es el resumen de tu pedido.'),
     text: `¡Gracias por tu compra, {{nombre_usuario}}!
 
 Recibimos tu pago en {{nombre_comercio}}. La pasarela de pagos lo confirmó y ya estamos preparando tu pedido.
@@ -505,6 +505,7 @@ Tu pedido:
 
 Te escribiremos para coordinar el envío. ¿Preguntas? Escríbenos por WhatsApp: {{enlace_whatsapp_comercio}}
 Guarda este correo como comprobante de pago. No vuelvas a pagar este pedido.
+No respondas a este correo: para cualquier duda escríbenos por WhatsApp al {{contacto_comercio}}.
 
 {{nombre_comercio}} · {{contacto_comercio}} · {{enlace_tienda}}
 Tienda creada con {{nombre_plataforma}}.`,

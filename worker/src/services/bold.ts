@@ -162,6 +162,9 @@ const FINAL_STATES: AttemptStatus[] = ['aprobado', 'rechazado', 'fallido', 'anul
 
 /** Applies a result reported by Bold to an attempt and, when it is an approval for the exact amount, to its order.
  * Idempotent: repeated or late reports never move a final state backwards; only a void can follow an approval. */
+/** What an approval did to the order: stock set aside, no stock left, order was cancelled, or the order was already paid. */
+export type PaymentOutcome = 'apartado' | 'sin_stock' | 'cancelado' | 'duplicado' | null
+
 /** Where the result came from: with an environment the team and the buyer are notified (in the background when `defer` exists). */
 export type NoticeHooks = { env: Bindings; defer?: (task: Promise<unknown>) => void; payerEmail?: string | null }
 
@@ -182,18 +185,32 @@ export async function applyBoldResult(db: D1Database, attempt: AttemptRow, resul
   await db.prepare(`INSERT INTO order_events (order_id, event_type, to_value, note, performed_by) VALUES (?, 'pago_en_linea', ?, ?, 'Bold')`).bind(attempt.order_id, next, note).run()
 
   const paymentStatus = next === 'aprobado' ? 'verificado' : next === 'anulado' ? 'reembolsado' : null
+  let outcome: PaymentOutcome = null
   if (paymentStatus) {
     for (let tries = 0; tries < 3; tries++) {
-      const order = await db.prepare('SELECT revision, payment_status FROM orders WHERE id = ? AND store_id = ?').bind(attempt.order_id, attempt.store_id).first<{ revision: number; payment_status: string }>()
-      if (!order || order.payment_status === paymentStatus) break
-      const done = await transitionOrder(db, { storeId: attempt.store_id, orderId: attempt.order_id, expectedRevision: Number(order.revision), actor: 'Bold', source: 'pasarela', paymentStatus })
+      const order = await db.prepare('SELECT revision, status, payment_status FROM orders WHERE id = ? AND store_id = ?').bind(attempt.order_id, attempt.store_id).first<{ revision: number; status: string; payment_status: string }>()
+      if (!order) break
+      // The order was already paid with another attempt (the buyer paid twice): the team must refund this one.
+      if (next === 'aprobado' && order.payment_status === 'verificado') { outcome = 'duplicado'; break }
+      if (order.payment_status === paymentStatus) break
+      const base = { storeId: attempt.store_id, orderId: attempt.order_id, expectedRevision: Number(order.revision), actor: 'Bold', source: 'pasarela' as const, paymentStatus: paymentStatus as 'verificado' | 'reembolsado' }
+      // A paid order is confirmed at once so its stock is set aside (the database reserves it on confirmation):
+      // two buyers can never both pay for the last unit and wait for a manual confirmation.
+      if (next === 'aprobado' && order.status === 'pendiente') {
+        const confirmed = await transitionOrder(db, { ...base, status: 'confirmado', note: 'Confirmado automáticamente: Bold aprobó el pago' })
+        if (confirmed.ok) { outcome = 'apartado'; break }
+        if (confirmed.code === 'STALE') continue
+        if (confirmed.code !== 'INSUFFICIENT_STOCK') break
+        outcome = 'sin_stock'
+      } else if (next === 'aprobado' && order.status === 'cancelado') outcome = 'cancelado'
+      const done = await transitionOrder(db, base)
       if (done.ok || done.code !== 'STALE') break
     }
   }
   // Only the request that moved the attempt gets here, so each result is announced once.
   if (hooks && (next === 'aprobado' || next === 'anulado' || next === 'monto_distinto')) {
     const task = notifyPaymentResult(hooks.env, db, {
-      storeId: attempt.store_id, orderId: attempt.order_id, reference: attempt.reference, status: next, amount: Number(attempt.amount),
+      storeId: attempt.store_id, orderId: attempt.order_id, reference: attempt.reference, status: next, outcome, amount: Number(attempt.amount),
       currency: attempt.currency, mode: attempt.mode as 'test' | 'live', approvedTotal: result.total ?? null, txId: result.txId ?? null, method: result.method ?? null, payerEmail: hooks.payerEmail ?? null,
     }).catch(() => undefined)
     if (hooks.defer) hooks.defer(task)
@@ -241,4 +258,21 @@ export async function handleBoldWebhook(db: D1Database, env: Bindings, rawBody: 
   const next = await applyBoldResult(db, attempt, { status: type, total: event.data?.amount?.total ?? null, txId: event.data?.payment_id ?? null, method: event.data?.payment_method ?? null, source: 'webhook' }, { env, defer, payerEmail: event.data?.payer_email ?? null })
   await db.prepare(`UPDATE payment_webhook_events SET result = ? WHERE provider = 'bold' AND event_id = ?`).bind(next, eventId).run()
   return { status: 200, result: next }
+}
+
+/** Safety net for the webhook: every cron tick (15 min) asks Bold about recent attempts that are still open, so a
+ * payment is confirmed (and announced) even if the webhook never arrives and the buyer closed the page.
+ * Only attempts between 2 minutes and 72 hours old, newest first, a few per tick. */
+export async function reconcileBoldPayments(env: Bindings, db: D1Database, fetcher: typeof fetch = fetch, limit = 40): Promise<{ checked: number; changed: number }> {
+  const { results } = await db.prepare(`SELECT id, store_id, order_id, reference, amount, currency, status, mode FROM payment_attempts
+    WHERE status IN ('creado', 'en_proceso') AND created_at <= datetime('now', '-2 minutes') AND created_at >= datetime('now', '-72 hours')
+    ORDER BY id DESC LIMIT ?`).bind(limit).all<AttemptRow>()
+  let changed = 0
+  for (const attempt of results || []) {
+    try {
+      const next = await refreshAttemptFromBold(db, attempt, fetcher, { env })
+      if (next !== attempt.status) changed += 1
+    } catch { /* one attempt failing never stops the rest */ }
+  }
+  return { checked: (results || []).length, changed }
 }

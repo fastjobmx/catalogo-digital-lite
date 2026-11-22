@@ -20,6 +20,8 @@ export type PaymentNoticeInput = {
   orderId: number
   reference: string
   status: 'aprobado' | 'anulado' | 'monto_distinto'
+  /** Qué hizo la aprobación con el pedido: stock apartado, sin existencias, pedido cancelado o pago duplicado. */
+  outcome?: 'apartado' | 'sin_stock' | 'cancelado' | 'duplicado' | null
   amount: number
   currency: string
   mode: 'test' | 'live'
@@ -47,8 +49,21 @@ export function teamNotice(storeName: string, order: Pick<OrderRow, 'display_id'
   const test = notice.mode === 'test' ? '\n🧪 Modo de pruebas de Bold: no se cobró dinero real.' : ''
   const who = order.customer_name ? ` · ${escapeHtml(order.customer_name)}` : ''
   const ref = `\nRef. Bold ${escapeHtml(notice.reference)}${notice.txId ? ` · transacción ${escapeHtml(notice.txId)}` : ''}`
+  const paid = `${escapeHtml(order.display_id)}${who}\n💳 ${formatMoney(notice.amount, notice.currency)} · ${escapeHtml(methodLabel(notice.method))}${ref}`
+  if (notice.status === 'aprobado' && notice.outcome === 'duplicado') {
+    return `⚠️ <b>Pago duplicado en ${escapeHtml(storeName)}</b>\n${paid}\n\nEste pedido ya estaba pagado con otra transacción: el cliente pagó dos veces. Devuélvele este pago desde tu panel de Bold.${test}`
+  }
+  if (notice.status === 'aprobado' && notice.outcome === 'sin_stock') {
+    return `⚠️ <b>Pago confirmado, pero sin existencias, en ${escapeHtml(storeName)}</b>\n${paid}\n\nEl pedido quedó pagado pero NO confirmado: no hay unidades suficientes de algún producto. Revisa el inventario y escríbele al cliente; si no puedes despacharlo, devuélvele el dinero desde Bold.${test}`
+  }
+  if (notice.status === 'aprobado' && notice.outcome === 'cancelado') {
+    return `⚠️ <b>Pago recibido en un pedido cancelado en ${escapeHtml(storeName)}</b>\n${paid}\n\nEl pedido estaba cancelado cuando Bold aprobó el pago. Escríbele al cliente: reactívalo o devuélvele el dinero desde Bold.${test}`
+  }
   if (notice.status === 'aprobado') {
-    return `✅ <b>Pago confirmado por Bold en ${escapeHtml(storeName)}</b>\n${escapeHtml(order.display_id)}${who}\n💳 ${formatMoney(notice.amount, notice.currency)} · ${escapeHtml(methodLabel(notice.method))}${ref}\n\nEl pedido quedó como <b>Pago verificado</b>. Confírmalo y prepáralo para el despacho.${test}`
+    const next = notice.outcome === 'apartado'
+      ? 'El pedido quedó <b>confirmado</b> y las unidades quedaron apartadas del inventario. Prepáralo para el despacho.'
+      : 'El pedido quedó como <b>Pago verificado</b>. Prepáralo para el despacho.'
+    return `✅ <b>Pago confirmado por Bold en ${escapeHtml(storeName)}</b>\n${paid}\n\n${next}${test}`
   }
   if (notice.status === 'anulado') {
     return `↩️ <b>Bold anuló un pago en ${escapeHtml(storeName)}</b>\n${escapeHtml(order.display_id)}${who}\n💳 ${formatMoney(notice.amount, notice.currency)}${ref}\n\nEl pedido quedó como <b>Reembolsado</b>. No lo despaches.${test}`
@@ -155,9 +170,9 @@ async function sendBuyerEmail(env: Bindings, db: D1Database, storeName: string, 
   const result = await sendEmail(db, env, {
     template: { key: 'order_paid' },
     to,
-    // El comprador ve a la tienda como remitente y sus respuestas le llegan a la tienda (si tiene correo).
+    // El comprador ve a la tienda como remitente. Sin dirección de respuesta: las dudas van por WhatsApp.
     fromName: storeName,
-    replyTo: storeEmail || null,
+    replyTo: null,
     values: {
       logo_comercio: logo,
       color_comercio: color,
@@ -198,7 +213,8 @@ export async function notifyPaymentResult(env: Bindings, db: D1Database, notice:
   const [telegram, whatsapp, email] = await Promise.all([
     sendTeamTelegram(env, db, notice.storeId, order.id, html).catch(() => 0),
     sendTeamWhatsApp(env, db, notice.storeId, html).catch(() => 0),
-    notice.status === 'aprobado' ? sendBuyerEmail(env, db, storeName, order, notice).catch(() => 'fallido') : Promise.resolve('no_aplica'),
+    // El correo dice que el pedido se está preparando: solo sale cuando es cierto (no en duplicados, sin stock ni pedidos cancelados).
+    notice.status === 'aprobado' && !['duplicado', 'sin_stock', 'cancelado'].includes(notice.outcome || '') ? sendBuyerEmail(env, db, storeName, order, notice).catch(() => 'fallido') : Promise.resolve('no_aplica'),
   ])
   return { telegram, whatsapp, email }
 }
