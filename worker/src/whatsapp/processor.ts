@@ -426,8 +426,10 @@ function toAssistantUpdate(identity: WhatsAppIdentity, rowId: number, firstName:
 
 function numberedChoice(menuJson: string | null, choice: number): string | null {
   try {
-    const menu = JSON.parse(menuJson || 'null') as { at?: number; ids?: string[] } | null
-    if (!menu?.ids || Date.now() - Number(menu.at || 0) > MENU_TTL_MS) return null
+    const menu = JSON.parse(menuJson || 'null') as { at?: number; ttl?: number; ids?: string[] } | null
+    // A menu may carry its own lifetime (payment notices stay answerable for a day), never more than 24 h.
+    const ttl = Math.min(Number(menu?.ttl) || MENU_TTL_MS, 24 * 60 * 60 * 1000)
+    if (!menu?.ids || Date.now() - Number(menu.at || 0) > ttl) return null
     return menu.ids[choice - 1] ?? null
   } catch { return null }
 }

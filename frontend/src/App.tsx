@@ -25,6 +25,7 @@ const CreativePhotoStudio = lazy(() => import('./admin/pages/creative/PhotoStudi
 const CreativeLibrary = lazy(() => import('./admin/pages/creative/Library'))
 const CreativeFactory = lazy(() => import('./admin/pages/creative/Factory'))
 const TrialPage = lazy(() => import('./pages/TrialPage'))
+const CheckoutPage = lazy(() => import('./pages/CheckoutPage'))
 const SignupPage = lazy(() => import('./pages/SignupPage'))
 const AdminActivateStore = lazy(() => import('./admin/pages/ActivateStore'))
 const AdminUsers = lazy(() => import('./admin/pages/Users'))
@@ -93,6 +94,7 @@ export default function App() {
                 <Route path="/product/:slug" element={<ProductPage />} />
                 <Route path="/producto/:slug" element={<ProductPage />} />
                 <Route path="/search" element={<SearchPage />} />
+                <Route path="/checkout" element={<Suspense fallback={null}><CheckoutPage /></Suspense>} />
                 <Route path="*" element={<NotFoundPage />} />
               </Route>
 

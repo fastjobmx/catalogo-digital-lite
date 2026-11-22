@@ -183,11 +183,27 @@ describe('Bold notices', () => {
     await sendWebhook(saleEvent(button.reference, 102000))
     expect(telegram()).toHaveLength(1)
     expect(telegram()[0]!.body).toMatchObject({ chat_id: 555001 })
-    expect(telegram()[0]!.body.text).toContain('Pago confirmado por Bold')
+    expect(telegram()[0]!.body.text).toContain('NUEVO PAGO CONFIRMADO')
     expect(telegram()[0]!.body.text).toContain(order.displayId)
     expect(whatsapp()).toHaveLength(1)
     expect(whatsapp()[0]!.body).toMatchObject({ chatId: '573001234567@c.us', session: 'tiendia' })
-    expect(whatsapp()[0]!.body.text).toContain('Pago confirmado por Bold')
+    expect(whatsapp()[0]!.body.text).toContain('NUEVO PAGO CONFIRMADO')
+    // Everything needed to dispatch, in blocks: buyer, address, products, payment and the next step.
+    const orderId = h.db.query<{ id: number; revision: number }>('SELECT id, revision FROM orders WHERE display_id = ?', order.displayId)[0]!
+    const notice = String(telegram()[0]!.body.text)
+    for (const part of ['DATOS DEL CLIENTE', 'Nombre: Ana', 'WhatsApp: +57 300 111 2233 · https://wa.me/573001112233', 'Dirección: Calle 10', 'Ciudad: Medellín',
+      'Correo: ana@cliente.test', '2× Gorra parcera (Talla U)', 'Envío: $', '(fijo)', 'TOTAL PAGADO', 'Pago verificado', 'modo de pruebas', 'Medio: card web',
+      'Transacción: pay-1', 'ACCIÓN REQUERIDA', 'CONFIRMADO', 'Panel: https://tiendas.test/t/muy-parcero/admin/orders']) expect(notice).toContain(part)
+    expect(JSON.stringify(telegram()[0]!.body.reply_markup)).toContain(`ord:${storeId}:ask:${orderId.id}:preparando:${orderId.revision}`)
+    expect(JSON.stringify(telegram()[0]!.body.reply_markup)).toContain(`ord:${storeId}:ask:${orderId.id}:cancelado:${orderId.revision}`)
+    expect(JSON.stringify(telegram()[0]!.body.reply_markup)).toContain('https://tiendas.test/t/muy-parcero/admin/orders')
+    // WhatsApp (WAHA): bold with asterisks, numbered options and the menu kept for a day so "1" works later.
+    const waText = String(whatsapp()[0]!.body.text)
+    expect(waText).toContain('*DATOS DEL CLIENTE*')
+    expect(waText).toContain('1. 📦 Pasar a preparación')
+    expect(waText).toContain('Responde con el número de la opción.')
+    const menu = JSON.parse(h.db.query<{ menu_json: string }>('SELECT menu_json FROM whatsapp_identities')[0]!.menu_json)
+    expect(menu).toMatchObject({ ttl: 86_400_000, ids: [`ord:${storeId}:ask:${orderId.id}:preparando:${orderId.revision}`, `ord:${storeId}:ask:${orderId.id}:cancelado:${orderId.revision}`, `ord:${storeId}:view:${orderId.id}`, `ord:${storeId}:list:all`] })
     expect(emails()).toHaveLength(1)
     expect(emails()[0]!.body.to).toEqual(['ana@cliente.test'])
     expect(emails()[0]!.body.subject).toContain(order.displayId)
@@ -230,7 +246,7 @@ describe('Bold notices', () => {
     await sendWebhook(saleEvent(button.reference, 102000))
     calls = []
     await sendWebhook(saleEvent(button.reference, 102000, 'VOID_APPROVED', 'evt-2'))
-    expect(telegram()[0]!.body.text).toContain('anuló')
+    expect(telegram()[0]!.body.text).toContain('PAGO ANULADO')
     expect(whatsapp()).toHaveLength(1)
     expect(emails()).toHaveLength(0)
   })
@@ -239,7 +255,7 @@ describe('Bold notices', () => {
     const { button } = await paidFlow()
     calls = []
     await sendWebhook(saleEvent(button.reference, 1000))
-    expect(telegram()[0]!.body.text).toContain('monto distinto')
+    expect(telegram()[0]!.body.text).toContain('MONTO DISTINTO')
     expect(emails()).toHaveLength(0)
   })
 
@@ -263,7 +279,7 @@ describe('Bold notices', () => {
     await sendWebhook(saleEvent(button.reference, 102000))
     expect(orderRow(order.displayId)).toEqual({ status: 'pendiente', payment_status: 'verificado' })
     expect(stock()).toBe(1)
-    expect(telegram()[0]!.body.text).toContain('sin existencias')
+    expect(telegram()[0]!.body.text).toContain('SIN EXISTENCIAS')
     expect(emails()).toHaveLength(0)
   })
 
@@ -273,8 +289,8 @@ describe('Bold notices', () => {
     await sendWebhook(saleEvent(button.reference, 102000))
     calls = []
     await sendWebhook(saleEvent(second.reference, 102000, 'SALE_APPROVED', 'evt-second'))
-    expect(telegram()[0]!.body.text).toContain('Pago duplicado')
-    expect(whatsapp()[0]!.body.text).toContain('Pago duplicado')
+    expect(telegram()[0]!.body.text).toContain('PAGO DUPLICADO')
+    expect(whatsapp()[0]!.body.text).toContain('PAGO DUPLICADO')
     expect(emails()).toHaveLength(0)
     expect(stock()).toBe(2)
   })

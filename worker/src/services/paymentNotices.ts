@@ -8,10 +8,10 @@ import { legacyOwnerIds } from './assistant/context'
 import { sendTelegramMessage } from './assistant/telegramApi'
 import { escapeHtml, formatMoney } from './assistant/tools'
 import { orderRecipients, parseOrderItems } from './orders'
-import { htmlToWhatsApp } from '../whatsapp/format'
+import { buildOutbound } from '../whatsapp/format'
 import { sendWahaText, wahaConfigured, wahaEnabled } from '../whatsapp/waha'
 import { sendWhatsApp, whatsappConfigured, whatsappEnabled } from '../whatsapp/api'
-import { getStoreById, publicStoreUrl } from '../tenancy/stores'
+import { adminStoreUrl, getStoreById, publicStoreUrl } from '../tenancy/stores'
 
 type Bindings = Env['Bindings']
 
@@ -35,7 +35,7 @@ export type PaymentNoticeInput = {
 type OrderRow = {
   id: number; display_id: string; customer_name: string | null; customer_email: string | null; customer_phone: string | null
   customer_city: string | null; delivery_address: string | null; items_json: string; subtotal: number; discount_total: number
-  shipping_cost: number | null; currency: string
+  shipping_cost: number | null; currency: string; status: string; revision: number; coupon_code: string | null
 }
 
 const METHOD_LABELS: Record<string, string> = {
@@ -44,66 +44,147 @@ const METHOD_LABELS: Record<string, string> = {
 }
 export const methodLabel = (method?: string | null) => (method ? METHOD_LABELS[method.toUpperCase()] || method.replace(/_/g, ' ').toLowerCase() : 'Pago en línea')
 
-/** Texto (HTML de Telegram) para el equipo. */
-export function teamNotice(storeName: string, order: Pick<OrderRow, 'display_id' | 'customer_name'>, notice: PaymentNoticeInput): string {
-  const test = notice.mode === 'test' ? '\n🧪 Modo de pruebas de Bold: no se cobró dinero real.' : ''
-  const who = order.customer_name ? ` · ${escapeHtml(order.customer_name)}` : ''
-  const ref = `\nRef. Bold ${escapeHtml(notice.reference)}${notice.txId ? ` · transacción ${escapeHtml(notice.txId)}` : ''}`
-  const paid = `${escapeHtml(order.display_id)}${who}\n💳 ${formatMoney(notice.amount, notice.currency)} · ${escapeHtml(methodLabel(notice.method))}${ref}`
-  if (notice.status === 'aprobado' && notice.outcome === 'duplicado') {
-    return `⚠️ <b>Pago duplicado en ${escapeHtml(storeName)}</b>\n${paid}\n\nEste pedido ya estaba pagado con otra transacción: el cliente pagó dos veces. Devuélvele este pago desde tu panel de Bold.${test}`
-  }
-  if (notice.status === 'aprobado' && notice.outcome === 'sin_stock') {
-    return `⚠️ <b>Pago confirmado, pero sin existencias, en ${escapeHtml(storeName)}</b>\n${paid}\n\nEl pedido quedó pagado pero NO confirmado: no hay unidades suficientes de algún producto. Revisa el inventario y escríbele al cliente; si no puedes despacharlo, devuélvele el dinero desde Bold.${test}`
-  }
-  if (notice.status === 'aprobado' && notice.outcome === 'cancelado') {
-    return `⚠️ <b>Pago recibido en un pedido cancelado en ${escapeHtml(storeName)}</b>\n${paid}\n\nEl pedido estaba cancelado cuando Bold aprobó el pago. Escríbele al cliente: reactívalo o devuélvele el dinero desde Bold.${test}`
-  }
-  if (notice.status === 'aprobado') {
-    const next = notice.outcome === 'apartado'
-      ? 'El pedido quedó <b>confirmado</b> y las unidades quedaron apartadas del inventario. Prepáralo para el despacho.'
-      : 'El pedido quedó como <b>Pago verificado</b>. Prepáralo para el despacho.'
-    return `✅ <b>Pago confirmado por Bold en ${escapeHtml(storeName)}</b>\n${paid}\n\n${next}${test}`
-  }
-  if (notice.status === 'anulado') {
-    return `↩️ <b>Bold anuló un pago en ${escapeHtml(storeName)}</b>\n${escapeHtml(order.display_id)}${who}\n💳 ${formatMoney(notice.amount, notice.currency)}${ref}\n\nEl pedido quedó como <b>Reembolsado</b>. No lo despaches.${test}`
-  }
-  return `⚠️ <b>Pago con monto distinto en ${escapeHtml(storeName)}</b>\n${escapeHtml(order.display_id)}${who}\nBold aprobó ${formatMoney(Number(notice.approvedTotal || 0), notice.currency)}, pero el pedido es de ${formatMoney(notice.amount, notice.currency)}.${ref}\n\nEl pedido NO quedó pagado: revísalo con el cliente antes de despachar.${test}`
+/** Pedido tal como lo necesita el equipo para despachar (datos del cliente, productos y pago). */
+export type TeamOrder = Pick<OrderRow, 'id' | 'display_id' | 'customer_name' | 'customer_phone' | 'customer_email' | 'customer_city' | 'delivery_address'
+  | 'items_json' | 'discount_total' | 'shipping_cost' | 'currency' | 'status' | 'revision'> & { coupon_code?: string | null }
+
+/** Teléfono del cliente como enlace de WhatsApp (Colombia: 10 dígitos que empiezan por 3 → +57). */
+export function customerWhatsApp(phone?: string | null): { display: string; link: string } | null {
+  let digits = (phone || '').replace(/\D/g, '')
+  if (digits.length === 10 && digits.startsWith('3')) digits = `57${digits}`
+  if (digits.length < 8 || digits.length > 15) return null
+  return { display: displayPhone(digits), link: `https://wa.me/${digits}` }
+}
+
+const MAX_ITEM_LINES = 15
+
+/** Aviso para el equipo (HTML de Telegram; WhatsApp lo recibe convertido a su formato).
+ * Bloques fijos para leerlo en el celular: quién compra, a dónde se envía, qué compró, cómo pagó y qué hacer. */
+export function teamNotice(storeName: string, order: TeamOrder, notice: PaymentNoticeInput, panelUrl = ''): string {
+  const money = (value: number) => formatMoney(value, notice.currency)
+  const testMode = notice.mode === 'test'
+  const headline = notice.status === 'anulado' ? '↩️ <b>PAGO ANULADO POR BOLD</b>'
+    : notice.status === 'monto_distinto' ? '⚠️ <b>PAGO CON MONTO DISTINTO</b>'
+    : notice.outcome === 'duplicado' ? '⚠️ <b>PAGO DUPLICADO</b>'
+    : notice.outcome === 'sin_stock' ? '⚠️ <b>PAGO RECIBIDO, SIN EXISTENCIAS</b>'
+    : notice.outcome === 'cancelado' ? '⚠️ <b>PAGO EN UN PEDIDO CANCELADO</b>'
+    : '✅ <b>¡NUEVO PAGO CONFIRMADO!</b>'
+
+  const contact = customerWhatsApp(order.customer_phone)
+  const customer = [
+    `• Nombre: ${escapeHtml(order.customer_name || 'Sin nombre')}`,
+    `• WhatsApp: ${contact ? `${escapeHtml(contact.display)} · ${contact.link}` : escapeHtml(order.customer_phone || 'Sin teléfono')}`,
+    `• Dirección: ${escapeHtml(order.delivery_address || 'Sin dirección')}`,
+    `• Ciudad: ${escapeHtml(order.customer_city || 'Sin ciudad')}`,
+    ...(order.customer_email ? [`• Correo: ${escapeHtml(order.customer_email)}`] : []),
+  ]
+
+  const items = parseOrderItems(order.items_json)
+  const itemLines = items.slice(0, MAX_ITEM_LINES).map((item) => {
+    const variant = [item.size && `Talla ${item.size}`, item.color].filter(Boolean).join(', ')
+    return `• ${item.quantity}× ${escapeHtml(item.name)}${variant ? ` (${escapeHtml(variant)})` : ''} — ${money(Number(item.lineSubtotal || item.price * item.quantity || 0))}`
+  })
+  if (items.length > MAX_ITEM_LINES) itemLines.push(`• … y ${items.length - MAX_ITEM_LINES} producto(s) más (míralos en el panel)`)
+  const purchase = [
+    ...itemLines,
+    ...(Number(order.discount_total) > 0 ? [`🏷️ Cupón${order.coupon_code ? ` ${escapeHtml(order.coupon_code)}` : ''}: −${money(Number(order.discount_total))}`] : []),
+    `📦 Envío: ${order.shipping_cost != null && Number(order.shipping_cost) > 0 ? `${money(Number(order.shipping_cost))} (fijo)` : 'gratis'}`,
+    notice.status === 'monto_distinto'
+      ? `💰 <b>Bold aprobó ${money(Number(notice.approvedTotal || 0))}</b>, pero el pedido es de ${money(notice.amount)}`
+      : `💰 <b>TOTAL ${notice.status === 'anulado' ? 'ANULADO' : 'PAGADO'}: ${money(notice.amount)}</b>`,
+  ]
+
+  const state = notice.status === 'anulado' ? 'Reembolsado (Bold anuló el pago)'
+    : notice.status === 'monto_distinto' ? 'NO verificado (el monto no coincide)'
+    : 'Pago verificado'
+  const shortRef = notice.reference.startsWith(`${order.display_id}-`) ? notice.reference.slice(order.display_id.length + 1) : notice.reference
+  const payment = [
+    `• Estado: ${state}${testMode ? ' · 🧪 modo de pruebas (no se cobró dinero real)' : ''}`,
+    `• Medio: ${escapeHtml(methodLabel(notice.method))}`,
+    `• Ref: ${escapeHtml(shortRef)}${notice.txId ? ` · Transacción: ${escapeHtml(notice.txId)}` : ''}`,
+  ]
+
+  const action = notice.status === 'anulado' ? 'Bold anuló este pago y el pedido quedó como reembolsado. <b>No lo despaches.</b> Si ya estaba confirmado, cancélalo para devolver las unidades al inventario.'
+    : notice.status === 'monto_distinto' ? 'El pedido NO quedó pagado. Revísalo con el cliente antes de despachar.'
+    : notice.outcome === 'duplicado' ? 'Este pedido ya estaba pagado con otra transacción: el cliente pagó dos veces. <b>Devuélvele este pago desde tu panel de Bold.</b>'
+    : notice.outcome === 'sin_stock' ? 'El dinero está asegurado, pero el pedido NO se pudo confirmar: faltan unidades de algún producto. Revisa el inventario y escríbele al cliente; si no puedes despacharlo, devuélvele el dinero desde Bold.'
+    : notice.outcome === 'cancelado' ? 'El pedido estaba cancelado cuando Bold aprobó el pago. Escríbele al cliente: reactívalo o devuélvele el dinero desde Bold.'
+    : notice.outcome === 'apartado' || order.status !== 'pendiente' ? 'El dinero está asegurado. El pedido ya quedó <b>CONFIRMADO</b> y las unidades apartadas del inventario: prepáralo para el despacho.'
+    : 'El dinero está asegurado. Confirma el pedido para iniciar el despacho.'
+
+  return [
+    `${headline} | ${escapeHtml(storeName)}`,
+    `🆔 Pedido: <b>${escapeHtml(order.display_id)}</b>`,
+    '',
+    '👤 <b>DATOS DEL CLIENTE</b>', ...customer,
+    '',
+    '🛍️ <b>RESUMEN DE COMPRA</b>', ...purchase,
+    '',
+    '💳 <b>DETALLES DEL PAGO (Bold)</b>', ...payment,
+    '',
+    '⚙️ <b>ACCIÓN REQUERIDA</b>', action,
+    ...(panelUrl ? [`👉 Panel: ${panelUrl}`] : []),
+  ].join('\n')
+}
+
+type Keyboard = { inline_keyboard: Array<Array<{ text: string; callback_data?: string; url?: string }>> }
+
+/** Botones del aviso (Telegram) y menú numerado (WhatsApp): los mismos atajos del asistente de pedidos.
+ * Los cambios de estado siempre piden confirmación en el asistente antes de aplicarse. */
+export function teamKeyboard(storeId: number, order: Pick<TeamOrder, 'id' | 'status' | 'revision'>, notice: Pick<PaymentNoticeInput, 'status' | 'outcome'>): Keyboard {
+  const cb = (...parts: Array<string | number>) => ['ord', storeId, ...parts].join(':')
+  const rows: Keyboard['inline_keyboard'] = []
+  const paidOk = notice.status === 'aprobado' && notice.outcome !== 'duplicado'
+  if (paidOk && order.status === 'pendiente') rows.push([{ text: '✅ Confirmar pedido', callback_data: cb('ask', order.id, 'confirmado', order.revision) }])
+  if (paidOk && order.status === 'confirmado') rows.push([{ text: '📦 Pasar a preparación', callback_data: cb('ask', order.id, 'preparando', order.revision) }])
+  if (order.status === 'pendiente' || order.status === 'confirmado') rows.push([{ text: '✖ Cancelar pedido', callback_data: cb('ask', order.id, 'cancelado', order.revision) }])
+  rows.push([{ text: '🧾 Ver pedido', callback_data: cb('view', order.id) }])
+  rows.push([{ text: '🛒 Ver pedidos en curso', callback_data: cb('list', 'all') }])
+  return { inline_keyboard: rows }
 }
 
 /** Números de WhatsApp vinculados al asistente por las personas activas del equipo de la tienda. */
-async function whatsappRecipients(db: D1Database, storeId: number): Promise<Array<{ phone: string | null; businessUserId: string | null }>> {
+async function whatsappRecipients(db: D1Database, storeId: number): Promise<Array<{ id: number; phone: string | null; businessUserId: string | null }>> {
   const { results } = await db.prepare(
-    `SELECT DISTINCT w.phone AS phone, w.business_user_id AS businessUserId FROM whatsapp_identities w
+    `SELECT DISTINCT w.id AS id, w.phone AS phone, w.business_user_id AS businessUserId FROM whatsapp_identities w
      JOIN platform_users u ON u.id = w.user_id AND u.status = 'active'
      JOIN store_memberships m ON m.user_id = w.user_id AND m.store_id = ? AND m.status = 'active'
      WHERE w.status = 'active'`,
-  ).bind(storeId).all<{ phone: string | null; businessUserId: string | null }>()
+  ).bind(storeId).all<{ id: number; phone: string | null; businessUserId: string | null }>()
   return results || []
 }
 
-async function sendTeamWhatsApp(env: Bindings, db: D1Database, storeId: number, html: string): Promise<number> {
+/** How long the numbered options of a payment notice stay valid (the merchant may answer hours later). */
+export const NOTICE_MENU_TTL_MS = 24 * 60 * 60 * 1000
+
+async function sendTeamWhatsApp(env: Bindings, db: D1Database, storeId: number, html: string, keyboard: Keyboard): Promise<number> {
   const viaWaha = wahaEnabled(env) && wahaConfigured(env)
   const viaMeta = !viaWaha && whatsappEnabled(env) && whatsappConfigured(env)
   if (!viaWaha && !viaMeta) return 0
-  const text = htmlToWhatsApp(html)
+  // WAHA: numbered menu ("Responde con el número"); Meta: real reply buttons or a list.
+  const { messages, numbered } = buildOutbound(html, keyboard, { interactive: !viaWaha })
   let sent = 0
   for (const to of await whatsappRecipients(db, storeId)) {
     try {
-      if (viaWaha) await sendWahaText(env, to, text)
-      else await sendWhatsApp(env, to, { type: 'text', text: { body: text, preview_url: false } })
+      for (const message of messages) {
+        if (viaWaha) await sendWahaText(env, to, String((message.text as { body?: string } | undefined)?.body || ''))
+        else await sendWhatsApp(env, to, message)
+      }
+      // Answering "1", "2"… runs the matching option, as with any menu of the assistant.
+      if (numbered) await db.prepare('UPDATE whatsapp_identities SET menu_json = ? WHERE id = ?')
+        .bind(JSON.stringify({ at: Date.now(), ttl: NOTICE_MENU_TTL_MS, ids: numbered.map((option) => option.id) }), to.id).run()
       sent += 1
     } catch { /* un número que falla no frena a los demás */ }
   }
   return sent
 }
 
-async function sendTeamTelegram(env: Bindings, db: D1Database, storeId: number, orderId: number, html: string): Promise<number> {
+async function sendTeamTelegram(env: Bindings, db: D1Database, storeId: number, html: string, keyboard: Keyboard, panelUrl: string): Promise<number> {
   if (!env.TELEGRAM_BOT_TOKEN) return 0
   const recipients = await orderRecipients(db, storeId, await legacyOwnerIds(db, env))
-  const results = await Promise.all(recipients.map((chatId) => sendTelegramMessage(env.TELEGRAM_BOT_TOKEN!, Number(chatId), html, 'HTML', {
-    inline_keyboard: [[{ text: '🧾 Ver pedido', callback_data: `ord:${storeId}:view:${orderId}` }]],
-  }).then(() => true).catch(() => false)))
+  const markup = panelUrl ? { inline_keyboard: [...keyboard.inline_keyboard, [{ text: '🧭 Abrir el panel de pedidos', url: panelUrl }]] } : keyboard
+  const results = await Promise.all(recipients.map((chatId) => sendTelegramMessage(env.TELEGRAM_BOT_TOKEN!, Number(chatId), html, 'HTML', markup)
+    .then(() => true).catch(() => false)))
   return results.filter(Boolean).length
 }
 
@@ -206,13 +287,17 @@ async function sendBuyerEmail(env: Bindings, db: D1Database, storeName: string, 
 
 export async function notifyPaymentResult(env: Bindings, db: D1Database, notice: PaymentNoticeInput): Promise<{ telegram: number; whatsapp: number; email: string }> {
   const order = await db.prepare(`SELECT id, display_id, customer_name, customer_email, customer_phone, customer_city, delivery_address, items_json, subtotal,
-    discount_total, shipping_cost, currency FROM orders WHERE id = ? AND store_id = ?`).bind(notice.orderId, notice.storeId).first<OrderRow>()
+    discount_total, shipping_cost, currency, status, revision, coupon_code FROM orders WHERE id = ? AND store_id = ?`).bind(notice.orderId, notice.storeId).first<OrderRow>()
   if (!order) return { telegram: 0, whatsapp: 0, email: 'sin_pedido' }
   const storeName = (await db.prepare('SELECT name FROM store_config WHERE id = ?').bind(notice.storeId).first<{ name: string }>())?.name || 'tu tienda'
-  const html = teamNotice(storeName, order, notice)
+  const store = await getStoreById(db, notice.storeId)
+  const base = (env.PUBLIC_STORE_BASE_URL || '').replace(/\/+$/, '')
+  const panelUrl = store && base ? `${adminStoreUrl(base, store)}/orders` : ''
+  const html = teamNotice(storeName, order, notice, panelUrl)
+  const keyboard = teamKeyboard(notice.storeId, order, notice)
   const [telegram, whatsapp, email] = await Promise.all([
-    sendTeamTelegram(env, db, notice.storeId, order.id, html).catch(() => 0),
-    sendTeamWhatsApp(env, db, notice.storeId, html).catch(() => 0),
+    sendTeamTelegram(env, db, notice.storeId, html, keyboard, panelUrl).catch(() => 0),
+    sendTeamWhatsApp(env, db, notice.storeId, html, keyboard).catch(() => 0),
     // El correo dice que el pedido se está preparando: solo sale cuando es cierto (no en duplicados, sin stock ni pedidos cancelados).
     notice.status === 'aprobado' && !['duplicado', 'sin_stock', 'cancelado'].includes(notice.outcome || '') ? sendBuyerEmail(env, db, storeName, order, notice).catch(() => 'fallido') : Promise.resolve('no_aplica'),
   ])

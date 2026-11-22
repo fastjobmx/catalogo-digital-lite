@@ -5,38 +5,66 @@ import type { BoldButtonData } from '../services/api'
 const LIBRARY = 'https://checkout.bold.co/library/boldPaymentButton.js'
 const PENDING_KEY = 'catalogo-bold-pending'
 
-/** Bold scans the page when its library loads, so the library is (re)inserted after the button script. */
-export function mountBoldButton(container: HTMLElement, data: BoldButtonData, customer: { name?: string; email?: string; phone?: string }) {
-  container.replaceChildren()
-  const button = document.createElement('script')
-  const attributes: Record<string, string> = {
-    'data-bold-button': 'dark-L',
-    'data-api-key': data.apiKey,
-    'data-order-id': data.reference,
-    'data-amount': String(data.amount),
-    'data-currency': data.currency,
-    'data-integrity-signature': data.signature,
-    'data-description': data.description,
-  }
-  // Bold only accepts https return URLs (a local http://localhost page is rejected with BTN-001).
-  if (data.redirectionUrl.startsWith('https://')) {
-    attributes['data-redirection-url'] = data.redirectionUrl
-    attributes['data-origin-url'] = data.redirectionUrl
-  }
-  const customerData: Record<string, string> = {}
-  if (customer.name?.trim()) customerData.fullName = customer.name.trim().slice(0, 100)
-  if (customer.email?.trim()) customerData.email = customer.email.trim()
+type BoldCheckoutInstance = { open: () => void }
+type BoldCheckoutConstructor = new (config: Record<string, string>) => BoldCheckoutInstance
+declare global { interface Window { BoldCheckout?: BoldCheckoutConstructor } }
+
+let libraryLoad: Promise<BoldCheckoutConstructor> | null = null
+
+/** Loads Bold's library once (https://checkout.bold.co/library/boldPaymentButton.js) and resolves with BoldCheckout. */
+export function loadBoldLibrary(timeoutMs = 15_000): Promise<BoldCheckoutConstructor> {
+  if (window.BoldCheckout) return Promise.resolve(window.BoldCheckout)
+  if (libraryLoad) return libraryLoad
+  libraryLoad = new Promise<BoldCheckoutConstructor>((resolve, reject) => {
+    const done = () => (window.BoldCheckout ? resolve(window.BoldCheckout) : reject(new Error('BOLD_LIBRARY_UNAVAILABLE')))
+    const timer = window.setTimeout(() => reject(new Error('BOLD_LIBRARY_TIMEOUT')), timeoutMs)
+    const script = document.createElement('script')
+    script.src = LIBRARY
+    script.async = true
+    script.onload = () => { window.clearTimeout(timer); done() }
+    script.onerror = () => { window.clearTimeout(timer); reject(new Error('BOLD_LIBRARY_FAILED')) }
+    document.head.appendChild(script)
+  }).catch((error) => { libraryLoad = null; throw error })
+  return libraryLoad
+}
+
+export type BoldCustomer = { name?: string; email?: string; phone?: string; address?: string; city?: string }
+
+/** Customer data Bold pre-fills in its form (JSON strings, as its library expects). */
+export function boldCustomerFields(customer: BoldCustomer): Record<string, string> {
+  const fields: Record<string, string> = {}
+  const data: Record<string, string> = {}
+  if (customer.name?.trim()) data.fullName = customer.name.trim().slice(0, 100)
+  if (customer.email?.trim()) data.email = customer.email.trim()
   const digits = (customer.phone || '').replace(/\D/g, '')
-  if (digits.length === 12 && digits.startsWith('57')) { customerData.dialCode = '+57'; customerData.phone = digits.slice(2) }
-  else if (digits.length === 10 && digits.startsWith('3')) { customerData.dialCode = '+57'; customerData.phone = digits }
-  if (Object.keys(customerData).length) attributes['data-customer-data'] = JSON.stringify(customerData)
-  for (const [name, value] of Object.entries(attributes)) button.setAttribute(name, value)
-  container.appendChild(button)
-  document.querySelectorAll(`script[src="${LIBRARY}"]`).forEach((node) => node.remove())
-  const library = document.createElement('script')
-  library.src = LIBRARY
-  library.async = true
-  document.head.appendChild(library)
+  if (digits.length === 12 && digits.startsWith('57')) { data.dialCode = '+57'; data.phone = digits.slice(2) }
+  else if (digits.length === 10 && digits.startsWith('3')) { data.dialCode = '+57'; data.phone = digits }
+  if (Object.keys(data).length) fields.customerData = JSON.stringify(data)
+  if (customer.address?.trim() && customer.city?.trim()) {
+    fields.billingAddress = JSON.stringify({ address: customer.address.trim().slice(0, 100), city: customer.city.trim().slice(0, 60), country: 'CO' })
+  }
+  return fields
+}
+
+/** Opens Bold's gateway in a modal over the store (Embedded Checkout): the buyer never leaves the page.
+ * Every value comes signed from the server; Bold only accepts https return addresses. */
+export async function openBoldCheckout(data: BoldButtonData, customer: BoldCustomer): Promise<void> {
+  const BoldCheckout = await loadBoldLibrary()
+  const config: Record<string, string> = {
+    orderId: data.reference,
+    currency: data.currency,
+    amount: String(data.amount),
+    apiKey: data.apiKey,
+    integritySignature: data.signature,
+    description: data.description,
+    renderMode: 'embedded',
+    ...boldCustomerFields(customer),
+  }
+  if (data.redirectionUrl.startsWith('https://')) {
+    config.redirectionUrl = data.redirectionUrl
+    config.originUrl = data.redirectionUrl
+  }
+  new BoldCheckout(config).open()
 }
 
 type Pending = { reference: string; checkoutKey: string; displayId: string; at: number }
