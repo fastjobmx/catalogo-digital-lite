@@ -18,7 +18,7 @@ import { roleAllows } from '../tenancy/access'
 import { AiCatalogError, photoToProduct, readCatalogPage, studioEdit } from '../services/aiCatalog'
 import { ImportError, applyImportBatch, createImportJob, finishImportJob, listImportJobs, previewImport } from '../services/catalogImport'
 import { aiOverview } from '../ai/aiOverview'
-import { BoldError, boldSettingsView, getGateway, saveBoldSettings } from '../services/bold'
+import { BoldError, boldSettingsView, getGateway, lastWebhookHit, saveBoldSettings } from '../services/bold'
 import { connectOwnKey, declareOwnKeyTier, disconnectOwnKey, OwnKeyError, ownKeyStatus, revalidateOwnKey, setBuyerDataPolicy, updateOwnKeyUses } from '../ai/ownKey'
 import { CreditError, createCreditRequest, creditSummary, listCreditCosts, listCreditMovements, listCreditRequests } from '../ai/credits'
 import { getTelegramBatchPhoto, getTelegramBatchReview, listTelegramBatches, updateTelegramBatchReviewItem } from '../services/telegramProductBatches'
@@ -374,14 +374,14 @@ app.delete('/ai/key', adminAuth, requireRole('owner'), (c) => ownKeyAction(c, (s
 // Pago en línea con Bold: la llave secreta nunca vuelve al navegador (solo su pista).
 app.get('/payments/bold', adminAuth, requireRole('admin'), async (c) => {
   const view = boldSettingsView(await getGateway(c.env.DB, c.get('storeId')!))
-  return c.json({ ...view, webhookUrl: `${new URL(c.req.url).origin}/api/payments/bold/webhook` })
+  return c.json({ ...view, webhookUrl: `${new URL(c.req.url).origin}/api/payments/bold/webhook`, lastWebhook: await lastWebhookHit(c.env.DB, c.get('store')!.id) })
 })
 app.put('/payments/bold', adminAuth, requireRole('owner'), async (c) => {
   const body = await c.req.json().catch(() => null) as Record<string, unknown> | null
   if (!body) return c.json({ error: 'Invalid request' }, 400)
   try {
     const view = await saveBoldSettings(c.env.DB, c.env, c.get('storeId')!, body, c.get('adminEmail') || 'unknown')
-    return c.json({ ...view, webhookUrl: `${new URL(c.req.url).origin}/api/payments/bold/webhook` })
+    return c.json({ ...view, webhookUrl: `${new URL(c.req.url).origin}/api/payments/bold/webhook`, lastWebhook: await lastWebhookHit(c.env.DB, c.get('store')!.id) })
   } catch (error) {
     if (error instanceof BoldError) return c.json({ error: error.message, code: error.code }, error.status)
     throw error

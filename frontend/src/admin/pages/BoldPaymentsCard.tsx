@@ -3,6 +3,15 @@ import { Check, Copy, CreditCard } from 'lucide-react'
 import { boldSettingsApi, type BoldSettings } from '../../services/api'
 import { useStore } from '../../contexts/StoreContext'
 
+const EVENT_LABELS: Record<string, string> = { SALE_APPROVED: 'venta aprobada', SALE_REJECTED: 'venta rechazada', VOID_APPROVED: 'anulación aprobada', VOID_REJECTED: 'anulación rechazada' }
+const RESULT_LABELS: Record<string, string> = {
+  aprobado: 'pago aplicado', rechazado: 'rechazo registrado', fallido: 'fallo registrado', anulado: 'anulación aplicada', monto_distinto: 'monto distinto (revisar)',
+  duplicado: 'repetido (ya estaba aplicado)', firma_invalida: 'firma inválida: revisa la llave secreta', sin_pasarela: 'tienda sin Bold configurado',
+  en_proceso: 'pago en proceso', creado: 'recibido',
+}
+/** SQLite UTC "2026-11-22 18:11:21" → hora de Colombia. */
+const formatHit = (value: string) => new Date(`${value.replace(' ', 'T')}Z`).toLocaleString('es-CO', { timeZone: 'America/Bogota', dateStyle: 'medium', timeStyle: 'short' })
+
 /** Pago en línea con Bold: llaves del Botón de pagos, modo, envío fijo y URL del webhook. */
 export default function BoldPaymentsCard({ token, backendAvailable }: { token: string | null; backendAvailable: boolean }) {
   const { refreshFromApi } = useStore()
@@ -87,6 +96,9 @@ export default function BoldPaymentsCard({ token, backendAvailable }: { token: s
             <button type="button" onClick={() => void copyWebhook()} className="shrink-0 p-1.5 text-muted hover:text-ink" aria-label="Copiar URL del webhook">{copied ? <Check size={16} /> : <Copy size={16} />}</button>
           </div>
           <p className="text-[11px] text-muted">Con el webhook, los pagos se confirman aunque el cliente no vuelva a la tienda.</p>
+          <p className="text-[11px] font-semibold text-ink" role="status">{settings.lastWebhook
+            ? `Último aviso de Bold: ${formatHit(settings.lastWebhook.receivedAt)} · ${EVENT_LABELS[settings.lastWebhook.eventType || ''] || settings.lastWebhook.eventType || 'evento'} · ${RESULT_LABELS[settings.lastWebhook.result] || settings.lastWebhook.result}`
+            : `Bold aún no ha enviado avisos a esta tienda.${settings.mode === 'test' ? ' En modo de pruebas Bold no los envía; los pagos se confirman consultando a Bold.' : ''}`}</p>
         </div>}
         {message && <p className={`text-xs font-semibold ${message.ok ? 'text-emerald-700' : 'text-red-600'}`} role="status">{message.text}</p>}
         <button onClick={() => void save()} disabled={busy || !identityKey.trim() || (!settings?.configured && !secretKey.trim())} className="btn-brand disabled:opacity-50">

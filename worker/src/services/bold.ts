@@ -238,26 +238,63 @@ export async function findAttempt(db: D1Database, reference: string): Promise<At
   return db.prepare('SELECT id, store_id, order_id, reference, amount, currency, status, mode FROM payment_attempts WHERE reference = ?').bind(reference).first<AttemptRow>()
 }
 
-/** Signed webhook from Bold. Returns a short result code (stored, never the payload). */
+type WebhookOutcome = { status: number; result: string; eventType?: string; eventId?: string; reference?: string; storeId?: number }
+
+/** Signed webhook from Bold. Every arrival is recorded (result, type, reference; never the body) so the platform can
+ * show that Bold reaches it, even when the event cannot be applied (unknown reference, bad signature, repeated…). */
 export async function handleBoldWebhook(db: D1Database, env: Bindings, rawBody: string, signature: string, defer?: (task: Promise<unknown>) => void): Promise<{ status: number; result: string }> {
+  let outcome: WebhookOutcome
+  try { outcome = await processBoldWebhook(db, env, rawBody, signature, defer) }
+  catch (error) {
+    await recordWebhookHit(db, { status: 500, result: 'error_interno' }, rawBody.length, Boolean(signature))
+    throw error
+  }
+  await recordWebhookHit(db, outcome, rawBody.length, Boolean(signature))
+  return { status: outcome.status, result: outcome.result }
+}
+
+/** One row per arrival. A logging failure never changes the answer Bold receives. */
+export async function recordWebhookHit(db: D1Database, outcome: WebhookOutcome, bodyBytes: number, signed: boolean): Promise<void> {
+  const clip = (value: string | undefined, max: number) => (value ? value.slice(0, max) : null)
+  try {
+    await db.prepare(`INSERT INTO payment_webhook_hits (provider, result, http_status, event_type, event_id, reference, store_id, signed, body_bytes) VALUES ('bold', ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(outcome.result.slice(0, 40), outcome.status, clip(outcome.eventType, 40), clip(outcome.eventId, 120), clip(outcome.reference, 80), outcome.storeId ?? null, signed ? 1 : 0, bodyBytes).run()
+  } catch { /* the hit log is best effort */ }
+}
+
+/** Last webhook Bold delivered for a store (shown in the store's payment settings). */
+export async function lastWebhookHit(db: D1Database, storeId: number): Promise<{ receivedAt: string; result: string; eventType: string | null } | null> {
+  const row = await db.prepare(`SELECT received_at, result, event_type FROM payment_webhook_hits WHERE store_id = ? ORDER BY id DESC LIMIT 1`).bind(storeId)
+    .first<{ received_at: string; result: string; event_type: string | null }>()
+  return row ? { receivedAt: row.received_at, result: row.result, eventType: row.event_type } : null
+}
+
+/** Retention of the hit log: 90 days. */
+export async function purgeWebhookHits(db: D1Database): Promise<void> {
+  await db.prepare(`DELETE FROM payment_webhook_hits WHERE received_at < datetime('now', '-90 days')`).run()
+}
+
+async function processBoldWebhook(db: D1Database, env: Bindings, rawBody: string, signature: string, defer?: (task: Promise<unknown>) => void): Promise<WebhookOutcome> {
   let event: { id?: string; type?: string; subject?: string; data?: { payment_id?: string; payment_method?: string; payer_email?: string; metadata?: { reference?: string }; amount?: { total?: number } } }
   try { event = JSON.parse(rawBody) } catch { return { status: 400, result: 'json_invalido' } }
-  const reference = String(event.data?.metadata?.reference || '')
-  const eventId = String(event.id || event.subject || '')
-  const type = String(event.type || '')
-  if (!reference || !eventId || !type) return { status: 400, result: 'evento_incompleto' }
+  const reference = String(event?.data?.metadata?.reference || '')
+  const eventId = String(event?.id || event?.subject || '')
+  const type = String(event?.type || '')
+  const seen = { eventType: type || undefined, eventId: eventId || undefined, reference: reference || undefined }
+  if (!reference || !eventId || !type) return { status: 400, result: 'evento_incompleto', ...seen }
   const attempt = await findAttempt(db, reference)
-  if (!attempt) return { status: 200, result: 'referencia_desconocida' }
+  if (!attempt) return { status: 200, result: 'referencia_desconocida', ...seen }
+  const known = { ...seen, storeId: attempt.store_id }
   const gateway = await getGateway(db, attempt.store_id)
-  if (!gateway) return { status: 200, result: 'sin_pasarela' }
+  if (!gateway) return { status: 200, result: 'sin_pasarela', ...known }
   const expected = await webhookSignature(rawBody, await secretOf(env, gateway))
-  if (!signature || !sameText(expected, signature.trim().toLowerCase())) return { status: 401, result: 'firma_invalida' }
+  if (!signature || !sameText(expected, signature.trim().toLowerCase())) return { status: 401, result: 'firma_invalida', ...known }
   const inserted = await db.prepare(`INSERT OR IGNORE INTO payment_webhook_events (provider, event_id, event_type, reference, store_id, result) VALUES ('bold', ?, ?, ?, ?, 'recibido')`)
     .bind(eventId, type, reference, attempt.store_id).run()
-  if (!Number(inserted.meta.changes || 0)) return { status: 200, result: 'duplicado' }
+  if (!Number(inserted.meta.changes || 0)) return { status: 200, result: 'duplicado', ...known }
   const next = await applyBoldResult(db, attempt, { status: type, total: event.data?.amount?.total ?? null, txId: event.data?.payment_id ?? null, method: event.data?.payment_method ?? null, source: 'webhook' }, { env, defer, payerEmail: event.data?.payer_email ?? null })
   await db.prepare(`UPDATE payment_webhook_events SET result = ? WHERE provider = 'bold' AND event_id = ?`).bind(next, eventId).run()
-  return { status: 200, result: next }
+  return { status: 200, result: next, ...known }
 }
 
 /** Safety net for the webhook: every cron tick (15 min) asks Bold about recent attempts that are still open, so a

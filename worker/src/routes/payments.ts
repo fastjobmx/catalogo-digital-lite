@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
 import type { Env } from '../index'
 import { publicStore } from '../middleware/tenant'
-import { BoldError, createBoldCheckout, findAttempt, handleBoldWebhook, refreshAttemptFromBold } from '../services/bold'
+import { BoldError, createBoldCheckout, findAttempt, handleBoldWebhook, recordWebhookHit, refreshAttemptFromBold } from '../services/bold'
 
 const app = new Hono<Env>()
 
@@ -60,7 +60,10 @@ function deferOf(c: { executionCtx: { waitUntil(task: Promise<unknown>): void } 
 // Bold webhook (one URL for every store: the reference identifies the store, whose secret checks the signature).
 app.post('/bold/webhook', async (c) => {
   const raw = await c.req.text()
-  if (raw.length > 64_000) return c.json({ error: 'Payload too large' }, 413)
+  if (raw.length > 64_000) {
+    await recordWebhookHit(c.env.DB, { status: 413, result: 'demasiado_grande' }, raw.length, Boolean(c.req.header('x-bold-signature')))
+    return c.json({ error: 'Payload too large' }, 413)
+  }
   const outcome = await handleBoldWebhook(c.env.DB, c.env, raw, c.req.header('x-bold-signature') || '', deferOf(c))
   return c.json({ result: outcome.result }, outcome.status as 200)
 })

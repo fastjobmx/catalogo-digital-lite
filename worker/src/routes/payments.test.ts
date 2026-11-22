@@ -120,6 +120,26 @@ describe('Bold results', () => {
     expect(paymentStatus(order.displayId)).toBe('pendiente')
   })
 
+  it('records every arrival from Bold, even the ones it cannot apply, without the body', async () => {
+    const { button } = await paidFlow()
+    await sendWebhook(saleEvent('REF-DE-EJEMPLO-BOLD', 5000, 'SALE_APPROVED', 'evt-sample'))
+    await sendWebhook(saleEvent(button.reference, 102000, 'SALE_APPROVED', 'evt-forged'), 'f'.repeat(64))
+    await sendWebhook(saleEvent(button.reference, 102000))
+    await sendWebhook(saleEvent(button.reference, 102000))
+    await worker.fetch(new Request('https://api.test/api/payments/bold/webhook', { method: 'POST', body: '{roto' }), h.env, { waitUntil() {}, passThroughOnException() {}, props: {} } as unknown as ExecutionContext)
+    const hits = h.db.query<Record<string, unknown>>('SELECT result, http_status, event_type, reference, store_id, signed FROM payment_webhook_hits ORDER BY id')
+    expect(hits).toEqual([
+      { result: 'referencia_desconocida', http_status: 200, event_type: 'SALE_APPROVED', reference: 'REF-DE-EJEMPLO-BOLD', store_id: null, signed: 1 },
+      { result: 'firma_invalida', http_status: 401, event_type: 'SALE_APPROVED', reference: button.reference, store_id: storeId, signed: 1 },
+      { result: 'aprobado', http_status: 200, event_type: 'SALE_APPROVED', reference: button.reference, store_id: storeId, signed: 1 },
+      { result: 'duplicado', http_status: 200, event_type: 'SALE_APPROVED', reference: button.reference, store_id: storeId, signed: 1 },
+      { result: 'json_invalido', http_status: 400, event_type: null, reference: null, store_id: null, signed: 0 },
+    ])
+    // The store's payment settings show the last notice Bold delivered.
+    const view = await (await h.request('/api/admin/payments/bold', { token, store: 'muy-parcero' })).json() as { lastWebhook: { result: string; eventType: string } }
+    expect(view.lastWebhook).toMatchObject({ result: 'duplicado', eventType: 'SALE_APPROVED' })
+  })
+
   it('does not mark paid when Bold approved a different amount', async () => {
     const { order, button } = await paidFlow()
     await sendWebhook(saleEvent(button.reference, 1000))

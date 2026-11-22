@@ -22,7 +22,7 @@ import { cleanupAssistantMemory } from './services/assistant/context'
 import { cleanupExpiredTelegramProductAssets } from './services/telegramProductImages'
 import { releaseExpiredReservations } from './ai/credits'
 import { allowanceCapacity, expireStaleReservations } from './ai/spendGuard'
-import { reconcileBoldPayments } from './services/bold'
+import { purgeWebhookHits, reconcileBoldPayments } from './services/bold'
 import { expireCreditLots } from './ai/creditWallet'
 import trialRoutes from './routes/trial'
 import seoRoutes from './routes/seo'
@@ -294,7 +294,7 @@ const worker = {
   // Estudio Creativo: primero libera trabajos caídos; después avanza la cola de fotos pendientes.
   context.waitUntil(maintainCreativeJobs(env.DB).then(() => processPendingPhotoJobs(env)).then(() => processPendingVideoJobs(env)).catch((error) => console.error('Creative jobs maintenance failed:', error instanceof Error ? error.message : 'unknown')))
   // Pagos en línea: confirma con Bold los pagos que siguen abiertos (por si el webhook no llegó).
-  context.waitUntil(reconcileBoldPayments(env, env.DB).catch((error) => console.error('Bold reconciliation failed:', error instanceof Error ? error.message : 'unknown')))
+  context.waitUntil(reconcileBoldPayments(env, env.DB).then(() => purgeWebhookHits(env.DB)).catch((error) => console.error('Bold reconciliation failed:', error instanceof Error ? error.message : 'unknown')))
   context.waitUntil(maintainWhatsApp(env, env.DB).catch((error) => console.error('WhatsApp maintenance failed:', error instanceof Error ? error.message : 'unknown')))
   context.waitUntil(cleanupAssistantMemory(env.DB).catch((error) => console.error('Assistant memory cleanup failed:', error instanceof Error ? error.message : 'unknown')))
  },

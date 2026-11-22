@@ -457,7 +457,7 @@ export async function getBoldPaymentStatus(body: { reference: string; checkoutKe
   return fetchApi<BoldPaymentStatus>('/api/payments/bold/status', { method: 'POST', body: JSON.stringify(body) })
 }
 
-export interface BoldSettings { configured: boolean; enabled: boolean; mode: 'test' | 'live'; identityKey: string; secretHint: string; shippingFee: number; updatedAt: string | null; updatedBy: string | null; webhookUrl: string }
+export interface BoldSettings { configured: boolean; enabled: boolean; mode: 'test' | 'live'; identityKey: string; secretHint: string; shippingFee: number; updatedAt: string | null; updatedBy: string | null; webhookUrl: string; lastWebhook?: { receivedAt: string; result: string; eventType: string | null } | null }
 export const boldSettingsApi = {
   get: (token: string) => fetchApi<BoldSettings>('/api/admin/payments/bold', { headers: { Authorization: `Bearer ${token}` } }),
   save: (payload: { identityKey?: string; secretKey?: string; mode?: 'test' | 'live'; enabled?: boolean; shippingFee?: number }, token: string) =>
