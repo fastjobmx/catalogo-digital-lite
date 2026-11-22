@@ -3,6 +3,7 @@ import Header from './Header'
 import Footer from './Footer'
 import CartDrawer from '../cart/CartDrawer'
 import BoldReturnNotice from '../cart/BoldReturnNotice'
+import AddedToCartToast from '../cart/AddedToCartToast'
 import WhatsAppButton from '../WhatsAppButton'
 import { useCatalog } from '../../contexts/CatalogContext'
 import { useStore } from '../../contexts/StoreContext'
@@ -27,6 +28,7 @@ export default function StoreLayout() {
       <Footer />
       <CartDrawer />
       <BoldReturnNotice />
+      <AddedToCartToast />
       <WhatsAppButton />
     </div>
   )

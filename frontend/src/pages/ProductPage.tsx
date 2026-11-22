@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { notifyAddedToCart } from '../components/cart/AddedToCartToast'
 import { Link, useParams } from 'react-router-dom'
 import { Minus, Plus, Truck, ShieldCheck, RefreshCw, MessageCircle, ChevronRight, Check, X, ZoomIn } from 'lucide-react'
 import { useCatalog } from '../contexts/CatalogContext'
@@ -151,7 +152,8 @@ export default function ProductPage() {
       availableStock: variant.stock,
     }, qty)
     setAdded(true)
-    document.dispatchEvent(new CustomEvent('open-cart'))
+    // A small notice, not the drawer: the buyer keeps browsing and adding products.
+    notifyAddedToCart({ name: product.name, image: galleryImages[0] ?? null, detail: [variant.size && `Talla ${variant.size}`, variant.color].filter(Boolean).join(' · '), quantity: qty })
     setTimeout(() => setAdded(false), 2000)
   }
 

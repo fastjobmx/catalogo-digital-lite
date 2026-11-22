@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { notifyAddedToCart } from '../cart/AddedToCartToast'
 import { Link } from 'react-router-dom'
 import { ChevronDown, Eye, ShoppingBag } from 'lucide-react'
 import { useStore } from '../../contexts/StoreContext'
@@ -101,7 +102,7 @@ function StorySlide({ product, position, total, eager, currency }: { product: Pr
       size: single.size ?? undefined, color: single.color ?? undefined, availableStock: single.stock,
     }, 1)
     setAdded(true)
-    document.dispatchEvent(new CustomEvent('open-cart'))
+    notifyAddedToCart({ name: product.name, image: images[0] ?? null, detail: [single.size && `Talla ${single.size}`, single.color].filter(Boolean).join(' · '), quantity: 1 })
     setTimeout(() => setAdded(false), 1800)
   }
 

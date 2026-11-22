@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { notifyAddedToCart } from './cart/AddedToCartToast'
 import { Link } from 'react-router-dom'
 import { Plus, Check, ArrowUpRight } from 'lucide-react'
 import type { ProductApi } from '../services/api'
@@ -47,6 +48,7 @@ export default function ProductCard({ product, priority = false }: { product: Pr
       availableStock: variant.stock,
     })
     setAdded(true)
+    notifyAddedToCart({ name: product.name, image: product.imageUrls[0] ?? null, detail: [variant.size && `Talla ${variant.size}`, variant.color].filter(Boolean).join(' · '), quantity: 1 })
     setTimeout(() => setAdded(false), 1600)
   }
 
