@@ -103,16 +103,71 @@ export function orderDetail(order: Pick<OrderRow, 'items_json' | 'discount_total
   return lines.join('\n')
 }
 
+const brandColor = (value?: string | null) => (/^#[0-9a-f]{6}$/i.test((value || '').trim()) ? value!.trim().toUpperCase() : '')
+
+function paletteOf(themeJson?: string | null): Partial<Record<'background' | 'text' | 'button' | 'buttonText', string>> {
+  try {
+    const palette = (JSON.parse(themeJson || '{}') as { style?: { palette?: Record<string, unknown> } }).style?.palette || {}
+    return Object.fromEntries(Object.entries(palette).filter(([, value]) => typeof value === 'string')) as Partial<Record<'background' | 'text' | 'button' | 'buttonText', string>>
+  } catch { return {} }
+}
+
+const luminance = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)).reduce((sum, c, i) => sum + c * [0.2126, 0.7152, 0.0722][i]!, 0)
+const contrastOk = (a: string, b: string) => {
+  if (!brandColor(a) || !brandColor(b)) return false
+  const [x, y] = [luminance(a), luminance(b)].sort((m, n) => n - m)
+  return (x! + 0.05) / (y! + 0.05) >= 4.5
+}
+
+/** Dark text on light store colors (like lime) and white text on dark ones. */
+export function readableOn(hex: string): string {
+  return luminance(hex) > 0.4 ? '#16131F' : '#FFFFFF'
+}
+
+/** Store assets are saved as paths (/api/assets/…); emails need the full https address. */
+export function absoluteAsset(baseUrl: string | undefined, path?: string | null): string {
+  const value = (path || '').trim()
+  if (/^https:\/\//i.test(value)) return value
+  if (!value.startsWith('/')) return ''
+  try { return new URL(value, new URL(baseUrl || '').origin).toString().replace(/^http:/, 'https:') } catch { return '' }
+}
+
+/** 573022323472 → +57 302 232 3472 (otros países: +<dígitos>). */
+export function displayPhone(digits: string): string {
+  const match = /^57(\d{3})(\d{3})(\d{4})$/.exec(digits)
+  return match ? `+57 ${match[1]} ${match[2]} ${match[3]}` : `+${digits}`
+}
+
 async function sendBuyerEmail(env: Bindings, db: D1Database, storeName: string, order: OrderRow, notice: PaymentNoticeInput): Promise<string> {
   const to = [order.customer_email, notice.payerEmail].map((value) => (value || '').trim()).find(isEmail)
   if (!to) return 'sin_correo'
   const store = await getStoreById(db, notice.storeId)
-  const config = await db.prepare(`SELECT COALESCE(NULLIF(whatsapp_orders, ''), whatsapp_phone) AS whatsapp_phone FROM store_config WHERE id = ?`).bind(notice.storeId).first<{ whatsapp_phone: string | null }>()
+  const config = await db.prepare(`SELECT COALESCE(NULLIF(whatsapp_orders, ''), whatsapp_phone) AS whatsapp_phone, logo_url, primary_color, button_color, email, theme_config
+    FROM store_config WHERE id = ?`).bind(notice.storeId).first<{ whatsapp_phone: string | null; logo_url: string | null; primary_color: string | null; button_color: string | null; email: string | null; theme_config: string | null }>()
   const phone = (config?.whatsapp_phone || '').replace(/\D/g, '')
+  // The store's own palette (Apariencia), so the logo sits on the same background it has in the store.
+  const palette = paletteOf(config?.theme_config)
+  const color = brandColor(palette.button) || brandColor(config?.button_color) || brandColor(config?.primary_color) || '#16131F'
+  const header = brandColor(palette.background) || '#FFFFFF'
+  const logo = absoluteAsset(env.PUBLIC_STORE_BASE_URL, config?.logo_url)
+  const storeEmail = isEmail((config?.email || '').trim()) ? config!.email!.trim() : ''
+  const whatsappText = `Hola ${storeName}, tengo una pregunta sobre mi pedido ${order.display_id}.`
   const result = await sendEmail(db, env, {
     template: { key: 'order_paid' },
     to,
+    // El comprador ve a la tienda como remitente y sus respuestas le llegan a la tienda (si tiene correo).
+    fromName: storeName,
+    replyTo: storeEmail || null,
     values: {
+      logo_comercio: logo,
+      color_comercio: color,
+      color_texto_comercio: brandColor(palette.buttonText) || readableOn(color),
+      color_cabecera: header,
+      // The logo already shows the name; without a logo the name is the header.
+      nombre_cabecera: logo ? '' : storeName,
+      color_texto_cabecera: brandColor(palette.text) && contrastOk(header, palette.text!) ? brandColor(palette.text) : readableOn(header),
+      enlace_whatsapp_comercio: phone ? `https://wa.me/${phone}?text=${encodeURIComponent(whatsappText)}` : (store ? publicStoreUrl(env.PUBLIC_STORE_BASE_URL, store) : ''),
+      correo_comercio: storeEmail,
       nombre_usuario: (order.customer_name || '').split(' ')[0] || 'Hola',
       correo_usuario: to,
       nombre_comercio: storeName,
@@ -122,7 +177,7 @@ async function sendBuyerEmail(env: Bindings, db: D1Database, storeName: string, 
       referencia_pago: notice.txId || notice.reference,
       detalle_pedido: orderDetail(order),
       direccion_entrega: [order.delivery_address, order.customer_city].filter(Boolean).join(', ') || 'La que acordaste con el comercio',
-      contacto_comercio: phone ? `WhatsApp +${phone}` : 'Responde a la tienda por WhatsApp',
+      contacto_comercio: phone ? displayPhone(phone) : 'Escríbenos desde la tienda',
       enlace_tienda: store ? publicStoreUrl(env.PUBLIC_STORE_BASE_URL, store) : '',
     },
     purpose: 'pago_confirmado',

@@ -34,6 +34,14 @@ export const EMAIL_VARIABLES = {
   detalle_pedido: 'Productos del pedido, uno por línea',
   direccion_entrega: 'Dirección y ciudad de entrega',
   contacto_comercio: 'Contacto del comercio (WhatsApp)',
+  logo_comercio: 'Logo del comercio (dirección https; si no tiene, la imagen no se muestra)',
+  color_comercio: 'Color principal del comercio (#RRGGBB)',
+  color_texto_comercio: 'Color del texto sobre el color del comercio (#RRGGBB)',
+  nombre_cabecera: 'Nombre del comercio en el encabezado (vacío cuando el logo ya lo muestra)',
+  color_cabecera: 'Color de fondo del encabezado (el fondo de la tienda)',
+  color_texto_cabecera: 'Color del nombre del comercio en el encabezado',
+  enlace_whatsapp_comercio: 'Enlace al WhatsApp del comercio, con el pedido ya escrito',
+  correo_comercio: 'Correo de contacto del comercio',
 } as const
 export type EmailVariable = keyof typeof EMAIL_VARIABLES
 
@@ -110,7 +118,8 @@ export function renderTemplate(template: { subject: string; html: string; text: 
     const value = values[key as EmailVariable] ?? ''
     return html ? escapeHtml(value) : value
   })
-  return { subject: fill(template.subject, false).replace(/[\r\n]+/g, ' '), html: fill(template.html, true), text: fill(template.text, false) }
+  const html = fill(template.html, true).replace(/<img\b[^>]*\ssrc=""[^>]*>/gi, '')
+  return { subject: fill(template.subject, false).replace(/[\r\n]+/g, ' '), html, text: fill(template.text, false) }
 }
 
 // ---- default designs -------------------------------------------------------------
@@ -162,6 +171,35 @@ const securityNote = (text: string) => `<p style="margin:16px 0 0 0;padding:14px
 const facts = (rows: Array<[string, string]>) => `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 4px 0;font-size:14px;line-height:1.7;">
 ${rows.map(([label, value]) => `<tr><td style="padding-right:14px;color:${BRAND.muted};vertical-align:top;">${label}</td><td>${value}</td></tr>`).join('\n')}
 </table>`
+
+/** Layout for messages a store sends to its own buyers: the store's logo, name and color; the platform only signs the footer. */
+function storeLayout(body: string, preheader: string) {
+  return `<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light"><title>{{nombre_comercio}}</title></head>
+<body style="margin:0;padding:0;background:#F4F4F5;font-family:Arial,Helvetica,sans-serif;color:${BRAND.ink};-webkit-text-size-adjust:100%;">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;">${preheader}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F4F4F5;padding:24px 10px;">
+<tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#FFFFFF;border-radius:20px;overflow:hidden;border:1px solid #E7E5E4;">
+<tr><td align="center" style="padding:26px 26px 18px 26px;background:{{color_cabecera}};">
+<img src="{{logo_comercio}}" alt="{{nombre_comercio}}" height="72" style="display:block;height:72px;width:auto;max-width:240px;margin:0 auto 10px auto;border:0;">
+<div style="font-size:20px;font-weight:bold;color:{{color_texto_cabecera}};letter-spacing:0.3px;">{{nombre_cabecera}}</div>
+</td></tr>
+<tr><td style="background:{{color_comercio}};height:5px;line-height:5px;font-size:0;">&nbsp;</td></tr>
+<tr><td style="padding:28px 26px 8px 26px;font-size:16px;line-height:1.6;">
+${body}
+</td></tr>
+<tr><td style="padding:20px 26px 24px 26px;border-top:1px solid #E7E5E4;font-size:13px;line-height:1.7;color:${BRAND.muted};">
+<strong style="color:${BRAND.ink};">{{nombre_comercio}}</strong><br>
+WhatsApp: <a href="{{enlace_whatsapp_comercio}}" style="color:${BRAND.ink};">{{contacto_comercio}}</a>
+<div>{{correo_comercio}}</div>
+<a href="{{enlace_tienda}}" style="color:${BRAND.ink};word-break:break-all;">{{enlace_tienda}}</a>
+<p style="margin:14px 0 0 0;font-size:11px;color:#A1A1AA;">Recibes este correo porque compraste con pago en línea en {{nombre_comercio}}. Tienda creada con {{nombre_plataforma}}.</p>
+</td></tr>
+</table>
+</td></tr></table>
+</body></html>`
+}
 
 export const DEFAULT_TEMPLATES: Record<SystemTemplateKey, { name: string; subject: string; html: string; text: string }> = {
   password_reset: {
@@ -440,20 +478,21 @@ Tu panel: {{enlace_panel}}
 ${FOOTER_TEXT}`,
   },
   order_paid: {
-    name: 'Comprador: pago en línea confirmado',
+    name: 'Comprador: pago en línea confirmado (con la marca del comercio)',
     subject: 'Pago confirmado: tu pedido {{numero_pedido}} en {{nombre_comercio}}',
-    html: layout(`${h1('¡Gracias por tu compra, {{nombre_usuario}}!')}
-<p style="margin:0 0 12px 0;">Recibimos tu pago en <strong>{{nombre_comercio}}</strong>. La pasarela de pagos lo confirmó y el comercio ya puede preparar tu pedido.</p>
+    html: storeLayout(`${h1('¡Gracias por tu compra, {{nombre_usuario}}!')}
+<p style="margin:0 0 12px 0;">Recibimos tu pago en <strong>{{nombre_comercio}}</strong>. La pasarela de pagos lo confirmó y ya estamos preparando tu pedido.</p>
 ${facts([['Pedido', '<strong>{{numero_pedido}}</strong>'], ['Total pagado', '<strong>{{total_pagado}}</strong>'], ['Medio de pago', '{{medio_pago}}'], ['Referencia', '{{referencia_pago}}'], ['Entrega en', '{{direccion_entrega}}']])}
-<p style="margin:16px 0 6px 0;"><strong>Tu pedido:</strong></p>
-<p style="margin:0 0 12px 0;padding:12px 14px;background:${BRAND.soft};border-radius:8px;font-size:14px;white-space:pre-line;">{{detalle_pedido}}</p>
-<p style="margin:0 0 12px 0;">El comercio te contactará para coordinar el envío. Si tienes preguntas sobre tu pedido, escríbele: <strong>{{contacto_comercio}}</strong>.</p>
-${securityNote('Guarda este correo como comprobante. No vuelvas a pagar este pedido.')}`, 'Tu pago fue confirmado. Este es el resumen de tu pedido.', `<strong style="color:${BRAND.ink};">{{nombre_comercio}}</strong> · Tienda creada con {{nombre_plataforma}}.<br>
-Recibes este correo porque hiciste una compra con pago en línea en {{nombre_comercio}}. Para dudas sobre tu pedido, contacta al comercio: {{contacto_comercio}}.<br>
-<a href="{{enlace_tienda}}" style="color:${BRAND.violetText};word-break:break-all;">{{enlace_tienda}}</a>`),
+<p style="margin:18px 0 6px 0;"><strong>Tu pedido</strong></p>
+<p style="margin:0 0 16px 0;padding:12px 14px;background:#F5F5F4;border-left:4px solid {{color_comercio}};border-radius:8px;font-size:14px;line-height:1.7;white-space:pre-line;">{{detalle_pedido}}</p>
+<p style="margin:0 0 4px 0;">Te escribiremos para coordinar el envío. ¿Tienes alguna pregunta sobre tu pedido?</p>
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:18px 0 22px 0;"><tr><td style="background:{{color_comercio}};border-radius:999px;">
+<a href="{{enlace_whatsapp_comercio}}" style="display:inline-block;padding:14px 28px;font-size:16px;font-weight:bold;color:{{color_texto_comercio}};text-decoration:none;">Escríbenos por WhatsApp</a>
+</td></tr></table>
+<p style="margin:0 0 16px 0;padding:12px 14px;background:#F5F5F4;border-radius:8px;font-size:14px;">Guarda este correo como comprobante de pago. No vuelvas a pagar este pedido.</p>`, 'Tu pago fue confirmado. Este es el resumen de tu pedido.'),
     text: `¡Gracias por tu compra, {{nombre_usuario}}!
 
-Recibimos tu pago en {{nombre_comercio}}. La pasarela de pagos lo confirmó y el comercio ya puede preparar tu pedido.
+Recibimos tu pago en {{nombre_comercio}}. La pasarela de pagos lo confirmó y ya estamos preparando tu pedido.
 
 Pedido: {{numero_pedido}}
 Total pagado: {{total_pagado}}
@@ -464,10 +503,10 @@ Entrega en: {{direccion_entrega}}
 Tu pedido:
 {{detalle_pedido}}
 
-El comercio te contactará para coordinar el envío. Dudas sobre tu pedido: {{contacto_comercio}}.
-Guarda este correo como comprobante. No vuelvas a pagar este pedido.
+Te escribiremos para coordinar el envío. ¿Preguntas? Escríbenos por WhatsApp: {{enlace_whatsapp_comercio}}
+Guarda este correo como comprobante de pago. No vuelvas a pagar este pedido.
 
-{{nombre_comercio}} · {{enlace_tienda}}
+{{nombre_comercio}} · {{contacto_comercio}} · {{enlace_tienda}}
 Tienda creada con {{nombre_plataforma}}.`,
   },
 }
@@ -501,5 +540,13 @@ export const SAMPLE_VALUES: RenderValues = {
   referencia_pago: 'T_EJEMPLO123',
   detalle_pedido: '2 × Camiseta básica (M · Negro): $579.800\nEnvío: $12.000',
   direccion_entrega: 'Calle 10 # 20-30, Manizales',
-  contacto_comercio: 'WhatsApp +57 300 000 0000',
+  contacto_comercio: '+57 300 000 0000',
+  logo_comercio: 'https://app.tiendiaexpres.com/brand/tiendaiaexpress/logo-720.png',
+  color_comercio: '#C8FF33',
+  color_texto_comercio: '#16131F',
+  color_cabecera: '#101614',
+  nombre_cabecera: '',
+  color_texto_cabecera: '#F5F4EA',
+  enlace_whatsapp_comercio: 'https://wa.me/573000000000',
+  correo_comercio: 'hola@ejemplo.com',
 }

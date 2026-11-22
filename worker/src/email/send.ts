@@ -100,7 +100,15 @@ export async function loadTemplate(db: D1Database, selector: { key?: SystemTempl
 export const isTransient = (code: string) => code === 'NETWORK' || code === 'HTTP_429' || /^HTTP_5\d\d$/.test(code)
 const RETRY_DELAYS_MS = [300, 1200]
 
-type OutgoingMessage = { to: string; subject: string; html: string; text: string; idempotencyKey: string; tag: string; replyTo?: string | null }
+/** "Name <address>" keeping the configured address; the name is stripped of characters that could break the header. */
+export function senderWithName(from: string, name?: string | null): string {
+  const clean = (name || '').replace(/[\r\n<>"\\,;]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 70)
+  if (!clean) return from
+  const address = /<([^>]+)>/.exec(from)?.[1] || from.trim()
+  return `"${clean}" <${address}>`
+}
+
+type OutgoingMessage = { to: string; subject: string; html: string; text: string; idempotencyKey: string; tag: string; replyTo?: string | null; fromName?: string | null }
 type DeliveryResult = ({ ok: true; id: string | null } | { ok: false; code: string }) & { attempts: number }
 
 async function deliverOnce(env: Partial<Env['Bindings']>, message: OutgoingMessage, fetcher: typeof fetch): Promise<{ ok: true; id: string | null } | { ok: false; code: string }> {
@@ -113,7 +121,7 @@ async function deliverOnce(env: Partial<Env['Bindings']>, message: OutgoingMessa
       // The same Idempotency-Key on every attempt: the provider never sends the message twice.
       headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json', 'Idempotency-Key': message.idempotencyKey },
       body: JSON.stringify({
-        from: config.from, to: [message.to], subject: message.subject, html: message.html, text: message.text,
+        from: senderWithName(config.from!, message.fromName), to: [message.to], subject: message.subject, html: message.html, text: message.text,
         ...(isEmail(replyTo) ? { reply_to: replyTo } : {}),
         tags: [{ name: 'proposito', value: message.tag.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 60) || 'general' }],
       }),
@@ -150,6 +158,10 @@ export type SendInput = {
   idempotencyKey: string
   /** Allows inactive custom templates only for previews/tests by the superadmin. */
   allowInactive?: boolean
+  /** Display name of the sender (a store writing to its buyers); the sending address never changes. */
+  fromName?: string | null
+  /** Overrides the default Reply-To (null: no Reply-To). */
+  replyTo?: string | null
 }
 
 export type SendResult = { status: EmailStatus; messageId: number; replayed: boolean; configured: boolean }
@@ -178,7 +190,7 @@ export async function sendEmail(db: D1Database, env: Partial<Env['Bindings']>, i
     ? { ok: false, code: 'RECIPIENT_NOT_ALLOWED', attempts: 0 }
     : await isSuppressed(db, input.to)
     ? { ok: false, code: 'SUPPRESSED', attempts: 0 }
-    : await deliver(env, { to: input.to, ...rendered, idempotencyKey: input.idempotencyKey, tag: input.purpose, replyTo: replyToFor(env, template.system_key) }, fetcher, sleep)
+    : await deliver(env, { to: input.to, ...rendered, idempotencyKey: input.idempotencyKey, tag: input.purpose, replyTo: input.replyTo !== undefined ? input.replyTo : replyToFor(env, template.system_key), fromName: input.fromName }, fetcher, sleep)
   const status: EmailStatus = result.ok ? 'enviado' : result.code === 'NOT_CONFIGURED' ? 'no_configurado' : 'fallido'
   await db.prepare(`UPDATE email_messages SET status = ?, provider_message_id = ?, error_code = ?, attempts = ?, updated_at = datetime('now') WHERE id = ?`)
     .bind(status, result.ok ? result.id : null, result.ok ? null : result.code, result.attempts, claim.id).run()

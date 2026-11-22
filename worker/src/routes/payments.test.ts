@@ -159,6 +159,8 @@ describe('Bold notices', () => {
     Object.assign(h.env, NOTICE_ENV)
     await h.db.prepare("UPDATE platform_users SET telegram_user_id = '555001' WHERE id = ?").bind(ownerId).run()
     await h.db.prepare('INSERT INTO whatsapp_identities (user_id, phone, linked_store_id) VALUES (?, ?, ?)').bind(ownerId, '573001234567', storeId).run()
+    await h.db.prepare("UPDATE store_config SET logo_url = '/api/assets/stores/1/logo.png', button_color = '#c8ff33', theme_config = ? WHERE id = ?")
+      .bind(JSON.stringify({ style: { palette: { background: '#101614', text: '#f5f4ea', button: '#c8ff33', buttonText: '#101614' } } }), storeId).run()
     calls = []
     vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
       const target = String(url)
@@ -190,12 +192,33 @@ describe('Bold notices', () => {
     expect(emails()[0]!.body.html).toContain('$102.000')
     expect(emails()[0]!.body.text).toContain('Gorra parcera')
     expect(emails()[0]!.body.reply_to).toBeUndefined()
+    // The receipt carries the store's identity: name as sender, its logo, color and WhatsApp.
+    expect(emails()[0]!.body.from).toBe('"MUY PARCERO" <no-reply@tiendas.test>')
+    expect(emails()[0]!.body.html).toContain('src="https://tiendas.test/api/assets/stores/1/logo.png"')
+    expect(emails()[0]!.body.html).toContain('background:#C8FF33')
+    expect(emails()[0]!.body.html).toContain('color:#101614;text-decoration:none;">Escríbenos por WhatsApp')
+    expect(emails()[0]!.body.html).toContain('background:#101614;">') // header on the store's own background
+    expect(emails()[0]!.body.html).toContain('color:#F5F4EA;letter-spacing:0.3px;"></div>') // the logo already shows the name
+    expect(emails()[0]!.body.html).toContain('https://wa.me/573001112233?text=')
+    expect(emails()[0]!.body.html).toContain('+57 300 111 2233')
+    expect(emails()[0]!.body.html).not.toContain('logo-720.png')
     expect(h.db.query<{ template_key: string; status: string }>('SELECT template_key, status FROM email_messages')).toEqual([{ template_key: 'order_paid', status: 'enviado' }])
 
     calls = []
     await sendWebhook(saleEvent(button.reference, 102000, 'SALE_APPROVED', 'evt-repeat'))
     await h.request('/api/payments/bold/status', { method: 'POST', store: 'muy-parcero', body: { reference: button.reference, checkoutKey: KEY } })
     expect(calls).toEqual([])
+  })
+
+  it('buyer replies go to the store email; a store without logo gets no broken image', async () => {
+    await h.db.prepare("UPDATE store_config SET logo_url = NULL, email = 'ventas@parcero.test', button_color = '#26372d', theme_config = '{}' WHERE id = ?").bind(storeId).run()
+    const { button } = await paidFlow()
+    calls = []
+    await sendWebhook(saleEvent(button.reference, 102000))
+    expect(emails()[0]!.body.reply_to).toBe('ventas@parcero.test')
+    expect(emails()[0]!.body.html).not.toContain('<img')
+    expect(emails()[0]!.body.html).toContain('letter-spacing:0.3px;">MUY PARCERO</div>')
+    expect(emails()[0]!.body.html).toContain('color:#FFFFFF;text-decoration:none;">Escríbenos por WhatsApp')
   })
 
   it('a void warns the team without emailing the buyer again', async () => {
