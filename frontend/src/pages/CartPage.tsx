@@ -132,7 +132,7 @@ export default function CartPage() {
                             className="input-field !w-auto min-h-[44px] !py-2 !pr-9 !text-base" aria-label={`Cambiar talla de ${item.name}`}>
                             {options.map((variant) => (
                               <option key={variant.id} value={String(variant.id)} disabled={variant.stock < 1 && String(variant.id) !== item.variantId}>
-                                {variantLabel(variant)}{variant.stock < 1 ? ' (agotada)' : variant.stock <= 3 ? ` (quedan ${variant.stock})` : ''}
+                                {variantLabel(variant)}{variant.stock < 1 ? ' (agotada)' : variant.stock <= 3 ? ` (${variant.stock === 1 ? "queda" : "quedan"} ${variant.stock})` : ''}
                               </option>
                             ))}
                           </select>
@@ -155,7 +155,7 @@ export default function CartPage() {
                       <p className="ml-auto text-lg font-bold tabular-nums text-ink">{money(item.price * item.quantity)}</p>
                     </div>
                     {item.availableStock === 0 && <p className="text-sm font-semibold text-red-600">Agotado: elige otra talla o quítalo del carrito.</p>}
-                    {item.availableStock !== undefined && item.availableStock > 0 && item.availableStock <= 3 && <p className="text-xs font-semibold text-amber-700">¡Solo quedan {item.availableStock}!</p>}
+                    {item.availableStock !== undefined && item.availableStock > 0 && item.availableStock <= 3 && <p className="text-xs font-semibold text-amber-700">¡Solo {item.availableStock === 1 ? 'queda' : 'quedan'} {item.availableStock}!</p>}
                   </div>
                 </li>
               )
