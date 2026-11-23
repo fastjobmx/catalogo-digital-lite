@@ -24,6 +24,13 @@ describe('share metadata', () => {
     expect(buildMeta('trial', ORIGIN, `${ORIGIN}/prueba`, null, null).robots).toBe('noindex, nofollow')
   })
 
+  it('the free-trial sign-up shares an inviting preview (still noindex)', () => {
+    const signup = buildMeta('private', ORIGIN, `${ORIGIN}/registro`, null, null)
+    expect(signup).toMatchObject({ title: 'Prueba gratis 14 días | TiendIA Exprés', robots: 'noindex, nofollow' })
+    expect(signup.description).toContain('sin tarjeta de crédito')
+    expect(buildMeta('private', ORIGIN, `${ORIGIN}/admin/registros`, null, null).title).toBe('Tienda IA Express | Acceso al panel administrativo')
+  })
+
   it('each catalogue keeps its own name, description and images; products use their own photo', () => {
     const store = buildMeta('store', ORIGIN, `${ORIGIN}/t/luz-magica/`, LUZ, null)
     expect(store).toMatchObject({ title: 'Luz Mágica', siteName: 'Luz Mágica', description: 'Tocadores Hollywood y espejos.', image: `${ORIGIN}/api/assets/stores/4/store/banner.jpg`, robots: null })

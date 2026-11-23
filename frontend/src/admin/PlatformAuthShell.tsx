@@ -43,8 +43,35 @@ export function usePlatformPageMeta(title = `${PLATFORM_BRAND.name} | Acceso al 
 
 /** Shared frame of the platform access screens: Tienda IA Express logo, title and, as secondary
  * context only, the store the person is entering. */
-export default function PlatformAuthShell({ title, subtitle, storeName, children, below }: { title: string; subtitle?: string; storeName?: string | null; children: ReactNode; below?: ReactNode }) {
-  usePlatformPageMeta()
+export default function PlatformAuthShell({ title, subtitle, storeName, children, below, aside, pageTitle }: {
+  title: string; subtitle?: string; storeName?: string | null; children: ReactNode; below?: ReactNode
+  /** Optional side column (desktop): the pitch next to the form. On phones it goes above the form. */
+  aside?: ReactNode
+  /** Browser tab title for this screen (defaults to the panel access title). */
+  pageTitle?: string
+}) {
+  usePlatformPageMeta(pageTitle)
+  if (aside) {
+    return (
+      <div className="min-h-screen px-4 py-8 sm:py-12" style={{ ...PLATFORM_VARS, background: `radial-gradient(120% 80% at 50% 0%, #0b4029 0%, ${PLATFORM_BRAND.colors.forest} 45%, ${PLATFORM_BRAND.colors.forestDeep} 100%)` }}>
+        <div className="mx-auto grid w-full max-w-5xl items-start gap-8 lg:grid-cols-[minmax(0,1fr)_440px] lg:gap-14 lg:pt-6">
+          <div className="text-white">
+            <a href={PLATFORM_BRAND.siteUrl} aria-label={`${PLATFORM_BRAND.wordmark}: ir al sitio`} className="inline-block">
+              <img src={PLATFORM_BRAND.logo} width={PLATFORM_BRAND.logoSize.width} height={PLATFORM_BRAND.logoSize.height} alt={PLATFORM_BRAND.wordmark} className="h-auto w-[min(48vw,240px)] rounded-2xl" />
+            </a>
+            <h1 className="mt-5 text-[1.75rem] font-black leading-tight tracking-tight sm:mt-6 sm:text-4xl">{title}</h1>
+            {subtitle && <p className="mt-2 text-base text-[#cfe3d6]">{subtitle}</p>}
+            <div className="mt-5 sm:mt-6">{aside}</div>
+          </div>
+          <div>
+            {children}
+            {below && <div className="mt-6 text-center text-[#d9eadf]">{below}</div>}
+          </div>
+        </div>
+        <p className="mt-10 text-center text-[11px] text-[#9fbcaa]">{PLATFORM_BRAND.wordmark} · {PLATFORM_BRAND.slogan}</p>
+      </div>
+    )
+  }
   return (
     <div className="min-h-screen flex items-center justify-center px-4 py-10" style={{ ...PLATFORM_VARS, background: `radial-gradient(120% 80% at 50% 0%, #0b4029 0%, ${PLATFORM_BRAND.colors.forest} 45%, ${PLATFORM_BRAND.colors.forestDeep} 100%)` }}>
       <div className="w-full max-w-md">

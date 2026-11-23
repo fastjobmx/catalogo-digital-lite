@@ -1,22 +1,56 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { CheckCircle2, Loader2, MailCheck, RefreshCw, Sparkles } from 'lucide-react'
+import { ArrowRight, CheckCircle2, CreditCard, Link2, Loader2, Mail, MailCheck, MessageCircle, Package, Palette, RefreshCw, ShieldCheck, Sparkles } from 'lucide-react'
 import PlatformAuthShell from '../admin/PlatformAuthShell'
 import { signupApi, type SignupConfig } from '../services/api'
 
 const TERMS_URL = 'https://tiendiaexpres.com/terminos-y-condiciones'
 const RESEND_WAIT_SECONDS = 120
+const PAGE_TITLE = 'Prueba gratis 14 días | TiendIA Exprés'
+const STORE_HOST = 'app.tiendiaexpres.com/t/'
+
+type Form = { businessName: string; ownerName: string; email: string; whatsapp: string; acceptTerms: boolean; website: string }
+type Field = 'businessName' | 'email' | 'whatsapp' | 'acceptTerms'
+
+/** Same rule the server uses for the store address (it may add a suffix if the name is taken). */
+export function slugPreview(name: string): string {
+  return name.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/&/g, ' y ')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').replace(/-{2,}/g, '-').slice(0, 40).replace(/-+$/g, '')
+}
+
+/** 300 123 4567 → +573001234567; numbers already with + stay as typed. Empty stays empty (the field is optional). */
+export function normalizeWhatsApp(value: string): string | null {
+  const raw = value.trim()
+  if (!raw) return ''
+  const digits = raw.replace(/\D/g, '')
+  if (raw.startsWith('+')) return /^[1-9]\d{7,14}$/.test(digits) ? `+${digits}` : null
+  if (digits.length === 10 && digits.startsWith('3')) return `+57${digits}`
+  if (digits.length === 12 && digits.startsWith('57')) return `+${digits}`
+  return null
+}
+
+/** Web mail of the address, so the person opens the inbox in one tap after signing up. */
+export function inboxFor(email: string): { label: string; url: string } | null {
+  const domain = email.trim().toLowerCase().split('@')[1] || ''
+  if (/^(gmail|googlemail)\.com$/.test(domain)) return { label: 'Abrir Gmail', url: 'https://mail.google.com/mail/u/0/#search/from%3Anotificaciones%40tiendiaexpres.com' }
+  if (/^(hotmail|outlook|live|msn)\.(com|es|co)$/.test(domain)) return { label: 'Abrir Outlook', url: 'https://outlook.live.com/mail/0/' }
+  if (/^yahoo\.(com|es|com\.co)$/.test(domain)) return { label: 'Abrir Yahoo Mail', url: 'https://mail.yahoo.com/' }
+  if (/^(icloud|me)\.com$/.test(domain)) return { label: 'Abrir iCloud Mail', url: 'https://www.icloud.com/mail/' }
+  return null
+}
 
 /** Real free trial: a few fields, a store of the platform and a one-time link by email to enter its panel. */
 export default function SignupPage() {
   const [params] = useSearchParams()
   const [config, setConfig] = useState<SignupConfig | null>(null)
-  const [form, setForm] = useState({ businessName: '', ownerName: '', email: params.get('correo') || '', whatsapp: '', acceptTerms: false, website: '' })
+  const [form, setForm] = useState<Form>({ businessName: '', ownerName: '', email: params.get('correo') || '', whatsapp: '', acceptTerms: false, website: '' })
   const [step, setStep] = useState<'form' | 'sent' | 'resend'>(params.get('reenviar') ? 'resend' : 'form')
+  const [errors, setErrors] = useState<Partial<Record<Field, string>>>({})
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [wait, setWait] = useState(0)
   const [resent, setResent] = useState(false)
+  const fields = useRef<Partial<Record<Field, HTMLInputElement | null>>>({})
 
   useEffect(() => { signupApi.config().then(setConfig).catch(() => setConfig(null)) }, [])
   useEffect(() => {
@@ -25,21 +59,36 @@ export default function SignupPage() {
     return () => window.clearTimeout(timer)
   }, [wait])
 
-  const days = config?.days ?? 7
-  const products = config?.products ?? 7
-  const set = (key: keyof typeof form) => (event: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [key]: event.target.type === 'checkbox' ? event.target.checked : event.target.value })
+  const days = config?.days ?? 14
+  const products = config?.products ?? 20
+  const set = (key: keyof Form) => (event: React.ChangeEvent<HTMLInputElement>) => {
+    setForm({ ...form, [key]: event.target.type === 'checkbox' ? event.target.checked : event.target.value })
+    if (key in errors) setErrors({ ...errors, [key]: undefined })
+  }
+  const slug = slugPreview(form.businessName)
+
+  const validate = (): Partial<Record<Field, string>> => {
+    const found: Partial<Record<Field, string>> = {}
+    if (form.businessName.trim().length < 2) found.businessName = 'Escribe el nombre de tu negocio.'
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(form.email.trim())) found.email = 'Escribe un correo válido: ahí te llega el enlace para entrar.'
+    if (normalizeWhatsApp(form.whatsapp) === null) found.whatsapp = 'Escribe un celular de 10 dígitos (300 123 4567) o con el código del país (+57…).'
+    if (!form.acceptTerms) found.acceptTerms = 'Acepta los términos y condiciones para continuar.'
+    return found
+  }
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
     setError(null)
-    if (form.businessName.trim().length < 2) { setError('Escribe el nombre de tu negocio.'); return }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(form.email.trim())) { setError('Escribe un correo válido.'); return }
-    if (!form.acceptTerms) { setError('Acepta los términos y condiciones para continuar.'); return }
+    const found = validate()
+    setErrors(found)
+    const first = (['businessName', 'email', 'whatsapp', 'acceptTerms'] as Field[]).find((key) => found[key])
+    if (first) { fields.current[first]?.focus(); return }
     setBusy(true)
     try {
-      await signupApi.create({ businessName: form.businessName.trim(), ownerName: form.ownerName.trim() || undefined, email: form.email.trim(), whatsapp: form.whatsapp.trim() || undefined, acceptTerms: true, website: form.website })
+      await signupApi.create({ businessName: form.businessName.trim(), ownerName: form.ownerName.trim() || undefined, email: form.email.trim(), whatsapp: normalizeWhatsApp(form.whatsapp) || undefined, acceptTerms: true, website: form.website })
       setStep('sent')
       setWait(RESEND_WAIT_SECONDS)
+      window.scrollTo({ top: 0 })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No pudimos crear tu tienda. Intenta de nuevo.')
     } finally { setBusy(false) }
@@ -62,29 +111,39 @@ export default function SignupPage() {
 
   if (config && !config.enabled) {
     return (
-      <PlatformAuthShell title="Registro en pausa" subtitle="Volvemos pronto">
+      <PlatformAuthShell title="Registro en pausa" subtitle="Volvemos pronto" pageTitle={PAGE_TITLE}>
         <div className="card p-8 text-sm text-ink">El registro de pruebas está pausado por unas horas. Escríbenos por WhatsApp al <a className="font-bold underline" href="https://wa.me/573506912734">+57 350 691 2734</a> y te ayudamos a crear tu tienda.</div>
       </PlatformAuthShell>
     )
   }
 
   if (step === 'sent') {
+    const inbox = inboxFor(form.email)
     return (
-      <PlatformAuthShell title="Revisa tu correo" subtitle={`Te enviamos el enlace para entrar a tu tienda`}>
-        <div className="card space-y-5 p-8 text-sm text-ink" role="status">
-          <p className="flex items-start gap-3"><MailCheck size={22} className="mt-0.5 shrink-0 text-brand" aria-hidden="true" /><span>Si <b>{form.email.trim()}</b> puede recibir una tienda de prueba, en unos minutos llegará un correo de <b>TiendIA Exprés</b> con el botón <b>«Confirmar y entrar a mi tienda»</b>.</span></p>
-          <ul className="space-y-1.5 text-muted">
+      <PlatformAuthShell title="Revisa tu correo para entrar a tu tienda" subtitle="Te enviamos el enlace para confirmar tu correo y entrar a tu panel" pageTitle={PAGE_TITLE}>
+        <div className="card space-y-5 p-7 text-sm text-ink sm:p-8" role="status">
+          <p className="flex items-start gap-3"><MailCheck size={22} className="mt-0.5 shrink-0 text-brand" aria-hidden="true" /><span>Si <b>{form.email.trim()}</b> puede recibir una tienda de prueba, en unos minutos llega un correo de <b>TiendIA Exprés</b> con el botón <b>«Confirmar y entrar a mi tienda»</b>.</span></p>
+          {inbox && (
+            <a href={inbox.url} target="_blank" rel="noopener noreferrer" className="btn-brand w-full justify-center !text-sm">
+              <Mail size={16} /> {inbox.label}<span className="sr-only"> (se abre en una pestaña nueva)</span>
+            </a>
+          )}
+          <ol className="space-y-2">
+            {['Abre el correo y toca «Confirmar y entrar a mi tienda».', 'Crea tu contraseña: entras directo a tu panel.', `Sube tus productos (hasta ${products}) y comparte el enlace de tu tienda.`].map((text, index) => (
+              <li key={text} className="flex gap-3"><span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand text-[12px] font-bold text-brand-foreground">{index + 1}</span><span className="pt-0.5">{text}</span></li>
+            ))}
+          </ol>
+          <ul className="space-y-1.5 rounded-btn bg-brand/5 p-3 text-[13px] text-muted">
+            <li>· Llega desde <b>notificaciones@tiendiaexpres.com</b> con el asunto «Confirma tu correo y entra a…».</li>
+            <li>· Si no lo ves, revisa <b>Promociones</b>, <b>Spam</b> o <b>Correo no deseado</b> y márcalo como «No es spam».</li>
             <li>· El enlace sirve una sola vez y vence en 72 horas.</li>
-            <li>· Allí creas tu contraseña y entras a tu panel.</li>
-            <li>· Llega desde <b>notificaciones@tiendiaexpres.com</b> con el asunto «Confirma tu correo y entra a…». Búscalo así en tu correo.</li>
-            <li>· Si no lo ves en la bandeja principal, revisa <b>Promociones</b>, <b>Spam</b> o <b>Correo no deseado</b> y márcalo como «No es spam».</li>
           </ul>
           {resent && <p className="rounded-btn border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-900">Listo: si tu registro está pendiente, enviamos un enlace nuevo. El anterior deja de funcionar.</p>}
           {error && <p role="alert" className="text-red-700">{error}</p>}
           <button type="button" className="btn-ghost w-full" disabled={busy || wait > 0} onClick={() => void resend()}>
             {busy ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />} {wait > 0 ? `Reenviar enlace en ${wait} s` : 'Reenviar el enlace'}
           </button>
-          <p className="text-xs text-muted">¿Escribiste mal el correo? <button type="button" className="font-bold underline" onClick={() => { setStep('form'); setResent(false) }}>Corrígelo aquí</button>.</p>
+          <p className="text-xs text-muted">¿Escribiste mal el correo? <button type="button" className="font-bold underline" onClick={() => { setStep('form'); setResent(false) }}>Corrígelo aquí</button>. ¿Necesitas ayuda? <a className="font-bold underline" href="https://wa.me/573506912734" target="_blank" rel="noopener noreferrer">Escríbenos por WhatsApp</a>.</p>
         </div>
       </PlatformAuthShell>
     )
@@ -92,11 +151,11 @@ export default function SignupPage() {
 
   if (step === 'resend') {
     return (
-      <PlatformAuthShell title="Pide un enlace nuevo" subtitle="Para entrar a tu tienda de prueba">
+      <PlatformAuthShell title="Pide un enlace nuevo" subtitle="Para entrar a tu tienda de prueba" pageTitle={PAGE_TITLE}>
         <form onSubmit={resend} className="card space-y-5 p-8">
           <p className="text-sm text-muted">Escribe el correo con el que creaste tu tienda. Si el registro está pendiente de confirmar, te enviamos un enlace nuevo.</p>
           <label className="block space-y-2"><span className="block text-xs font-bold uppercase tracking-widest text-muted">Correo</span>
-            <input type="email" autoComplete="email" className="input-field w-full" value={form.email} onChange={set('email')} required /></label>
+            <input type="email" autoComplete="email" className="input-field w-full !text-base" value={form.email} onChange={set('email')} required /></label>
           {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
           <button type="submit" className="btn-brand w-full" disabled={busy}>{busy ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />} Enviar enlace</button>
           <p className="text-center text-xs text-muted">¿Ya confirmaste tu correo? <Link className="font-bold underline" to="/admin/login">Inicia sesión</Link></p>
@@ -105,32 +164,83 @@ export default function SignupPage() {
     )
   }
 
-  return (
-    <PlatformAuthShell title={`Prueba gratis durante ${days} días`} subtitle="Crea tu tienda online en minutos · Sin tarjeta de crédito"
-      below={<p className="text-xs">¿Ya tienes cuenta? <Link className="font-bold underline" to="/admin/login">Inicia sesión</Link> · <Link className="font-bold underline" to="/registro?reenviar=1">Reenviar enlace</Link></p>}>
-      <form onSubmit={submit} className="card space-y-4 p-7" noValidate>
-        <ul className="grid gap-1.5 rounded-btn bg-brand/5 p-3 text-[13px] text-ink">
-          {[`Crea hasta ${products} productos con fotos, precios y variantes`, 'Administra tu tienda desde el primer día', 'Recibe pedidos por WhatsApp', 'Si contratas un plan, conservas tus productos y configuración'].map((item) => (
-            <li key={item} className="flex items-start gap-2"><CheckCircle2 size={15} className="mt-0.5 shrink-0 text-brand" aria-hidden="true" />{item}</li>
+  const aside = (
+    <div className="space-y-7">
+      <ul className="grid gap-2.5 text-[14px] text-white/95 sm:grid-cols-2 sm:gap-3 sm:text-[15px] lg:grid-cols-1">
+        <Benefit icon={<Package size={18} />}>Hasta {products} productos con fotos, precios, tallas y colores</Benefit>
+        <Benefit icon={<MessageCircle size={18} />}>Tus clientes te envían el pedido completo por WhatsApp</Benefit>
+        <Benefit icon={<CreditCard size={18} />}>Si quieres, cobra en línea con tarjeta, PSE o Nequi (Bold)</Benefit>
+        <Benefit icon={<Palette size={18} />}>Tu logo, tus colores y plantillas listas para vender</Benefit>
+      </ul>
+      <div className="hidden rounded-2xl border border-white/15 bg-white/5 p-5 lg:block">
+        <p className="text-xs font-bold uppercase tracking-widest text-[#cdf53f]">Así de fácil</p>
+        <ol className="mt-3 space-y-3 text-[14px] text-white/90">
+          {['Escribe el nombre de tu negocio y tu correo.', 'Confirma tu correo y crea tu contraseña.', 'Sube tus productos y comparte tu enlace.'].map((text, index) => (
+            <li key={text} className="flex gap-3"><span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-[#cdf53f] text-[12px] font-black text-[#03301f]">{index + 1}</span>{text}</li>
           ))}
-        </ul>
-        <label className="block space-y-1.5"><span className="block text-xs font-bold uppercase tracking-widest text-muted">Nombre de tu negocio</span>
-          <input className="input-field w-full" autoComplete="organization" maxLength={80} value={form.businessName} onChange={set('businessName')} placeholder="Ej.: Flores de Ana" required /></label>
-        <label className="block space-y-1.5"><span className="block text-xs font-bold uppercase tracking-widest text-muted">Tu nombre <span className="font-normal normal-case tracking-normal">(opcional)</span></span>
-          <input className="input-field w-full" autoComplete="name" maxLength={120} value={form.ownerName} onChange={set('ownerName')} /></label>
-        <label className="block space-y-1.5"><span className="block text-xs font-bold uppercase tracking-widest text-muted">Correo</span>
-          <input type="email" className="input-field w-full" autoComplete="email" value={form.email} onChange={set('email')} placeholder="tu@correo.com" required />
-          <span className="block text-xs text-muted">Allí recibirás el enlace para entrar y los avisos de tu tienda.</span></label>
-        <label className="block space-y-1.5"><span className="block text-xs font-bold uppercase tracking-widest text-muted">WhatsApp para pedidos <span className="font-normal normal-case tracking-normal">(opcional)</span></span>
-          <input type="tel" className="input-field w-full" autoComplete="tel" value={form.whatsapp} onChange={set('whatsapp')} placeholder="+57 300 000 0000" /></label>
+        </ol>
+      </div>
+      <p className="hidden items-center gap-2 text-sm text-[#cfe3d6] lg:flex"><ShieldCheck size={16} /> Sin tarjeta de crédito. Si contratas un plan, conservas todo lo que creaste.</p>
+    </div>
+  )
+
+  return (
+    <PlatformAuthShell title={`Crea tu tienda online gratis por ${days} días`} subtitle="Lista en minutos · Sin tarjeta de crédito" pageTitle={PAGE_TITLE} aside={aside}
+      below={<p className="text-sm">¿Ya tienes cuenta? <Link className="font-bold underline" to="/admin/login">Inicia sesión</Link> · <Link className="font-bold underline" to="/registro?reenviar=1">Reenviar enlace</Link></p>}>
+      <form onSubmit={submit} className="card space-y-4 p-6 sm:p-7" noValidate aria-label="Crear mi tienda gratis">
+        <Field label="Nombre de tu negocio" error={errors.businessName} id="signup-business">
+          <input id="signup-business" ref={(el) => { fields.current.businessName = el }} className={inputClass(errors.businessName)} autoComplete="organization" maxLength={80}
+            value={form.businessName} onChange={set('businessName')} placeholder="Ej.: Flores de Ana" aria-invalid={Boolean(errors.businessName)} aria-describedby="signup-business-help" />
+          {!errors.businessName && (
+            <span id="signup-business-help" className="flex items-center gap-1.5 text-xs text-muted"><Link2 size={13} aria-hidden="true" />
+              {slug.length >= 2 ? <span>Tu tienda: <b className="break-all text-ink">{STORE_HOST}{slug}</b></span> : 'Así se llamará tu tienda y su enlace.'}
+            </span>
+          )}
+        </Field>
+        <Field label="Correo" error={errors.email} id="signup-email" hint="Ahí te llega el enlace para entrar y los avisos de tu tienda.">
+          <input id="signup-email" ref={(el) => { fields.current.email = el }} type="email" inputMode="email" className={inputClass(errors.email)} autoComplete="email"
+            value={form.email} onChange={set('email')} placeholder="tu@correo.com" aria-invalid={Boolean(errors.email)} aria-describedby="signup-email-help" />
+        </Field>
+        <Field label="WhatsApp para pedidos" optional error={errors.whatsapp} id="signup-whatsapp" hint="Ahí te llegan los pedidos de tus clientes. Puedes agregarlo después.">
+          <input id="signup-whatsapp" ref={(el) => { fields.current.whatsapp = el }} type="tel" inputMode="tel" className={inputClass(errors.whatsapp)} autoComplete="tel"
+            value={form.whatsapp} onChange={set('whatsapp')} placeholder="300 123 4567" aria-invalid={Boolean(errors.whatsapp)} aria-describedby="signup-whatsapp-help" />
+        </Field>
+        <Field label="Tu nombre" optional id="signup-owner">
+          <input id="signup-owner" className={inputClass()} autoComplete="name" maxLength={120} value={form.ownerName} onChange={set('ownerName')} placeholder="Para saludarte en los correos" />
+        </Field>
         {/* Invisible to people; bots fill it. */}
         <div aria-hidden="true" className="absolute -left-[9999px] h-0 w-0 overflow-hidden"><label>Sitio web<input tabIndex={-1} autoComplete="off" value={form.website} onChange={set('website')} /></label></div>
-        <label className="flex items-start gap-2 text-sm text-ink"><input type="checkbox" className="mt-1" checked={form.acceptTerms} onChange={set('acceptTerms')} />
-          <span>Acepto los <a href={TERMS_URL} target="_blank" rel="noopener noreferrer" className="font-bold underline">términos y condiciones</a> y el tratamiento de mis datos para crear y administrar mi tienda.</span></label>
-        {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-        <button type="submit" className="btn-brand w-full" disabled={busy}>{busy ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />} Crear mi tienda gratis</button>
-        <p className="text-center text-xs text-muted">{days} días gratis · hasta {products} productos · sin tarjeta de crédito</p>
+        <div>
+          <label className="flex cursor-pointer items-start gap-3 rounded-btn p-1 text-sm text-ink">
+            <input ref={(el) => { fields.current.acceptTerms = el }} type="checkbox" className="mt-0.5 h-5 w-5 shrink-0" checked={form.acceptTerms} onChange={set('acceptTerms')} aria-invalid={Boolean(errors.acceptTerms)} />
+            <span>Acepto los <a href={TERMS_URL} target="_blank" rel="noopener noreferrer" className="font-bold underline">términos y condiciones</a> y el tratamiento de mis datos para crear y administrar mi tienda.</span>
+          </label>
+          {errors.acceptTerms && <p role="alert" className="mt-1 text-xs font-semibold text-red-700">{errors.acceptTerms}</p>}
+        </div>
+        {error && <p role="alert" className="rounded-btn bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
+        <button type="submit" className="btn-brand min-h-[54px] w-full !text-[15px]" disabled={busy}>
+          {busy ? <><Loader2 size={18} className="animate-spin" /> Creando tu tienda…</> : <><Sparkles size={18} /> Crear mi tienda gratis <ArrowRight size={18} /></>}
+        </button>
+        <ul className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-muted">
+          {[`${days} días gratis`, `Hasta ${products} productos`, 'Sin tarjeta de crédito'].map((item) => <li key={item} className="flex items-center gap-1"><CheckCircle2 size={13} className="text-brand" aria-hidden="true" />{item}</li>)}
+        </ul>
       </form>
     </PlatformAuthShell>
   )
+}
+
+const inputClass = (error?: string) => `input-field w-full !text-base min-h-[50px] ${error ? '!border-red-500' : ''}`
+
+function Field({ label, optional, error, hint, id, children }: { label: string; optional?: boolean; error?: string; hint?: string; id: string; children: ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <label htmlFor={id} className="block text-xs font-bold uppercase tracking-widest text-muted">{label}{optional && <span className="font-normal normal-case tracking-normal"> (opcional)</span>}</label>
+      {children}
+      {error ? <p id={`${id}-help`} role="alert" className="text-xs font-semibold text-red-700">{error}</p> : hint ? <p id={`${id}-help`} className="text-xs text-muted">{hint}</p> : null}
+    </div>
+  )
+}
+
+function Benefit({ icon, children }: { icon: ReactNode; children: ReactNode }) {
+  return <li className="flex items-start gap-3"><span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#cdf53f] text-[#03301f] sm:h-8 sm:w-8">{icon}</span><span className="pt-0.5 sm:pt-1">{children}</span></li>
 }

@@ -16,6 +16,8 @@ const PLATFORM = {
   description: 'Accede al panel de administración de tu tienda digital en Tienda IA Express.',
   trialTitle: 'Tienda IA Express | Prueba tu catálogo sin registro',
   trialDescription: 'Vista previa temporal de tu catálogo. No está publicada.',
+  signupTitle: 'Prueba gratis 14 días | TiendIA Exprés',
+  signupDescription: 'Crea tu tienda online en minutos, sin tarjeta de crédito: catálogo con fotos y tallas, pedidos por WhatsApp y cobros en línea opcionales.',
   notFoundTitle: 'Página no encontrada',
   notFoundDescription: 'Esta tienda o este producto no existe o ya no está disponible.',
   image: '/brand/tiendaiaexpress/og.png',
@@ -85,9 +87,11 @@ export function buildMeta(kind, origin, url, store, product) {
     return { title: PLATFORM.notFoundTitle, description: PLATFORM.notFoundDescription, siteName: store ? clip(store.name, 80) : PLATFORM.name, image: null, favicon: null, url: null, robots: NOINDEX, type: 'website' }
   }
   if (kind === 'private' || kind === 'trial' || !store) {
+    // The free-trial sign-up is shared on WhatsApp and social media: its preview invites to create a store.
+    const signup = kind === 'private' && typeof url === 'string' && /\/registro(\?|$)/.test(url)
     return {
-      title: kind === 'trial' ? PLATFORM.trialTitle : PLATFORM.title,
-      description: kind === 'trial' ? PLATFORM.trialDescription : PLATFORM.description,
+      title: kind === 'trial' ? PLATFORM.trialTitle : signup ? PLATFORM.signupTitle : PLATFORM.title,
+      description: kind === 'trial' ? PLATFORM.trialDescription : signup ? PLATFORM.signupDescription : PLATFORM.description,
       siteName: PLATFORM.name, image: abs(PLATFORM.image), favicon: PLATFORM.favicon, url, robots: NOINDEX, type: 'website',
     }
   }
