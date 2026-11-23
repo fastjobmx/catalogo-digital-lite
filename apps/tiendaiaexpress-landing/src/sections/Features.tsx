@@ -91,7 +91,7 @@ export function Features() {
             <Sparks className="absolute right-6 top-6 size-10" color="var(--color-night)" />
             <p className="display text-[clamp(4rem,8vw,6rem)] leading-none tracking-[-0.06em]">0 %</p>
             <h3 className="mt-3 font-display text-[1.45rem] font-extrabold leading-tight tracking-tight">Sin comisión por venta</h3>
-            <p className="mt-2 max-w-sm text-night/85">Pagas tu plan y nada más. El pago lo acuerdas directamente con tu cliente.</p>
+            <p className="mt-2 max-w-sm text-night/85">Pagas tu plan y nada más. Cobra en línea con tu cuenta Bold o acuerda el pago por WhatsApp.</p>
           </Tile>
 
           {/* 4 · Templates, fanned out in 3D. */}

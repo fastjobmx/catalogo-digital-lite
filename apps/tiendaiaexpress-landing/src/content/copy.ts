@@ -55,11 +55,15 @@ export const faq = [
   },
   {
     q: '¿Cobran comisión por venta?',
-    a: 'No. Pagas tu plan y nada más: no cobramos comisión por tus ventas. El pago lo acuerdas directamente con tu cliente.',
+    a: 'No. Pagas tu plan y nada más: no cobramos comisión por tus ventas. Si cobras en línea, el dinero llega a tu propia cuenta Bold y solo aplica la tarifa de Bold por cada pago; si prefieres, acuerdas el pago con tu cliente por WhatsApp.',
   },
   {
     q: '¿Puedo cobrar en línea?',
-    a: 'Todavía no. Hoy el pago se acuerda con tu cliente por WhatsApp; en el pedido puede indicar su medio de pago preferido.',
+    a: 'Sí, con tu propia cuenta de Bold. La conectas desde tu panel y tus clientes pagan con tarjeta, PSE o Nequi sin salir de tu tienda; el dinero llega directo a tu cuenta Bold. Cuando Bold aprueba el pago, el pedido queda confirmado, las unidades se apartan del inventario, tú recibes el aviso y tu cliente, el comprobante por correo. El envío del pago en línea es un valor fijo que defines tú. Quien prefiera puede seguir enviándote el pedido por WhatsApp.',
+  },
+  {
+    q: '¿Cómo pago mi plan?',
+    a: 'En línea con Bold: tarjeta de crédito o débito, PSE o Nequi. Eliges tu plan desde el panel de tu tienda, ves el valor final y pagas de forma segura; recibes el comprobante en tu correo. No hacemos cobros automáticos: cada pago lo haces tú.',
   },
   {
     q: '¿Cómo cambio de plan?',

@@ -32,10 +32,11 @@ export const faqV2: { q: string; a: string }[] = [
   },
   {
     q: '¿Los pedidos me llegan por WhatsApp?',
-    a: 'Sí. Tu cliente arma el carrito y te envía el pedido por WhatsApp, con los productos, las tallas y los datos de entrega. Después puedes cambiar el estado del pedido desde el panel o escribiéndole a tu asistente.',
+    a: 'Sí. Tu cliente arma el carrito y te envía el pedido por WhatsApp, con los productos, las tallas y los datos de entrega. Si paga en línea con Bold, te avisamos por WhatsApp y Telegram en cuanto se aprueba el pago. Después cambias el estado del pedido desde el panel o escribiéndole a tu asistente.',
   },
   official('¿Qué incluye el pago inicial?'),
   official('¿Cuál es la diferencia entre el pago mensual y el anual?'),
+  official('¿Cómo pago mi plan?'),
   official('¿Cuántos productos puedo publicar?'),
   official('¿Qué pasa cuando se agotan los créditos de IA?'),
   official('¿Puedo importar mis productos desde Excel o PDF?'),
