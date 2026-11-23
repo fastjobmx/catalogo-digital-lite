@@ -167,12 +167,12 @@ export default function SignupPage() {
   const aside = (
     <div className="flex items-center gap-8">
       <PhonePreview name={form.businessName.trim()} />
-      <ul className="grid flex-1 gap-3 text-[14px] text-white/95 sm:grid-cols-2 sm:text-[15px] md:grid-cols-1">
+      <ul className="grid flex-1 gap-3 text-[14px] text-white/95 sm:grid-cols-2 sm:text-[15px] lg:grid-cols-1">
         <Benefit icon={<Package size={17} />}>Hasta {products} productos con fotos, precios, tallas y colores</Benefit>
         <Benefit icon={<MessageCircle size={17} />}>Tus clientes te envían el pedido completo por WhatsApp</Benefit>
         <Benefit icon={<CreditCard size={17} />}>Si quieres, cobra en línea con tarjeta, PSE o Nequi (Bold)</Benefit>
         <Benefit icon={<Palette size={17} />}>Tu logo, tus colores y plantillas listas para vender</Benefit>
-        <li className="hidden items-center gap-2 pt-1 text-sm text-[#cfe3d6] md:flex"><ShieldCheck size={16} className="shrink-0" /> Si contratas un plan, conservas todo lo que creaste.</li>
+        <li className="hidden items-center gap-2 pt-1 text-sm text-[#cfe3d6] lg:flex"><ShieldCheck size={16} className="shrink-0" /> Si contratas un plan, conservas todo lo que creaste.</li>
       </ul>
     </div>
   )
@@ -267,7 +267,7 @@ const SAMPLE = [
 function PhonePreview({ name }: { name: string }) {
   const title = name.length >= 2 ? name : 'Tu negocio'
   return (
-    <div aria-hidden="true" className="relative hidden shrink-0 md:block">
+    <div aria-hidden="true" className="relative hidden shrink-0 lg:block">
       <div className="w-[232px] -rotate-2 rounded-[2.4rem] border-[7px] border-[#0b0f0d] bg-[#0b0f0d] shadow-[0_30px_60px_-20px_rgba(0,0,0,0.7)]">
         <div className="overflow-hidden rounded-[1.9rem] bg-[#f7f8f3]">
           <div className="flex items-center justify-between bg-white px-3.5 pb-2 pt-3">
