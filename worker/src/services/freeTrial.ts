@@ -14,6 +14,7 @@ import { provisionStore } from './provisioning'
 import { createAccessToken, findUserByEmail, markTokenDelivery, normalizeEmail, sha256Hex } from './platformUsers'
 import { isSuperadminEmail } from './auth'
 import { isEmail, sendEmail } from '../email/send'
+import { platformBoldOffered } from './planPayments'
 import { adminStoreUrl, getStoreBySlug, isTrialExpired, publicStoreUrl } from '../tenancy/stores'
 
 /** Free trial (decided by the owner on 2026-11-15): 14 days and up to 20 products. The platform can extend up to 30 days. */
@@ -316,6 +317,13 @@ export async function getTrialStatus(db: D1Database, storeId: number) {
 
 // ---- plan request (from the store panel) -------------------------------------------------------------
 
+/** How the merchant pays the plan: online with the platform's Bold account when it is configured (live), else sales. */
+function paymentInstructions(env: Partial<Env['Bindings']>): string {
+  return platformBoldOffered(env)
+    ? 'Paga en línea desde tu panel, en «Activar mi tienda», con tarjeta, PSE o Nequi a través de Bold. Tu plan se activa en cuanto Bold aprueba el pago; mientras tanto tu tienda sigue como está.'
+    : 'Nuestro equipo de ventas te escribirá con los datos de pago. Tu plan se activa cuando confirmemos el pago; mientras tanto tu tienda sigue como está.'
+}
+
 type RequestRow = { id: number; store_id: number; code: string; plan_code: string; billing_cycle: string; amount: number; currency: string; invoice_id: number | null; status: string; requested_by: string; payment_reference: string | null; verified_by: string | null; activation_op: string | null; activated_at: string | null; created_at: string }
 
 function requestCode(): string {
@@ -381,7 +389,7 @@ export async function requestPlan(db: D1Database, env: Partial<Env['Bindings']>,
   if (owner && store) {
     await sendEmail(db, env, {
       template: { key: 'plan_requested' }, to: owner.email, purpose: 'plan_requested', storeId, userId: owner.userId, requestedBy: actor, idempotencyKey: `plan_requested:${row.id}`,
-      values: { nombre_usuario: firstName(owner), correo_usuario: owner.email, nombre_comercio: store.name, nombre_plan: plan.name, codigo_solicitud: code, valor_plan: cop(amount, plan.currency), ciclo_pago: cycleLabel(cycle) },
+      values: { nombre_usuario: firstName(owner), correo_usuario: owner.email, nombre_comercio: store.name, nombre_plan: plan.name, codigo_solicitud: code, valor_plan: cop(amount, plan.currency), ciclo_pago: cycleLabel(cycle), instrucciones_pago: paymentInstructions(env) },
     }).catch(() => null)
   }
   await event(db, storeId, 'info', 'PLAN_REQUESTED', `${code} ${plan.code} ${cycle}`)

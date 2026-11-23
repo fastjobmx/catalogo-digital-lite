@@ -1112,6 +1112,8 @@ export interface StoreTrialStatus {
   }
   plans?: UpgradePlan[]
   ai?: { included: boolean; note: string }
+  /** The plan can be paid online with Bold (platform account); null keeps the sales flow. */
+  onlinePayment?: { mode: 'test' | 'live' } | null
 }
 
 export const signupApi = {
@@ -1123,7 +1125,12 @@ export const signupApi = {
 export const storeTrialApi = {
   status: (token: string) => fetchApi<StoreTrialStatus>('/api/admin/trial', { headers: bearer(token) }),
   requestPlan: (planCode: string, cycle: 'mensual' | 'anual', token: string) => fetchApi<{ request: PlanRequestView; replayed: boolean }>('/api/admin/trial/plan-request', { method: 'POST', headers: bearer(token), body: JSON.stringify({ planCode, cycle }) }),
+  /** Signed Bold checkout for the open plan request (amount always from the server). */
+  planPayment: (returnUrl: string, token: string) => fetchApi<BoldButtonData & { request: { code: string; planName: string; cycle: string; amount: number; currency: string } }>('/api/admin/trial/plan-payment', { method: 'POST', headers: bearer(token), body: JSON.stringify({ returnUrl }) }),
+  /** State confirmed by Bold after coming back (never the redirect parameters). */
+  planPaymentStatus: (reference: string, token: string) => fetchApi<PlanPaymentStatus>('/api/admin/trial/plan-payment/status', { method: 'POST', headers: bearer(token), body: JSON.stringify({ reference }) }),
 }
+export interface PlanPaymentStatus { attemptStatus: string; outcome: string | null; mode: 'test' | 'live'; code: string | null; planActive: boolean; planName: string | null; amount: number; currency: string }
 
 export interface LaunchChecklistItem { key: string; label: string; hint: string; done: boolean; path: string }
 export interface LaunchChecklist { items: LaunchChecklistItem[]; done: number; total: number; ready: boolean; published?: boolean }

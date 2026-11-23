@@ -27,6 +27,7 @@ export const EMAIL_VARIABLES = {
   codigo_solicitud: 'Código de la contratación (ACT-XXXXXX)',
   valor_plan: 'Valor a pagar por el plan elegido',
   ciclo_pago: 'Forma de pago del plan (mensual o anual)',
+  instrucciones_pago: 'Cómo pagar el plan (en línea con Bold desde el panel, o datos de pago por ventas)',
   numero_pedido: 'Número del pedido del comprador (PED-…)',
   total_pagado: 'Valor pagado en línea',
   medio_pago: 'Medio de pago usado en la pasarela',
@@ -438,7 +439,7 @@ ${FOOTER_TEXT}`,
     html: layout(`${h1('Hola, {{nombre_usuario}}')}
 <p style="margin:0 0 12px 0;">Recibimos tu solicitud para activar <strong>{{nombre_comercio}}</strong> con el plan <strong>{{nombre_plan}}</strong>.</p>
 ${facts([['Código', '<strong>{{codigo_solicitud}}</strong>'], ['Plan', '{{nombre_plan}}'], ['Forma de pago', '{{ciclo_pago}}'], ['Valor', '{{valor_plan}}']])}
-<p style="margin:14px 0 12px 0;">Nuestro equipo de ventas te escribirá con los datos de pago. Tu plan se activa cuando confirmemos el pago; mientras tanto tu tienda sigue como está.</p>
+<p style="margin:14px 0 12px 0;">{{instrucciones_pago}}</p>
 ${securityNote(`Solo pagamos y cobramos por los canales oficiales. Si tienes dudas, responde a este correo o escribe a ${SUPPORT.sales}.`)}`, 'Recibimos tu solicitud. Te escribiremos con los datos de pago.'),
     text: `Hola, {{nombre_usuario}}
 
@@ -449,7 +450,7 @@ Plan: {{nombre_plan}}
 Forma de pago: {{ciclo_pago}}
 Valor: {{valor_plan}}
 
-Nuestro equipo de ventas te escribirá con los datos de pago. Tu plan se activa cuando confirmemos el pago; mientras tanto tu tienda sigue como está.
+{{instrucciones_pago}}
 
 Dudas: responde a este correo o escribe a ${SUPPORT.sales}.
 
@@ -535,6 +536,7 @@ export const SAMPLE_VALUES: RenderValues = {
   codigo_solicitud: 'ACT-7K2M9Q',
   valor_plan: '$208.900 COP',
   ciclo_pago: 'Mensual (incluye el pago inicial)',
+  instrucciones_pago: 'Paga en línea desde tu panel, en «Activar mi tienda», con tarjeta, PSE o Nequi a través de Bold. Tu plan se activa en cuanto Bold aprueba el pago; mientras tanto tu tienda sigue como está.',
   numero_pedido: 'PED-20261122-E3DF2F22',
   total_pagado: '$591.800',
   medio_pago: 'Tarjeta de crédito',

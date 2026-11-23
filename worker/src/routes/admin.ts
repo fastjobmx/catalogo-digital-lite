@@ -24,6 +24,8 @@ import { CreditError, createCreditRequest, creditSummary, listCreditCosts, listC
 import { getTelegramBatchPhoto, getTelegramBatchReview, listTelegramBatches, updateTelegramBatchReviewItem } from '../services/telegramProductBatches'
 import type { Context } from 'hono'
 import { getTrialStatus, requestPlan, TrialFlowError } from '../services/freeTrial'
+import { createPlanCheckout, planPaymentStatus, platformBoldPublic } from '../services/planPayments'
+import { safeReturnUrl } from './payments'
 import { launchChecklist } from '../services/launchChecklist'
 
 const app = new Hono<Env>()
@@ -388,7 +390,30 @@ app.put('/payments/bold', adminAuth, requireRole('owner'), async (c) => {
   }
 })
 
-app.get('/trial', adminAuth, async (c) => c.json(await getTrialStatus(c.env.DB, c.get('storeId')!)))
+app.get('/trial', adminAuth, async (c) => c.json({ ...await getTrialStatus(c.env.DB, c.get('storeId')!), onlinePayment: platformBoldPublic(c.env) }))
+// Pago del plan en línea con Bold (cuenta de la plataforma): solo el propietario; el monto sale de la contratación abierta.
+app.post('/trial/plan-payment', adminAuth, requireRole('owner'), async (c) => {
+ const body = await c.req.json().catch(() => null) as { returnUrl?: unknown } | null
+ const returnUrl = safeReturnUrl(String(body?.returnUrl || ''), c.req.header('Origin'))
+ if (!returnUrl) return c.json({ error: 'Dirección de regreso no válida', code: 'INVALID_RETURN_URL' }, 400)
+ try {
+  return c.json(await createPlanCheckout(c.env.DB, c.env, { storeId: c.get('storeId')!, returnUrl, actor: c.get('adminEmail') || 'unknown' }), 201)
+ } catch (error) {
+  if (error instanceof TrialFlowError) return c.json({ error: error.message, code: error.code }, error.status)
+  throw error
+ }
+})
+app.post('/trial/plan-payment/status', adminAuth, requireRole('owner'), async (c) => {
+ const body = await c.req.json().catch(() => null) as { reference?: unknown } | null
+ const reference = String(body?.reference || '')
+ if (!/^ACT-[A-Z0-9]{6}-[A-Z0-9]{4,20}$/.test(reference)) return c.json({ error: 'Referencia no válida', code: 'INVALID_REFERENCE' }, 400)
+ try {
+  return c.json(await planPaymentStatus(c.env.DB, c.env, c.get('storeId')!, reference))
+ } catch (error) {
+  if (error instanceof TrialFlowError) return c.json({ error: error.message, code: error.code }, error.status)
+  throw error
+ }
+})
 // «Listo para vender»: steps computed from the store's real data (own store only).
 app.get('/launch-checklist', adminAuth, async (c) => c.json(await launchChecklist(c.env.DB, c.get('storeId')!)))
 // «Activar mi tienda»: only the owner contracts. The plan is enabled after the platform verifies the payment.

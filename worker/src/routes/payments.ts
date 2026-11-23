@@ -10,7 +10,7 @@ const app = new Hono<Env>()
 const checkoutKey = z.string().regex(/^[\w.-]{16,100}$/)
 
 /** Where Bold sends the buyer back: https, or http on localhost for local tests, and on the page's own origin. */
-function safeReturnUrl(value: string, origin: string | undefined): string | null {
+export function safeReturnUrl(value: string, origin: string | undefined): string | null {
   let url: URL
   try { url = new URL(value) } catch { return null }
   const local = url.hostname === 'localhost'
