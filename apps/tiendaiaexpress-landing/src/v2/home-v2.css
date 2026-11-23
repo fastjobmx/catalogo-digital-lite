@@ -341,3 +341,21 @@ html.motion .v2-layer {
   .v2-beat-dim, .v2-beat-dim *:not(.v2-tag) { color: var(--v2-subtle) !important; }
 }
 #como-funciona li[data-beat], #como-funciona li[data-beat] * { transition: color 400ms var(--v2-ease); }
+
+/* «Una foto. Una ficha lista.» (AiV2): a lime line sweeps the product photo while «Leyendo la foto…».
+   Decorative; without motion (reduced motion) the line simply stays still at the top. */
+.v2-ai-scan {
+  position: absolute; inset-inline: 0; top: 0; height: 28%;
+  background: linear-gradient(180deg, transparent 0%, color-mix(in srgb, var(--v2-lime) 22%, transparent) 70%, var(--v2-lime) 100%);
+  border-bottom: 2px solid var(--v2-lime);
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .v2-ai-scan { animation: v2-ai-scan 3.2s cubic-bezier(.45, 0, .55, 1) infinite; }
+}
+@keyframes v2-ai-scan {
+  0% { transform: translateY(-100%); opacity: 0; }
+  12% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { transform: translateY(360%); opacity: 0; }
+}

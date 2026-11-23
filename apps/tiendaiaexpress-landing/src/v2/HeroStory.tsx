@@ -240,7 +240,7 @@ export function HeroStory() {
       <div ref={sticky} className="hs-sticky" data-copy={copyOff ? 'off' : 'on'} data-v2-tilt="">
         <div ref={world} className="hs-world" data-ready={worldReady ? 'true' : undefined} aria-hidden="true" />
         <div className="hs-copy">
-          <p className="hs-kicker v2-enter" style={{ ['--d' as string]: 0 }}>Tu tienda online. Tu control por chat.</p>
+          <p className="hs-kicker v2-enter" style={{ ['--d' as string]: 0 }}>Tu tienda online con IA. Tu control por chat.</p>
           <h1 id="inicio-title" className="hs-h1 v2-enter" style={{ ['--d' as string]: 80 }}><span>Tu tienda.</span> <span>Bajo tu control.</span></h1>
           <p className="hs-lead v2-enter" style={{ ['--d' as string]: 160 }}>Tus clientes compran en tu tienda. Tú actualizas productos, precios y existencias desde un chat privado.</p>
           <div className="hs-ctas v2-enter" style={{ ['--d' as string]: 240 }}>

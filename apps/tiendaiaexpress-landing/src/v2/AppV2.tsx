@@ -5,6 +5,7 @@
 import { NavV2 } from './NavV2'
 import { HeroStory } from './HeroStory'
 import { CustomerV2 } from './CustomerV2'
+import { AiV2 } from './AiV2'
 import { BenefitsV2 } from './BenefitsV2'
 import { StoresV2 } from './StoresV2'
 import { AdminV2 } from './AdminV2'
@@ -30,6 +31,7 @@ export function AppV2() {
         {/* Order (2026-11-19): understand → believe → want → decide. The portal of the hero ends inside the
             store, so «what your customer sees» comes right after the demo. */}
         <HeroStory />
+        <AiV2 />
         <CustomerV2 />
         <AdminV2 />
         <StoresV2 />
