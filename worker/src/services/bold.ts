@@ -13,6 +13,7 @@ import type { Env } from '../index'
 import { decryptStoreSecret, encryptStoreSecret, hintOf } from '../ai/ownKey'
 import { transitionOrder } from './orders'
 import { notifyPaymentResult } from './paymentNotices'
+import { findPlanAttempt, handlePlanWebhook } from './planPayments'
 
 type Bindings = Env['Bindings']
 
@@ -49,7 +50,7 @@ export async function webhookSignature(rawBody: string, secret: string): Promise
   return hex(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(btoa(binary))))
 }
 
-function sameText(a: string, b: string): boolean {
+export function sameText(a: string, b: string): boolean {
   if (a.length !== b.length) return false
   let diff = 0
   for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
@@ -151,7 +152,7 @@ export async function createBoldCheckout(db: D1Database, env: Bindings, input: {
 
 // ---- results -------------------------------------------------------------------------
 
-const FINAL_FROM_BOLD: Record<string, AttemptStatus> = {
+export const FINAL_FROM_BOLD: Record<string, AttemptStatus> = {
   APPROVED: 'aprobado', REJECTED: 'rechazado', FAILED: 'fallido', VOIDED: 'anulado', PROCESSING: 'en_proceso', PENDING: 'en_proceso',
   SALE_APPROVED: 'aprobado', SALE_REJECTED: 'rechazado', VOID_APPROVED: 'anulado',
 }
@@ -283,7 +284,13 @@ async function processBoldWebhook(db: D1Database, env: Bindings, rawBody: string
   const seen = { eventType: type || undefined, eventId: eventId || undefined, reference: reference || undefined }
   if (!reference || !eventId || !type) return { status: 400, result: 'evento_incompleto', ...seen }
   const attempt = await findAttempt(db, reference)
-  if (!attempt) return { status: 200, result: 'referencia_desconocida', ...seen }
+  if (!attempt) {
+    // Not a store order: it may be a merchant paying its TiendIA plan (platform's Bold account and secret).
+    const plan = await findPlanAttempt(db, reference)
+    if (!plan) return { status: 200, result: 'referencia_desconocida', ...seen }
+    const out = await handlePlanWebhook(db, env, plan, rawBody, signature, { eventId, type, total: event.data?.amount?.total ?? null, txId: event.data?.payment_id ?? null, method: event.data?.payment_method ?? null })
+    return { ...out, ...seen }
+  }
   const known = { ...seen, storeId: attempt.store_id }
   const gateway = await getGateway(db, attempt.store_id)
   if (!gateway) return { status: 200, result: 'sin_pasarela', ...known }

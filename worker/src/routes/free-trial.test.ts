@@ -374,7 +374,7 @@ describe('12-19 · from trial to plan: same store, nothing lost', () => {
     expect((await createProduct(token, 'otra-tienda', 1)).status).toBe(403)
     // A paying store has no trial and cannot use the trial contract.
     const paid = await json(await h.request('/api/admin/trial', { token: otherOwner, store: 'otra-tienda' }))
-    expect(paid).toEqual({ trial: null })
+    expect(paid).toEqual({ trial: null, onlinePayment: null })
     expect((await h.request('/api/admin/trial/plan-request', { method: 'POST', token: otherOwner, store: 'otra-tienda', body: { planCode: 'emprendedor', cycle: 'mensual' } })).status).toBe(409)
     // An admin (not owner) of the trial store cannot contract.
     const helper = await createStoreUser(h.db, { email: 'ayudante@flores.co', password: 'ClaveSegura123', storeId: store.id, role: 'admin' })

@@ -23,6 +23,7 @@ import { cleanupExpiredTelegramProductAssets } from './services/telegramProductI
 import { releaseExpiredReservations } from './ai/credits'
 import { allowanceCapacity, expireStaleReservations } from './ai/spendGuard'
 import { purgeWebhookHits, reconcileBoldPayments } from './services/bold'
+import { reconcilePlanPayments } from './services/planPayments'
 import { expireCreditLots } from './ai/creditWallet'
 import trialRoutes from './routes/trial'
 import seoRoutes from './routes/seo'
@@ -148,6 +149,12 @@ export type Env = {
  AI_FX_COP_PER_USD?: string
  /** API propia por comercio: clave maestra (secreto, 32 bytes en base64) y su versión para rotación. */
  AI_KEYS_MASTER_KEY?: string
+ /** Bold account of the platform (merchants pay their plan): identity key, secret, test | live. */
+ PLATFORM_BOLD_IDENTITY_KEY?: string
+ PLATFORM_BOLD_SECRET_KEY?: string
+ PLATFORM_BOLD_MODE?: string
+ /** Only for local/staging checks: a test-mode approval activates the plan. */
+ PLATFORM_BOLD_TEST_ACTIVATES?: string
  AI_KEYS_MASTER_KEY_VERSION?: string
  ALLOWED_ORIGIN?: string
  /** Public storefront base URL used in links (e.g. https://catalogo-digital-ia.catalogo-lite-worker.workers.dev). */
@@ -294,6 +301,7 @@ const worker = {
   // Estudio Creativo: primero libera trabajos caídos; después avanza la cola de fotos pendientes.
   context.waitUntil(maintainCreativeJobs(env.DB).then(() => processPendingPhotoJobs(env)).then(() => processPendingVideoJobs(env)).catch((error) => console.error('Creative jobs maintenance failed:', error instanceof Error ? error.message : 'unknown')))
   // Pagos en línea: confirma con Bold los pagos que siguen abiertos (por si el webhook no llegó).
+  context.waitUntil(reconcilePlanPayments(env, env.DB).catch((error) => console.error('Bold plan reconciliation failed:', error instanceof Error ? error.message : 'unknown')))
   context.waitUntil(reconcileBoldPayments(env, env.DB).then(() => purgeWebhookHits(env.DB)).catch((error) => console.error('Bold reconciliation failed:', error instanceof Error ? error.message : 'unknown')))
   context.waitUntil(maintainWhatsApp(env, env.DB).catch((error) => console.error('WhatsApp maintenance failed:', error instanceof Error ? error.message : 'unknown')))
   context.waitUntil(cleanupAssistantMemory(env.DB).catch((error) => console.error('Assistant memory cleanup failed:', error instanceof Error ? error.message : 'unknown')))

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { BadgeCheck, CalendarClock, CheckCircle2, Clock3, Loader2, Package, ShieldCheck, Sparkles } from 'lucide-react'
+import { BadgeCheck, CalendarClock, CheckCircle2, Clock3, CreditCard, Loader2, Lock, Package, ShieldCheck, Sparkles } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { formatMoney } from '../../lib/format'
 import { storeTrialApi, type StoreTrialStatus, type UpgradePlan } from '../../services/api'
+import { openBoldCheckout } from '../../lib/bold'
 
 const FEATURE_LABELS: Record<string, string> = {
   catalogo: 'Catálogo online', pedidos_whatsapp: 'Pedidos por WhatsApp', panel: 'Panel administrativo', telegram: 'Asistente por Telegram',
@@ -32,6 +33,12 @@ export default function ActivateStore() {
   const [cycle, setCycle] = useState<'mensual' | 'anual'>('mensual')
   const [busy, setBusy] = useState<string | null>(null)
   const [notice, setNotice] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
+  const [paying, setPaying] = useState(false)
+  // Back from Bold (?bold-order-id=ACT-…): read once; the result is asked to the server, which asks Bold.
+  const [returned] = useState(() => {
+    const reference = new URLSearchParams(window.location.search).get('bold-order-id')
+    return reference && /^ACT-[A-Z0-9]{6}-[A-Z0-9]{4,20}$/.test(reference) ? reference : null
+  })
 
   const load = useCallback(async () => {
     if (!token) return
@@ -39,13 +46,55 @@ export default function ActivateStore() {
   }, [token])
   useEffect(() => { void load() }, [load])
 
+  useEffect(() => {
+    if (!returned || !token) return
+    const url = new URL(window.location.href)
+    for (const key of [...url.searchParams.keys()]) if (key.startsWith('bold-')) url.searchParams.delete(key)
+    window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash)
+    let cancelled = false
+    setNotice({ tone: 'ok', text: 'Confirmando tu pago con Bold…' })
+    const check = async (tries: number) => {
+      try {
+        const status = await storeTrialApi.planPaymentStatus(returned, token)
+        if (cancelled) return
+        if (status.planActive) { setNotice({ tone: 'ok', text: `¡Pago aprobado! Tu plan ${status.planName || ''} quedó activo. Tu tienda conserva todo lo que tenía.` }); await load(); return }
+        if (['rechazado', 'fallido', 'anulado'].includes(status.attemptStatus)) { setNotice({ tone: 'error', text: 'El pago no fue aprobado y no se cobró nada. Puedes intentarlo de nuevo.' }); return }
+        if (status.attemptStatus === 'aprobado' || status.attemptStatus === 'monto_distinto') { setNotice({ tone: 'error', text: 'Bold registró tu pago, pero necesitamos revisarlo antes de activar el plan. Te escribimos muy pronto; no vuelvas a pagar.' }); return }
+        if (tries > 0) { window.setTimeout(() => void check(tries - 1), 4000); return }
+        setNotice({ tone: 'ok', text: 'Tu pago está en proceso. Si Bold lo aprueba, tu plan se activa solo y te avisamos por correo; no vuelvas a pagar.' })
+      } catch { if (!cancelled) setNotice({ tone: 'error', text: 'No pudimos confirmar el pago todavía. Si pagaste, tu plan se activa solo en unos minutos; no vuelvas a pagar.' }) }
+    }
+    void check(5)
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [returned, token])
+
+  // Opens Bold over the panel for the open request (the server signs the exact amount).
+  const pay = async () => {
+    if (!token || paying) return
+    setPaying(true); setNotice(null)
+    try {
+      const button = await storeTrialApi.planPayment(`${window.location.origin}${window.location.pathname}`, token)
+      await openBoldCheckout(button, { email: data?.trial?.ownerEmail || undefined })
+    } catch (err) {
+      setNotice({ tone: 'error', text: err instanceof Error && !err.message.startsWith('BOLD_LIBRARY') ? err.message : 'No pudimos abrir la pasarela de Bold. Revisa tu conexión e inténtalo de nuevo.' })
+    } finally { setPaying(false) }
+  }
+
   const choose = async (plan: UpgradePlan) => {
     if (!token) return
     setBusy(plan.code); setNotice(null)
     try {
       const result = await storeTrialApi.requestPlan(plan.code, cycle, token)
-      setNotice({ tone: 'ok', text: `Recibimos tu solicitud ${result.request.code}. Te escribiremos con los datos de pago; el plan se activa cuando confirmemos el pago.` })
       await load()
+      if (data?.onlinePayment) {
+        // Straight to the secure payment: the plan activates as soon as Bold approves it.
+        setNotice({ tone: 'ok', text: `Solicitud ${result.request.code} lista. Completa el pago en la ventana de Bold para activar tu plan.` })
+        setBusy(null)
+        await pay()
+        return
+      }
+      setNotice({ tone: 'ok', text: `Recibimos tu solicitud ${result.request.code}. Te escribiremos con los datos de pago; el plan se activa cuando confirmemos el pago.` })
     } catch (err) {
       setNotice({ tone: 'error', text: err instanceof Error ? (/role does not allow/i.test(err.message) ? 'Solo el propietario de la tienda puede contratar un plan.' : err.message) : 'No pudimos registrar tu solicitud.' })
     } finally { setBusy(null) }
@@ -62,6 +111,7 @@ export default function ActivateStore() {
     )
   }
   const state = STATE_LABELS[trial.status] ?? STATE_LABELS.activa!
+  const online = data.onlinePayment ?? null
   const usage = Math.min(100, Math.round((trial.productCount / Math.max(1, trial.productLimit)) * 100))
 
   return (
@@ -89,9 +139,19 @@ export default function ActivateStore() {
 
       {trial.openRequest && (
         <section className="card space-y-2 border-violet-200 p-5 text-sm">
-          <p className="flex items-center gap-2 text-base font-black text-ink"><ShieldCheck size={18} className="text-brand" /> Solicitud {trial.openRequest.code} · verificando el pago</p>
+          <p className="flex items-center gap-2 text-base font-black text-ink"><ShieldCheck size={18} className="text-brand" /> Solicitud {trial.openRequest.code} · {online ? 'pendiente de pago' : 'verificando el pago'}</p>
           <p>Plan <b>{trial.openRequest.planName}</b> · {trial.openRequest.cycle === 'anual' ? 'pago anual' : 'pago mensual'} · <b>{formatMoney(trial.openRequest.amount, trial.openRequest.currency)}</b></p>
-          <p className="text-muted">Nuestro equipo de ventas te escribe con los datos de pago desde <b>ventas@tiendiaexpres.com</b>. Tu plan se activa cuando confirmemos el pago; mientras tanto tu tienda sigue como está. Si eliges otro plan, esta solicitud se reemplaza.</p>
+          {online ? (
+            <>
+              <p className="text-muted">Paga en línea con tarjeta de crédito o débito, PSE o Nequi. Tu plan se activa en cuanto Bold aprueba el pago y te llega el comprobante por correo. Si eliges otro plan, esta solicitud se reemplaza.</p>
+              <button type="button" onClick={() => void pay()} disabled={paying} className="btn-brand mt-1 w-full justify-center !text-base sm:w-auto">
+                {paying ? <Loader2 size={18} className="animate-spin" /> : <Lock size={18} />} Pagar ahora · {formatMoney(trial.openRequest.amount, trial.openRequest.currency)}
+              </button>
+              {online.mode === 'test' && <p className="text-xs font-semibold text-amber-700">Modo de pruebas de Bold: no se cobra dinero real.</p>}
+            </>
+          ) : (
+            <p className="text-muted">Nuestro equipo de ventas te escribe con los datos de pago desde <b>ventas@tiendiaexpres.com</b>. Tu plan se activa cuando confirmemos el pago; mientras tanto tu tienda sigue como está. Si eliges otro plan, esta solicitud se reemplaza.</p>
+          )}
         </section>
       )}
 
@@ -127,14 +187,22 @@ export default function ActivateStore() {
                     <li className="flex gap-2"><CheckCircle2 size={15} className="mt-0.5 shrink-0 text-brand" /> {plan.maxProducts ? `Hasta ${plan.maxProducts} productos` : 'Productos ilimitados'}</li>
                     {plan.features.filter((feature) => FEATURE_LABELS[feature]).map((feature) => <li key={feature} className="flex gap-2"><CheckCircle2 size={15} className="mt-0.5 shrink-0 text-brand" /> {FEATURE_LABELS[feature]}</li>)}
                   </ul>
-                  <button type="button" className={isOpen ? 'btn-ghost w-full' : 'btn-brand w-full'} disabled={busy !== null || isOpen} onClick={() => void choose(plan)}>
-                    {busy === plan.code ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />} {isOpen ? 'Solicitud enviada' : 'Elegir este plan'}
-                  </button>
+                  {isOpen && online ? (
+                    <button type="button" className="btn-brand w-full" disabled={paying} onClick={() => void pay()}>
+                      {paying ? <Loader2 size={16} className="animate-spin" /> : <CreditCard size={16} />} Pagar ahora
+                    </button>
+                  ) : (
+                    <button type="button" className={isOpen ? 'btn-ghost w-full' : 'btn-brand w-full'} disabled={busy !== null || isOpen || paying} onClick={() => void choose(plan)}>
+                      {busy === plan.code ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />} {isOpen ? 'Solicitud enviada' : online ? 'Elegir y pagar' : 'Elegir este plan'}
+                    </button>
+                  )}
                 </article>
               )
             })}
           </div>
-          <p className="text-xs text-muted">No cobramos nada en línea ni guardamos tarjetas. El plan se activa solo después de que el equipo de TiendIA Exprés verifica tu pago. {data.ai?.note}</p>
+          <p className="text-xs text-muted">{online
+            ? 'Pagas en línea con Bold: tarjeta de crédito o débito, PSE o Nequi. TiendIA Exprés no ve ni guarda los datos de tu tarjeta. Tu plan se activa en cuanto Bold aprueba el pago.'
+            : 'No cobramos nada en línea ni guardamos tarjetas. El plan se activa solo después de que el equipo de TiendIA Exprés verifica tu pago.'} {data.ai?.note}</p>
         </section>
       )}
 
