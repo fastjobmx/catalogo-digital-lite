@@ -139,9 +139,11 @@ function Card({ plan, billing }: { plan: Plan; billing: Billing }) {
       </div>
       <p className="mt-2 min-h-[2.9rem] text-[0.95rem] leading-snug text-(--v2-muted)">{plan.audience}</p>
       <Price plan={plan} billing={billing} />
-      <div className="mt-7 grid gap-1">
-        <Cta href={whatsappLink(planMessage(plan, billing))} variant={featured ? 'primary' : 'secondary'} size="lg" external aria-label={`Quiero el plan ${plan.name} con ${label}, por WhatsApp (se abre en una pestaña nueva)`}>Quiero este plan</Cta>
-        <a href="#contacto" onClick={() => choose({ plan: plan.name, billing })} className="inline-flex min-h-11 items-center justify-center text-[0.875rem] font-medium text-(--v2-muted) underline decoration-(--v2-line) underline-offset-4 hover:text-(--v2-text) hover:decoration-(--v2-text)">Solicitar con el formulario</a>
+      <div className="mt-7 grid gap-2">
+        {/* Contratar sin prueba: datos + pago con Bold en la app; el acceso llega por correo al aprobarse el pago. */}
+        <Cta href={`${site.appUrl}/contratar?plan=${plan.key}&ciclo=${billing}`} variant={featured ? 'primary' : 'secondary'} size="lg" external aria-label={`Contratar y pagar el plan ${plan.name} con ${label} (se abre en una pestaña nueva)`}>Contratar y pagar</Cta>
+        <Cta href={whatsappLink(planMessage(plan, billing))} variant="quiet" external aria-label={`Quiero el plan ${plan.name} con ${label}, por WhatsApp (se abre en una pestaña nueva)`} className="justify-self-center !text-[0.9375rem]">Prefiero hablar por WhatsApp</Cta>
+        <a href="#contacto" onClick={() => choose({ plan: plan.name, billing })} className="inline-flex min-h-9 items-center justify-center text-[0.8125rem] font-medium text-(--v2-subtle) underline decoration-(--v2-line) underline-offset-4 hover:text-(--v2-text) hover:decoration-(--v2-text)">Solicitar con el formulario</a>
       </div>
       <div className="mt-6 border-t border-(--v2-line) pt-6">
         <p className="flex items-center gap-2.5 text-[1.125rem] font-semibold tracking-[-0.01em]"><Icon name="box" size={19} className="text-(--v2-subtle)" />{plan.products}</p>
@@ -301,7 +303,7 @@ export function PlansV2() {
         <Comparator />
 
         <div className="mx-auto mt-8 max-w-4xl text-center text-[0.8125rem] leading-relaxed text-(--v2-subtle)">
-          <p>Precios en pesos colombianos (COP). Con pago mensual, el pago inicial se cobra una sola vez junto con la primera mensualidad; el pago anual incluye 12 meses de servicio y no cobra pago inicial adicional. Antes de cualquier pago te confirmamos el valor final, incluidos los impuestos que apliquen. Tu plan se paga en línea con Bold (tarjeta de crédito o débito, PSE o Nequi) desde tu panel, al activar tu tienda; en esta página no se procesan pagos.</p>
+          <p>Precios en pesos colombianos (COP). Con pago mensual, el pago inicial se cobra una sola vez junto con la primera mensualidad; el pago anual incluye 12 meses de servicio y no cobra pago inicial adicional. Antes de pagar ves el valor final, incluidos los impuestos que apliquen. Tu plan se paga en línea con Bold (tarjeta de crédito o débito, PSE o Nequi): con «Contratar y pagar», sin prueba gratis, o desde tu panel al terminar la prueba. Tu tienda queda activa en cuanto Bold aprueba el pago.</p>
           <p className="mt-2">Las cuotas de IA son mensuales. Si se agotan, tu tienda sigue funcionando y puedes pedir créditos adicionales.</p>
           <a href="#condiciones" className="mt-3 inline-flex min-h-11 items-center gap-1.5 font-semibold text-(--v2-text) underline decoration-(--v2-line) underline-offset-4 hover:decoration-(--v2-text)">Condiciones comerciales<Icon name="arrowDown" size={15} /></a>
         </div>

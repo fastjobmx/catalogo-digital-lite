@@ -38,9 +38,9 @@ export const EMAIL_CATEGORIES = {
 export type EmailCategory = keyof typeof EMAIL_CATEGORIES
 const SECURITY_KEYS: ReadonlySet<string> = new Set(['password_reset', 'email_verification', 'invitation', 'password_changed', 'trial_signup', 'signup_existing'])
 /** Messages about the trial and the contract: the merchant needs them to keep the store, so they cannot be paused. */
-const ACCOUNT_KEYS: ReadonlySet<string> = new Set(['trial_expiring', 'trial_ended', 'plan_requested', 'plan_activated'])
+const ACCOUNT_KEYS: ReadonlySet<string> = new Set(['trial_expiring', 'trial_ended', 'plan_requested', 'plan_activated', 'plan_purchased'])
 /** Commercial messages: replies go to sales (EMAIL_REPLY_TO_SALES) instead of support. */
-const SALES_KEYS: ReadonlySet<string> = new Set(['trial_expiring', 'trial_ended', 'plan_requested', 'plan_activated'])
+const SALES_KEYS: ReadonlySet<string> = new Set(['trial_expiring', 'trial_ended', 'plan_requested', 'plan_activated', 'plan_purchased'])
 
 export function categoryFor(templateKey: string | null): EmailCategory {
   if (templateKey && SECURITY_KEYS.has(templateKey)) return 'seguridad'

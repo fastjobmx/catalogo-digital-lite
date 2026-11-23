@@ -63,7 +63,7 @@ export const faq = [
   },
   {
     q: '¿Cómo pago mi plan?',
-    a: 'En línea con Bold: tarjeta de crédito o débito, PSE o Nequi. Eliges tu plan desde el panel de tu tienda, ves el valor final y pagas de forma segura; recibes el comprobante en tu correo. No hacemos cobros automáticos: cada pago lo haces tú.',
+    a: 'En línea con Bold: tarjeta de crédito o débito, PSE o Nequi. Si ya te decidiste, toca «Contratar y pagar» en el plan que quieras: escribes los datos de tu negocio, pagas y tu tienda queda activa al instante, sin prueba gratis. Si empezaste con la prueba, contratas desde tu panel en «Activar mi tienda». Recibes el comprobante y tu acceso en tu correo. No hacemos cobros automáticos: cada pago lo haces tú.',
   },
   {
     q: '¿Cómo cambio de plan?',

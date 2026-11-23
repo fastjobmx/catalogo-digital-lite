@@ -20,6 +20,7 @@ export const EMAIL_VARIABLES = {
   nombre_plan: 'Plan activo del comercio',
   fecha_evento: 'Fecha y hora del evento (hora de Colombia)',
   enlace_activacion: 'Enlace para confirmar el correo y entrar a la tienda de prueba (lo genera el sistema)',
+  enlace_compra: 'Enlace para crear la contraseña y entrar después de contratar en línea (lo genera el sistema)',
   enlace_planes: 'Enlace a los planes dentro del panel (pide iniciar sesión)',
   dias_restantes: 'Días que le quedan a la prueba',
   fecha_vencimiento: 'Fecha en que termina la prueba (hora de Colombia)',
@@ -52,10 +53,11 @@ export const LINK_VARIABLES: Partial<Record<EmailVariable, SystemTemplateKey>> =
   enlace_invitacion: 'invitation',
   enlace_verificacion: 'email_verification',
   enlace_activacion: 'trial_signup',
+  enlace_compra: 'plan_purchased',
 }
 
 export const SYSTEM_TEMPLATE_KEYS = ['password_reset', 'invitation', 'welcome', 'admin_notice', 'email_verification', 'password_changed',
-  'trial_signup', 'trial_welcome', 'signup_existing', 'trial_expiring', 'trial_ended', 'plan_requested', 'plan_activated', 'order_paid'] as const
+  'trial_signup', 'trial_welcome', 'signup_existing', 'trial_expiring', 'trial_ended', 'plan_requested', 'plan_activated', 'plan_purchased', 'order_paid'] as const
 export type SystemTemplateKey = typeof SYSTEM_TEMPLATE_KEYS[number]
 
 export class TemplateError extends Error {
@@ -478,6 +480,33 @@ Tu panel: {{enlace_panel}}
 
 ${FOOTER_TEXT}`,
   },
+  plan_purchased: {
+    name: 'Contratación en línea: pago confirmado y acceso',
+    subject: 'Pago confirmado: crea tu contraseña y entra a {{nombre_comercio}}',
+    html: layout(`${h1('¡Te damos la bienvenida, {{nombre_usuario}}!')}
+<p style="margin:0 0 12px 0;">Confirmamos tu pago: <strong>{{nombre_comercio}}</strong> ya tiene el plan <strong>{{nombre_plan}}</strong> activo en {{nombre_plataforma}}.</p>
+${facts([['Código', '<strong>{{codigo_solicitud}}</strong>'], ['Plan', '{{nombre_plan}}'], ['Forma de pago', '{{ciclo_pago}}'], ['Usuario', '{{correo_usuario}}']])}
+<p style="margin:14px 0 0 0;">Para entrar a tu panel, confirma tu correo y crea tu contraseña con este botón:</p>
+${button('enlace_compra', 'Crear mi contraseña y entrar')}
+<p style="margin:0;font-size:14px;">El enlace vence en <strong>{{vence_en}}</strong> y sirve una sola vez. Si vence, pide uno nuevo desde «Reenviar enlace» en la página de registro.</p>
+${securityNote('Guarda este correo como comprobante de tu pago. Si no hiciste esta compra, escríbenos de inmediato.')}`, 'Tu pago fue confirmado. Crea tu contraseña para entrar a tu tienda.'),
+    text: `¡Te damos la bienvenida, {{nombre_usuario}}!
+
+Confirmamos tu pago: {{nombre_comercio}} ya tiene el plan {{nombre_plan}} activo en {{nombre_plataforma}}.
+
+Código: {{codigo_solicitud}}
+Plan: {{nombre_plan}}
+Forma de pago: {{ciclo_pago}}
+Usuario: {{correo_usuario}}
+
+Confirma tu correo, crea tu contraseña y entra a tu panel:
+{{enlace_compra}}
+
+El enlace vence en {{vence_en}} y sirve una sola vez.
+Guarda este correo como comprobante de tu pago. Si no hiciste esta compra, escríbenos de inmediato.
+
+${FOOTER_TEXT}`,
+  },
   order_paid: {
     name: 'Comprador: pago en línea confirmado (con la marca del comercio)',
     subject: 'Pago confirmado: tu pedido {{numero_pedido}} en {{nombre_comercio}}',
@@ -529,6 +558,7 @@ export const SAMPLE_VALUES: RenderValues = {
   enlace_invitacion: 'https://ejemplo.invalid/enlace-de-muestra-sin-validez',
   enlace_verificacion: 'https://ejemplo.invalid/enlace-de-muestra-sin-validez',
   enlace_activacion: 'https://ejemplo.invalid/enlace-de-muestra-sin-validez',
+  enlace_compra: 'https://ejemplo.invalid/enlace-de-muestra-sin-validez',
   enlace_planes: 'https://ejemplo.invalid/panel/activar-tienda',
   dias_restantes: '3',
   fecha_vencimiento: '21 de noviembre de 2026',

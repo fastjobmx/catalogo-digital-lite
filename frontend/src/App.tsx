@@ -28,6 +28,7 @@ const TrialPage = lazy(() => import('./pages/TrialPage'))
 const CheckoutPage = lazy(() => import('./pages/CheckoutPage'))
 const CartPage = lazy(() => import('./pages/CartPage'))
 const SignupPage = lazy(() => import('./pages/SignupPage'))
+const PurchasePage = lazy(() => import('./pages/PurchasePage'))
 const AdminActivateStore = lazy(() => import('./admin/pages/ActivateStore'))
 const AdminUsers = lazy(() => import('./admin/pages/Users'))
 const VerifyEmailPage = lazy(() => import('./admin/VerifyEmailPage'))
@@ -86,6 +87,7 @@ export default function App() {
               {/* Catalogue trial without an account (temporary, unpublished, noindex) */}
               {/* Real free trial: a normal store with temporary rights. The old temporary mini-store stays only for existing links. */}
               <Route path="/registro" element={<Suspense fallback={null}><SignupPage /></Suspense>} />
+              <Route path="/contratar" element={<Suspense fallback={null}><PurchasePage /></Suspense>} />
               <Route path="/prueba" element={<Navigate to="/registro" replace />} />
               <Route path="/prueba/:id" element={<Suspense fallback={null}><TrialPage /></Suspense>} />
               {/* Public store routes */}

@@ -18,6 +18,8 @@ const PLATFORM = {
   trialDescription: 'Vista previa temporal de tu catálogo. No está publicada.',
   signupTitle: 'Prueba gratis 14 días | TiendIA Exprés',
   signupDescription: 'Crea tu tienda online en minutos, sin tarjeta de crédito: catálogo con fotos y tallas, pedidos por WhatsApp y cobros en línea opcionales.',
+  purchaseTitle: 'Contrata tu plan | TiendIA Exprés',
+  purchaseDescription: 'Elige tu plan, paga en línea con tarjeta, PSE o Nequi y tu tienda queda activa al instante.',
   notFoundTitle: 'Página no encontrada',
   notFoundDescription: 'Esta tienda o este producto no existe o ya no está disponible.',
   image: '/brand/tiendaiaexpress/og.png',
@@ -55,7 +57,7 @@ export function classifyPath(pathname) {
   const slug = tenant ? tenant[1] : null
   const rest = tenant ? (tenant[2] || '/') : pathname
   // /registro (free-trial sign-up) and /activar (account activation) are platform screens: never a store page.
-  if (/^\/(admin|plataforma|registro|activar)(\/|$)/.test(rest)) return { kind: 'private', slug, rest }
+  if (/^\/(admin|plataforma|registro|contratar|activar)(\/|$)/.test(rest)) return { kind: 'private', slug, rest }
   if (/^\/prueba(\/|$)/.test(rest)) return { kind: 'trial', slug, rest }
   // Internal search results are useful to visitors but not to search engines.
   if (/^\/search(\/|$)/.test(rest)) return { kind: 'search', slug, rest }
@@ -89,9 +91,10 @@ export function buildMeta(kind, origin, url, store, product) {
   if (kind === 'private' || kind === 'trial' || !store) {
     // The free-trial sign-up is shared on WhatsApp and social media: its preview invites to create a store.
     const signup = kind === 'private' && typeof url === 'string' && /\/registro(\?|$)/.test(url)
+    const purchase = kind === 'private' && typeof url === 'string' && /\/contratar(\?|$)/.test(url)
     return {
-      title: kind === 'trial' ? PLATFORM.trialTitle : signup ? PLATFORM.signupTitle : PLATFORM.title,
-      description: kind === 'trial' ? PLATFORM.trialDescription : signup ? PLATFORM.signupDescription : PLATFORM.description,
+      title: kind === 'trial' ? PLATFORM.trialTitle : signup ? PLATFORM.signupTitle : purchase ? PLATFORM.purchaseTitle : PLATFORM.title,
+      description: kind === 'trial' ? PLATFORM.trialDescription : signup ? PLATFORM.signupDescription : purchase ? PLATFORM.purchaseDescription : PLATFORM.description,
       siteName: PLATFORM.name, image: abs(PLATFORM.image), favicon: PLATFORM.favicon, url, robots: NOINDEX, type: 'website',
     }
   }

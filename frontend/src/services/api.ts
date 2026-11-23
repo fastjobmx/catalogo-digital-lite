@@ -1120,6 +1120,12 @@ export const signupApi = {
   config: () => fetchApi<SignupConfig>('/api/signup/config'),
   create: (payload: SignupPayload) => fetchApi<{ ok: true }>('/api/signup', { method: 'POST', body: JSON.stringify(payload) }),
   resend: (email: string) => fetchApi<{ ok: true }>('/api/signup/resend', { method: 'POST', body: JSON.stringify({ email }) }),
+  /** Contratar sin prueba: plans with their first payment, and whether online payment is available. */
+  plans: () => fetchApi<{ plans: UpgradePlan[]; onlinePayment: { mode: 'test' | 'live' } | null }>('/api/signup/plans'),
+  purchase: (payload: SignupPayload & { planCode: string; cycle: 'mensual' | 'anual'; returnUrl: string }) =>
+    fetchApi<BoldButtonData & { storeName: string; email: string; request: { code: string; planName: string; cycle: string; amount: number; currency: string } }>('/api/signup/purchase', { method: 'POST', body: JSON.stringify(payload) }),
+  purchaseStatus: (reference: string, email: string) =>
+    fetchApi<{ attemptStatus: string; planActive: boolean; planName: string | null; amount: number; currency: string; mode: 'test' | 'live'; code: string | null }>('/api/signup/purchase/status', { method: 'POST', body: JSON.stringify({ reference, email }) }),
 }
 
 export const storeTrialApi = {

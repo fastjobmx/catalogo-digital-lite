@@ -99,16 +99,21 @@ export type SignupResult = { ok: true }
 const SIGNUP_OK: SignupResult = { ok: true }
 
 /** Emails the one-time link that confirms the address, sets the password and starts the trial. */
-async function sendSignupLink(db: D1Database, env: Partial<Env['Bindings']>, input: { userId: number; email: string; displayName: string; storeId: number; slug: string; storeName: string }, actor: string) {
+async function sendSignupLink(db: D1Database, env: Partial<Env['Bindings']>, input: { userId: number; email: string; displayName: string; storeId: number; slug: string; storeName: string }, actor: string,
+  purchase?: { planName: string; code: string; cycle: string }) {
   const token = await createAccessToken(db, { userId: input.userId, storeId: input.storeId, purpose: 'activation', ttlSeconds: SIGNUP_LINK_TTL_SECONDS, createdBy: actor })
   const link = `${adminStoreUrl(env.PUBLIC_STORE_BASE_URL, { id: input.storeId, slug: input.slug })}/activar?token=${encodeURIComponent(token)}`
+  // A plan bought directly (no trial): the same one-time link, in the «payment confirmed, create your password» email.
+  const key = purchase ? 'plan_purchased' : 'trial_signup'
   const sent = await sendEmail(db, env, {
-    template: { key: 'trial_signup' }, to: input.email, purpose: 'trial_signup', storeId: input.storeId, userId: input.userId, requestedBy: actor,
-    idempotencyKey: `trial_signup:${await sha256Hex(`email:${token}`)}`,
-    values: {
-      nombre_usuario: firstName(input), correo_usuario: input.email, nombre_comercio: input.storeName, vence_en: '72 horas',
-      enlace_activacion: link, dias_restantes: String(TRIAL_DAYS), limite_productos: String(TRIAL_PRODUCTS),
-    },
+    template: { key }, to: input.email, purpose: key, storeId: input.storeId, userId: input.userId, requestedBy: actor,
+    idempotencyKey: `${key}:${await sha256Hex(`email:${token}`)}`,
+    values: purchase
+      ? { nombre_usuario: firstName(input), correo_usuario: input.email, nombre_comercio: input.storeName, vence_en: '72 horas', enlace_compra: link, nombre_plan: purchase.planName, codigo_solicitud: purchase.code, ciclo_pago: cycleLabel(purchase.cycle) }
+      : {
+        nombre_usuario: firstName(input), correo_usuario: input.email, nombre_comercio: input.storeName, vence_en: '72 horas',
+        enlace_activacion: link, dias_restantes: String(TRIAL_DAYS), limite_productos: String(TRIAL_PRODUCTS),
+      },
   })
   // Opening a link that arrived by email proves the address (the activation then marks it verified).
   await markTokenDelivery(db, token, 'activation', sent.status === 'enviado' ? 'email' : 'manual')
@@ -126,12 +131,25 @@ async function pendingTrialOf(db: D1Database, userId: number) {
 }
 
 export async function signupTrial(db: D1Database, env: Partial<Env['Bindings']>, body: Record<string, unknown>, ip: string, fetcher: typeof fetch = fetch): Promise<SignupResult> {
+  await createTrialStore(db, env, body, ip, fetcher, { sendLink: true })
+  return SIGNUP_OK
+}
+
+/** What happened to a sign-up. Only the direct purchase looks at it; the free trial always answers the same. */
+export type TrialStoreOutcome =
+  | { kind: 'created' | 'pending'; storeId: number; userId: number; email: string; displayName: string; slug: string; storeName: string }
+  | { kind: 'existing' | 'ignored' }
+
+/** Creates (or finds the pending) store of a sign-up. With sendLink the confirmation email goes out as always;
+ * the direct purchase sends its own email only after Bold approves the payment. */
+export async function createTrialStore(db: D1Database, env: Partial<Env['Bindings']>, body: Record<string, unknown>, ip: string, fetcher: typeof fetch, opts: { sendLink: boolean }): Promise<TrialStoreOutcome> {
+  const IGNORED = { kind: 'ignored' } as const
   if (String(env.TRIAL_SIGNUP_ENABLED || '').toLowerCase() === 'false') throw new TrialFlowError('SIGNUP_DISABLED', 'El registro de pruebas está pausado. Escríbenos por WhatsApp.', 503)
   const ipHash = await sha256Hex(`signup-ip:${ip}`)
   // Bots fill every field; people never see this one.
   if (clean(body.website, 200)) {
     await event(db, null, 'warning', 'TRIAL_SIGNUP_HONEYPOT', ipHash.slice(0, 16))
-    return SIGNUP_OK
+    return IGNORED
   }
   const businessName = clean(body.businessName, 80)
   if (businessName.length < 2) throw new TrialFlowError('INVALID_NAME', 'Escribe el nombre de tu negocio.')
@@ -147,16 +165,16 @@ export async function signupTrial(db: D1Database, env: Partial<Env['Bindings']>,
   if (!(await withinHourlyLimit(db, `signup:${ipHash}`, SIGNUP_PER_IP_HOUR))) throw new TrialFlowError('RATE_LIMITED', 'Hiciste varios registros seguidos. Intenta de nuevo en una hora.', 429)
 
   // The platform's own address never gets a trial; the answer stays the same.
-  if (isSuperadminEmail(email, env as Env['Bindings'])) return SIGNUP_OK
+  if (isSuperadminEmail(email, env as Env['Bindings'])) return IGNORED
   const emailHash = await sha256Hex(`trial-email:${email}`)
   const existing = await findUserByEmail(db, email)
   if (existing) {
-    if (existing.status === 'disabled') return SIGNUP_OK
+    if (existing.status === 'disabled') return IGNORED
     // Same person signing up again before confirming: a fresh link for the same store (no second store).
     const pending = await pendingTrialOf(db, existing.id)
     if (pending) {
-      await resendIfAllowed(db, env, { userId: existing.id, email: existing.email, displayName: existing.display_name, ...pending })
-      return SIGNUP_OK
+      if (opts.sendLink) await resendIfAllowed(db, env, { userId: existing.id, email: existing.email, displayName: existing.display_name, ...pending })
+      return { kind: 'pending', userId: existing.id, email: existing.email, displayName: existing.display_name, ...pending }
     }
     // Existing account: a notice by email (no link that grants access), at most once per hour.
     const panel = await firstPanelUrl(db, env, existing.id)
@@ -166,9 +184,9 @@ export async function signupTrial(db: D1Database, env: Partial<Env['Bindings']>,
         idempotencyKey: `signup_existing:${existing.id}:${Math.floor(Date.now() / 3_600_000)}`, values: { correo_usuario: existing.email, enlace_panel: panel },
       }).catch(() => null)
     }
-    return SIGNUP_OK
+    return { kind: 'existing' }
   }
-  if (await db.prepare('SELECT 1 AS hit FROM store_trials WHERE email_hash = ?').bind(emailHash).first()) return SIGNUP_OK
+  if (await db.prepare('SELECT 1 AS hit FROM store_trials WHERE email_hash = ?').bind(emailHash).first()) return IGNORED
   const today = await db.prepare(`SELECT COUNT(*) AS n FROM store_trials WHERE created_at >= datetime('now', '-1 day')`).first<{ n: number }>()
   if (Number(today?.n || 0) >= SIGNUPS_PER_DAY) throw new TrialFlowError('DAILY_LIMIT', 'Hoy recibimos muchos registros. Intenta de nuevo mañana o escríbenos por WhatsApp.', 503)
 
@@ -179,7 +197,7 @@ export async function signupTrial(db: D1Database, env: Partial<Env['Bindings']>,
   }, { requestKey: `trial-signup-${emailHash.slice(0, 40)}`, actor: 'signup', trial: true })
   if (result.status !== 'completed' || !result.storeId) {
     await event(db, result.storeId ?? null, 'error', 'TRIAL_SIGNUP_FAILED', result.errorCode || result.status)
-    if (result.status === 'running') return SIGNUP_OK
+    if (result.status === 'running') return IGNORED
     throw new TrialFlowError('SIGNUP_FAILED', 'No pudimos crear tu tienda en este momento. Intenta de nuevo en unos minutos.', 503)
   }
   await db.prepare(
@@ -188,9 +206,22 @@ export async function signupTrial(db: D1Database, env: Partial<Env['Bindings']>,
   await audit(db, 'trial_signup', result.storeId, String(result.storeId), { termsVersion: TRIAL_TERMS_VERSION, whatsapp: Boolean(whatsappRaw) }, 'signup')
   await event(db, result.storeId, 'info', 'TRIAL_SIGNUP', result.slug || '')
   const user = await findUserByEmail(db, email)
+  if (!user) return IGNORED
   // The store exists even if the email fails: the person can ask for the link again (resend), safely.
-  if (user) await sendSignupLink(db, env, { userId: user.id, email, displayName: ownerName, storeId: result.storeId, slug: result.slug!, storeName: businessName }, 'signup')
-  return SIGNUP_OK
+  if (opts.sendLink) await sendSignupLink(db, env, { userId: user.id, email, displayName: ownerName, storeId: result.storeId, slug: result.slug!, storeName: businessName }, 'signup')
+  return { kind: 'created', storeId: result.storeId, userId: user.id, email, displayName: ownerName, slug: result.slug!, storeName: businessName }
+}
+
+/** After Bold approves a plan bought directly: the owner has no password yet, so the access link goes in the
+ * «payment confirmed, create your password» email. Owners who already entered get the usual «plan activated». */
+export async function sendPurchaseAccess(db: D1Database, env: Partial<Env['Bindings']>, storeId: number, purchase: { planName: string; code: string; cycle: string }) {
+  const row = await db.prepare(
+    `SELECT u.id AS userId, u.email, u.display_name AS displayName, u.password_hash AS passwordHash, s.slug, s.name AS storeName
+     FROM store_memberships m JOIN platform_users u ON u.id = m.user_id JOIN stores s ON s.id = m.store_id
+     WHERE m.store_id = ? AND m.role = 'owner' AND m.status = 'active' AND u.status <> 'disabled' AND u.email IS NOT NULL ORDER BY m.created_at LIMIT 1`,
+  ).bind(storeId).first<{ userId: number; email: string; displayName: string; passwordHash: string | null; slug: string; storeName: string }>()
+  if (!row || row.passwordHash) return 'no_aplica'
+  return sendSignupLink(db, env, { userId: row.userId, email: row.email, displayName: row.displayName, storeId, slug: row.slug, storeName: row.storeName }, 'compra', purchase)
 }
 
 async function firstPanelUrl(db: D1Database, env: Partial<Env['Bindings']>, userId: number): Promise<string | null> {
@@ -345,11 +376,11 @@ async function cancelRequest(db: D1Database, row: RequestRow, reason: string, ac
 }
 
 /** Owner: asks for a plan. Creates a pending invoice; the plan is NOT enabled until the payment is verified. */
-export async function requestPlan(db: D1Database, env: Partial<Env['Bindings']>, storeId: number, body: Record<string, unknown>, actor: string) {
+export async function requestPlan(db: D1Database, env: Partial<Env['Bindings']>, storeId: number, body: Record<string, unknown>, actor: string, opts: { allowPending?: boolean; notify?: boolean } = {}) {
   const trial = await db.prepare('SELECT status FROM store_trials WHERE store_id = ?').bind(storeId).first<{ status: string }>()
   if (!trial) throw new TrialFlowError('NOT_A_TRIAL', 'Esta tienda ya tiene un plan. Para cambiarlo, escribe a ventas.', 409)
   if (trial.status === 'convertida') throw new TrialFlowError('ALREADY_CONVERTED', 'Tu tienda ya está activa con un plan.', 409)
-  if (trial.status === 'pendiente') throw new TrialFlowError('EMAIL_NOT_CONFIRMED', 'Confirma tu correo antes de contratar.', 409)
+  if (trial.status === 'pendiente' && !opts.allowPending) throw new TrialFlowError('EMAIL_NOT_CONFIRMED', 'Confirma tu correo antes de contratar.', 409)
   const planCode = clean(body.planCode, 40)
   const cycle = body.cycle === 'anual' ? 'anual' : body.cycle === 'mensual' ? 'mensual' : null
   if (!cycle) throw new TrialFlowError('INVALID_CYCLE', 'Elige pago mensual o anual.')
@@ -386,7 +417,7 @@ export async function requestPlan(db: D1Database, env: Partial<Env['Bindings']>,
   const row = (await db.prepare('SELECT * FROM store_plan_requests WHERE code = ?').bind(code).first<RequestRow>())!
   const store = await db.prepare('SELECT name FROM stores WHERE id = ?').bind(storeId).first<{ name: string }>()
   const owner = await storeOwner(db, storeId)
-  if (owner && store) {
+  if (owner && store && opts.notify !== false) {
     await sendEmail(db, env, {
       template: { key: 'plan_requested' }, to: owner.email, purpose: 'plan_requested', storeId, userId: owner.userId, requestedBy: actor, idempotencyKey: `plan_requested:${row.id}`,
       values: { nombre_usuario: firstName(owner), correo_usuario: owner.email, nombre_comercio: store.name, nombre_plan: plan.name, codigo_solicitud: code, valor_plan: cop(amount, plan.currency), ciclo_pago: cycleLabel(cycle), instrucciones_pago: paymentInstructions(env) },
@@ -440,7 +471,10 @@ export async function activatePlanRequest(db: D1Database, env: Partial<Env['Bind
   const store = await db.prepare('SELECT id, slug, name FROM stores WHERE id = ?').bind(row.store_id).first<{ id: number; slug: string; name: string }>()
   const owner = await storeOwner(db, row.store_id)
   const panel = store ? `${adminStoreUrl(env.PUBLIC_STORE_BASE_URL, store)}/login` : ''
-  if (store && owner && panel.startsWith('https://')) {
+  const entered = owner ? Boolean((await db.prepare('SELECT password_hash FROM platform_users WHERE id = ?').bind(owner.userId).first<{ password_hash: string | null }>())?.password_hash) : false
+  if (store && owner && !entered) {
+    await sendPurchaseAccess(db, env, store.id, { planName: plan.name, code: row.code, cycle: row.billing_cycle }).catch(() => null)
+  } else if (store && owner && panel.startsWith('https://')) {
     await sendEmail(db, env, {
       template: { key: 'plan_activated' }, to: owner.email, purpose: 'plan_activated', storeId: store.id, userId: owner.userId, requestedBy: actor, idempotencyKey: `plan_activated:${row.id}`,
       values: { nombre_usuario: firstName(owner), correo_usuario: owner.email, nombre_comercio: store.name, nombre_plan: plan.name, codigo_solicitud: row.code, ciclo_pago: cycleLabel(row.billing_cycle), enlace_tienda: publicStoreUrl(env.PUBLIC_STORE_BASE_URL, store), enlace_panel: panel },
