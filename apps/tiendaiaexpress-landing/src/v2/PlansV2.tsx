@@ -236,7 +236,7 @@ function usePlanInView(row: RefObject<HTMLUListElement | null>) {
 }
 
 const EVERY_PLAN: { icon: IconName; title: string; body: string }[] = [
-  { icon: 'tag', title: 'Sin comisión por venta', body: 'El pago lo acuerdas directamente con tu cliente.' },
+  { icon: 'tag', title: 'Sin comisión por venta', body: 'Cobra en línea con tu cuenta Bold o acuerda el pago por WhatsApp.' },
   ...includedAddOns.map((a) => ({ icon: 'sparkle' as IconName, title: `${a.title} incluido`, body: 'Sin consumir créditos IA.' })),
   { icon: 'clock', title: `Prueba gratis de ${site.trial.days} días`, body: `Sin tarjeta de crédito, con hasta ${site.trial.products} productos.` },
 ]
@@ -301,7 +301,7 @@ export function PlansV2() {
         <Comparator />
 
         <div className="mx-auto mt-8 max-w-4xl text-center text-[0.8125rem] leading-relaxed text-(--v2-subtle)">
-          <p>Precios en pesos colombianos (COP). Con pago mensual, el pago inicial se cobra una sola vez junto con la primera mensualidad; el pago anual incluye 12 meses de servicio y no cobra pago inicial adicional. Antes de cualquier pago te confirmamos por escrito el valor final, incluidos los impuestos que apliquen. No procesamos pagos en esta página.</p>
+          <p>Precios en pesos colombianos (COP). Con pago mensual, el pago inicial se cobra una sola vez junto con la primera mensualidad; el pago anual incluye 12 meses de servicio y no cobra pago inicial adicional. Antes de cualquier pago te confirmamos el valor final, incluidos los impuestos que apliquen. Tu plan se paga en línea con Bold (tarjeta de crédito o débito, PSE o Nequi) desde tu panel, al activar tu tienda; en esta página no se procesan pagos.</p>
           <p className="mt-2">Las cuotas de IA son mensuales. Si se agotan, tu tienda sigue funcionando y puedes pedir créditos adicionales.</p>
           <a href="#condiciones" className="mt-3 inline-flex min-h-11 items-center gap-1.5 font-semibold text-(--v2-text) underline decoration-(--v2-line) underline-offset-4 hover:decoration-(--v2-text)">Condiciones comerciales<Icon name="arrowDown" size={15} /></a>
         </div>

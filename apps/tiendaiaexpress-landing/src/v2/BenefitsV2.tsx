@@ -45,7 +45,7 @@ export function BenefitsV2() {
       <div className={wrap}>
         <Heading id="funciones-title" center kicker="Para ti" title="Menos trabajo. Más control." />
         <ul data-v2-reveal="fade" className="mx-auto mt-14 grid max-w-6xl gap-4 md:mt-20 md:grid-cols-3 md:gap-5">
-          <Tile index={0} title="Sin comisión por venta." body="Pagas tu plan y nada más. El pago lo acuerdas directamente con tu cliente.">
+          <Tile index={0} title="Sin comisión por venta." body="Pagas tu plan y nada más. Cobra en línea con tu cuenta Bold (tarjeta, PSE o Nequi) o acuerda el pago por WhatsApp.">
             <p className="pb-12 text-[clamp(5.5rem,11vw,8.5rem)] font-semibold leading-none tracking-[-0.06em]">0 %</p>
           </Tile>
           <Tile index={1} title="Sin depender de un desarrollador." body="Creamos la tienda contigo y después la administras desde el panel o escribiéndole a tu asistente.">

@@ -56,7 +56,7 @@ export function CustomerV2() {
         </ol>
         </div>
         <p className="mx-auto mt-10 max-w-2xl text-center text-[0.9375rem] leading-relaxed text-(--v2-muted)">
-          Con productos, tallas y datos de entrega. Tú confirmas y acuerdas el pago con tu cliente: no cobramos comisión y todavía no hay cobro en línea. <span className="text-(--v2-subtle)">Capturas reales de una tienda piloto; cliente de ejemplo.</span>
+          Con productos, tallas y datos de entrega. Tu cliente paga en línea con Bold (tarjeta, PSE o Nequi) o te envía el pedido por WhatsApp para acordar el pago: no cobramos comisión. <span className="text-(--v2-subtle)">Capturas reales de una tienda piloto; cliente de ejemplo.</span>
         </p>
       </div>
     </section>

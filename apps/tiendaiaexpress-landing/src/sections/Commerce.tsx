@@ -266,7 +266,7 @@ export function Setup() {
 }
 
 const CONDITIONS = [
-  { title: 'Pagos mensuales', body: 'La mensualidad se paga por adelantado, al comenzar cada mes de servicio.' },
+  { title: 'Pagos mensuales', body: 'La mensualidad se paga por adelantado, al comenzar cada mes de servicio, en línea con Bold: tarjeta de crédito o débito, PSE o Nequi.' },
   { title: 'Pago inicial', body: 'Se paga una sola vez, junto con la primera mensualidad, y cubre la configuración inicial descrita en esta página.' },
   { title: 'Modalidad anual', body: 'Pagas 12 meses de servicio por adelantado y no se cobra pago inicial adicional.' },
   { title: 'Renovaciones', body: 'Te avisamos antes de cada renovación. No hacemos cobros automáticos: cada pago lo haces tú.' },
@@ -276,7 +276,7 @@ const CONDITIONS = [
   { title: 'Créditos de IA', body: 'Las cuotas de IA de tu plan son mensuales. Si se agotan, tu tienda sigue funcionando y puedes pedir créditos adicionales.' },
   { title: 'Dominio propio', body: 'Tipo de dominio, titularidad, renovación, transferencia y cancelación se acuerdan por escrito antes de configurarlo.' },
   { title: 'Fotos y productos', body: 'Tus fotos, productos y marca son tuyos, también las imágenes que mejores con IA a partir de ellas.' },
-  { title: 'Sin comisión por venta', body: 'No cobramos comisión por tus ventas: el pedido te llega por WhatsApp y el pago lo acuerdas directamente con tu cliente.' },
+  { title: 'Sin comisión por venta', body: 'No cobramos comisión por tus ventas. Si cobras en línea, el dinero llega a tu cuenta Bold y solo aplica la tarifa de Bold; también puedes acordar el pago por WhatsApp.' },
   { title: 'Cambios de plan', body: 'Puedes cambiar de plan cuando lo necesites; antes del cambio te confirmamos el valor.' },
   { title: 'Cambios de precio', body: 'Si los precios cambian, te avisamos con anticipación. El periodo que ya pagaste no cambia de precio.' },
 ]
