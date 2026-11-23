@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { ArrowRight, CheckCircle2, CreditCard, Link2, Loader2, Mail, MailCheck, MessageCircle, Package, Palette, RefreshCw, ShieldCheck, Sparkles } from 'lucide-react'
+import { ArrowRight, BadgeCheck, CheckCircle2, CreditCard, Link2, Loader2, Mail, MailCheck, MessageCircle, Package, Palette, Phone, RefreshCw, Search, ShieldCheck, ShoppingBag, Store, User } from 'lucide-react'
 import PlatformAuthShell from '../admin/PlatformAuthShell'
 import { signupApi, type SignupConfig } from '../services/api'
 
@@ -165,76 +165,87 @@ export default function SignupPage() {
   }
 
   const aside = (
-    <div className="space-y-7">
-      <ul className="grid gap-2.5 text-[14px] text-white/95 sm:grid-cols-2 sm:gap-3 sm:text-[15px] lg:grid-cols-1">
-        <Benefit icon={<Package size={18} />}>Hasta {products} productos con fotos, precios, tallas y colores</Benefit>
-        <Benefit icon={<MessageCircle size={18} />}>Tus clientes te envían el pedido completo por WhatsApp</Benefit>
-        <Benefit icon={<CreditCard size={18} />}>Si quieres, cobra en línea con tarjeta, PSE o Nequi (Bold)</Benefit>
-        <Benefit icon={<Palette size={18} />}>Tu logo, tus colores y plantillas listas para vender</Benefit>
+    <div className="flex items-center gap-8">
+      <PhonePreview name={form.businessName.trim()} />
+      <ul className="grid flex-1 gap-3 text-[14px] text-white/95 sm:grid-cols-2 sm:text-[15px] md:grid-cols-1">
+        <Benefit icon={<Package size={17} />}>Hasta {products} productos con fotos, precios, tallas y colores</Benefit>
+        <Benefit icon={<MessageCircle size={17} />}>Tus clientes te envían el pedido completo por WhatsApp</Benefit>
+        <Benefit icon={<CreditCard size={17} />}>Si quieres, cobra en línea con tarjeta, PSE o Nequi (Bold)</Benefit>
+        <Benefit icon={<Palette size={17} />}>Tu logo, tus colores y plantillas listas para vender</Benefit>
+        <li className="hidden items-center gap-2 pt-1 text-sm text-[#cfe3d6] md:flex"><ShieldCheck size={16} className="shrink-0" /> Si contratas un plan, conservas todo lo que creaste.</li>
       </ul>
-      <div className="hidden rounded-2xl border border-white/15 bg-white/5 p-5 lg:block">
-        <p className="text-xs font-bold uppercase tracking-widest text-[#cdf53f]">Así de fácil</p>
-        <ol className="mt-3 space-y-3 text-[14px] text-white/90">
-          {['Escribe el nombre de tu negocio y tu correo.', 'Confirma tu correo y crea tu contraseña.', 'Sube tus productos y comparte tu enlace.'].map((text, index) => (
-            <li key={text} className="flex gap-3"><span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-[#cdf53f] text-[12px] font-black text-[#03301f]">{index + 1}</span>{text}</li>
-          ))}
-        </ol>
-      </div>
-      <p className="hidden items-center gap-2 text-sm text-[#cfe3d6] lg:flex"><ShieldCheck size={16} /> Sin tarjeta de crédito. Si contratas un plan, conservas todo lo que creaste.</p>
     </div>
   )
 
   return (
-    <PlatformAuthShell title={`Crea tu tienda online gratis por ${days} días`} subtitle="Lista en minutos · Sin tarjeta de crédito" pageTitle={PAGE_TITLE} aside={aside}
-      below={<p className="text-sm">¿Ya tienes cuenta? <Link className="font-bold underline" to="/admin/login">Inicia sesión</Link> · <Link className="font-bold underline" to="/registro?reenviar=1">Reenviar enlace</Link></p>}>
-      <form onSubmit={submit} className="card space-y-4 p-6 sm:p-7" noValidate aria-label="Crear mi tienda gratis">
+    <PlatformAuthShell title="Crea tu tienda online" titleAccent={`gratis por ${days} días`} subtitle="Lista en minutos, sin tarjeta de crédito y sin saber de tecnología." pageTitle={PAGE_TITLE} aside={aside}
+      below={<p>¿Ya tienes cuenta? <Link className="font-bold text-white underline underline-offset-4" to="/admin/login">Inicia sesión</Link> · <Link className="font-bold text-white underline underline-offset-4" to="/registro?reenviar=1">Reenviar enlace</Link></p>}>
+      <form onSubmit={submit} className="space-y-4 rounded-3xl bg-white p-6 text-ink shadow-2xl ring-1 ring-black/5 sm:p-8" noValidate aria-label="Crear mi tienda gratis">
+        <div className="mb-1">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#cdf53f] px-3 py-1 text-[11px] font-black uppercase tracking-wider text-[#03301f]"><BadgeCheck size={13} /> {days} días gratis</span>
+          <h2 className="mt-3 text-2xl font-black tracking-tight text-[#03301f]">Crea tu cuenta</h2>
+          <p className="text-sm text-muted">Toma menos de un minuto.</p>
+        </div>
         <Field label="Nombre de tu negocio" error={errors.businessName} id="signup-business">
-          <input id="signup-business" ref={(el) => { fields.current.businessName = el }} className={inputClass(errors.businessName)} autoComplete="organization" maxLength={80}
-            value={form.businessName} onChange={set('businessName')} placeholder="Ej.: Flores de Ana" aria-invalid={Boolean(errors.businessName)} aria-describedby="signup-business-help" />
+          <IconInput icon={<Store size={18} />}>
+            <input id="signup-business" ref={(el) => { fields.current.businessName = el }} className={inputClass(errors.businessName)} autoComplete="organization" maxLength={80}
+              value={form.businessName} onChange={set('businessName')} placeholder="Ej.: Flores de Ana" aria-invalid={Boolean(errors.businessName)} aria-describedby="signup-business-help" />
+          </IconInput>
           {!errors.businessName && (
-            <span id="signup-business-help" className="flex items-center gap-1.5 text-xs text-muted"><Link2 size={13} aria-hidden="true" />
-              {slug.length >= 2 ? <span>Tu tienda: <b className="break-all text-ink">{STORE_HOST}{slug}</b></span> : 'Así se llamará tu tienda y su enlace.'}
+            <span id="signup-business-help" className="flex items-center gap-1.5 text-xs text-muted"><Link2 size={13} aria-hidden="true" className="shrink-0" />
+              {slug.length >= 2 ? <span>Tu tienda: <b className="break-all text-[#03301f]">{STORE_HOST}{slug}</b></span> : 'Así se llamará tu tienda y su enlace.'}
             </span>
           )}
         </Field>
         <Field label="Correo" error={errors.email} id="signup-email" hint="Ahí te llega el enlace para entrar y los avisos de tu tienda.">
-          <input id="signup-email" ref={(el) => { fields.current.email = el }} type="email" inputMode="email" className={inputClass(errors.email)} autoComplete="email"
-            value={form.email} onChange={set('email')} placeholder="tu@correo.com" aria-invalid={Boolean(errors.email)} aria-describedby="signup-email-help" />
+          <IconInput icon={<Mail size={18} />}>
+            <input id="signup-email" ref={(el) => { fields.current.email = el }} type="email" inputMode="email" className={inputClass(errors.email)} autoComplete="email"
+              value={form.email} onChange={set('email')} placeholder="tu@correo.com" aria-invalid={Boolean(errors.email)} aria-describedby="signup-email-help" />
+          </IconInput>
         </Field>
         <Field label="WhatsApp para pedidos" optional error={errors.whatsapp} id="signup-whatsapp" hint="Ahí te llegan los pedidos de tus clientes. Puedes agregarlo después.">
-          <input id="signup-whatsapp" ref={(el) => { fields.current.whatsapp = el }} type="tel" inputMode="tel" className={inputClass(errors.whatsapp)} autoComplete="tel"
-            value={form.whatsapp} onChange={set('whatsapp')} placeholder="300 123 4567" aria-invalid={Boolean(errors.whatsapp)} aria-describedby="signup-whatsapp-help" />
+          <IconInput icon={<Phone size={18} />}>
+            <input id="signup-whatsapp" ref={(el) => { fields.current.whatsapp = el }} type="tel" inputMode="tel" className={inputClass(errors.whatsapp)} autoComplete="tel"
+              value={form.whatsapp} onChange={set('whatsapp')} placeholder="300 123 4567" aria-invalid={Boolean(errors.whatsapp)} aria-describedby="signup-whatsapp-help" />
+          </IconInput>
         </Field>
         <Field label="Tu nombre" optional id="signup-owner">
-          <input id="signup-owner" className={inputClass()} autoComplete="name" maxLength={120} value={form.ownerName} onChange={set('ownerName')} placeholder="Para saludarte en los correos" />
+          <IconInput icon={<User size={18} />}>
+            <input id="signup-owner" className={inputClass()} autoComplete="name" maxLength={120} value={form.ownerName} onChange={set('ownerName')} placeholder="Para saludarte en los correos" />
+          </IconInput>
         </Field>
         {/* Invisible to people; bots fill it. */}
         <div aria-hidden="true" className="absolute -left-[9999px] h-0 w-0 overflow-hidden"><label>Sitio web<input tabIndex={-1} autoComplete="off" value={form.website} onChange={set('website')} /></label></div>
         <div>
-          <label className="flex cursor-pointer items-start gap-3 rounded-btn p-1 text-sm text-ink">
-            <input ref={(el) => { fields.current.acceptTerms = el }} type="checkbox" className="mt-0.5 h-5 w-5 shrink-0" checked={form.acceptTerms} onChange={set('acceptTerms')} aria-invalid={Boolean(errors.acceptTerms)} />
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl p-1 text-sm text-ink">
+            <input ref={(el) => { fields.current.acceptTerms = el }} type="checkbox" className="mt-0.5 h-5 w-5 shrink-0 accent-[#03301f]" checked={form.acceptTerms} onChange={set('acceptTerms')} aria-invalid={Boolean(errors.acceptTerms)} />
             <span>Acepto los <a href={TERMS_URL} target="_blank" rel="noopener noreferrer" className="font-bold underline">términos y condiciones</a> y el tratamiento de mis datos para crear y administrar mi tienda.</span>
           </label>
           {errors.acceptTerms && <p role="alert" className="mt-1 text-xs font-semibold text-red-700">{errors.acceptTerms}</p>}
         </div>
-        {error && <p role="alert" className="rounded-btn bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
-        <button type="submit" className="btn-brand min-h-[54px] w-full !text-[15px]" disabled={busy}>
-          {busy ? <><Loader2 size={18} className="animate-spin" /> Creando tu tienda…</> : <><Sparkles size={18} /> Crear mi tienda gratis <ArrowRight size={18} /></>}
+        {error && <p role="alert" className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
+        <button type="submit" disabled={busy}
+          className="group flex min-h-[56px] w-full items-center justify-center gap-2 rounded-xl bg-[#cdf53f] px-5 text-base font-black text-[#03301f] shadow-[0_12px_30px_-10px_rgba(205,245,63,0.9)] transition-all hover:-translate-y-0.5 hover:brightness-105 active:translate-y-0 active:scale-[0.99] disabled:cursor-wait disabled:opacity-70">
+          {busy ? <><Loader2 size={20} className="animate-spin" /> Creando tu tienda…</> : <>Crear mi tienda gratis <ArrowRight size={20} className="transition-transform group-hover:translate-x-0.5" /></>}
         </button>
         <ul className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-muted">
-          {[`${days} días gratis`, `Hasta ${products} productos`, 'Sin tarjeta de crédito'].map((item) => <li key={item} className="flex items-center gap-1"><CheckCircle2 size={13} className="text-brand" aria-hidden="true" />{item}</li>)}
+          {[`${days} días gratis`, `Hasta ${products} productos`, 'Sin tarjeta de crédito'].map((item) => <li key={item} className="flex items-center gap-1"><CheckCircle2 size={13} className="text-emerald-600" aria-hidden="true" />{item}</li>)}
         </ul>
       </form>
     </PlatformAuthShell>
   )
 }
 
-const inputClass = (error?: string) => `input-field w-full !text-base min-h-[50px] ${error ? '!border-red-500' : ''}`
+const inputClass = (error?: string) => `w-full min-h-[52px] rounded-xl border bg-[#f7f8f3] pl-11 pr-4 text-base text-ink placeholder:text-[#8a978f] transition focus:bg-white focus:outline-none focus:ring-4 ${error ? 'border-red-500 focus:ring-red-100' : 'border-[#dbe5de] focus:border-[#03301f] focus:ring-[#cdf53f]/40'}`
+
+function IconInput({ icon, children }: { icon: ReactNode; children: ReactNode }) {
+  return <div className="relative"><span aria-hidden="true" className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[#6b7d72]">{icon}</span>{children}</div>
+}
 
 function Field({ label, optional, error, hint, id, children }: { label: string; optional?: boolean; error?: string; hint?: string; id: string; children: ReactNode }) {
   return (
     <div className="space-y-1.5">
-      <label htmlFor={id} className="block text-xs font-bold uppercase tracking-widest text-muted">{label}{optional && <span className="font-normal normal-case tracking-normal"> (opcional)</span>}</label>
+      <label htmlFor={id} className="block text-[13px] font-bold text-[#03301f]">{label}{optional && <span className="font-normal text-muted"> (opcional)</span>}</label>
       {children}
       {error ? <p id={`${id}-help`} role="alert" className="text-xs font-semibold text-red-700">{error}</p> : hint ? <p id={`${id}-help`} className="text-xs text-muted">{hint}</p> : null}
     </div>
@@ -242,5 +253,48 @@ function Field({ label, optional, error, hint, id, children }: { label: string; 
 }
 
 function Benefit({ icon, children }: { icon: ReactNode; children: ReactNode }) {
-  return <li className="flex items-start gap-3"><span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#cdf53f] text-[#03301f] sm:h-8 sm:w-8">{icon}</span><span className="pt-0.5 sm:pt-1">{children}</span></li>
+  return <li className="flex items-start gap-3"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-[#cdf53f] text-[#03301f] shadow-[0_6px_16px_-6px_rgba(205,245,63,0.8)]">{icon}</span><span className="pt-1">{children}</span></li>
+}
+
+const SAMPLE = [
+  { src: '/seed-images/sneakerhub/ASTRAL-03.webp', name: 'Tenis Astral', price: '$289.900' },
+  { src: '/seed-images/sneakerhub/NORD-02.webp', name: 'Nord Drift', price: '$219.900' },
+  { src: '/seed-images/sneakerhub/KINETIK-05.webp', name: 'Kinetik', price: '$389.900' },
+  { src: '/seed-images/sneakerhub/TERA-08.webp', name: 'Tera Low', price: '$189.900' },
+]
+
+/** A phone with a sample store that takes the name being typed: the person sees their store before creating it. */
+function PhonePreview({ name }: { name: string }) {
+  const title = name.length >= 2 ? name : 'Tu negocio'
+  return (
+    <div aria-hidden="true" className="relative hidden shrink-0 md:block">
+      <div className="w-[232px] -rotate-2 rounded-[2.4rem] border-[7px] border-[#0b0f0d] bg-[#0b0f0d] shadow-[0_30px_60px_-20px_rgba(0,0,0,0.7)]">
+        <div className="overflow-hidden rounded-[1.9rem] bg-[#f7f8f3]">
+          <div className="flex items-center justify-between bg-white px-3.5 pb-2 pt-3">
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#03301f] text-[12px] font-black text-[#cdf53f]">{title.charAt(0).toUpperCase()}</span>
+              <span className="truncate text-[13px] font-black text-[#03301f]">{title}</span>
+            </span>
+            <ShoppingBag size={15} className="shrink-0 text-[#03301f]" />
+          </div>
+          <div className="mx-3 mt-2 flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-[10px] text-[#8a978f] ring-1 ring-black/5"><Search size={11} /> Buscar productos</div>
+          <div className="grid grid-cols-2 gap-2 p-3">
+            {SAMPLE.map((item) => (
+              <div key={item.src} className="overflow-hidden rounded-xl bg-white ring-1 ring-black/5">
+                <img src={item.src} alt="" width={120} height={120} loading="lazy" className="aspect-square w-full object-cover" />
+                <div className="px-2 py-1.5"><p className="truncate text-[10px] font-semibold text-ink">{item.name}</p><p className="text-[10px] font-black text-[#03301f]">{item.price}</p></div>
+              </div>
+            ))}
+          </div>
+          <div className="mx-3 mb-3 flex items-center justify-center gap-1.5 rounded-xl bg-[#25D366] py-2 text-[11px] font-bold text-white"><MessageCircle size={13} /> Pedir por WhatsApp</div>
+        </div>
+      </div>
+      <div className="absolute -right-6 -top-5 rotate-3 rounded-2xl bg-white px-3 py-2 text-[11px] shadow-xl ring-1 ring-black/5">
+        <p className="font-black text-[#03301f]">🛒 Nuevo pedido</p><p className="text-muted">2 productos · $509.800</p>
+      </div>
+      <div className="absolute -left-8 bottom-24 -rotate-3 rounded-2xl bg-[#03301f] px-3 py-2 text-[11px] text-white shadow-xl ring-1 ring-white/10">
+        <p className="font-black text-[#cdf53f]">✓ Pago aprobado</p><p className="text-white/70">Tarjeta · Bold</p>
+      </div>
+    </div>
+  )
 }
