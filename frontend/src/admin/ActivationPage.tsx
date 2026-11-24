@@ -49,7 +49,7 @@ export default function ActivationPage() {
   }
 
   return (
-    <PlatformAuthShell title="Activa tu cuenta" subtitle="Tienda IA Express · panel administrativo" storeName={info?.store.name ?? null}>
+    <PlatformAuthShell title="Activa tu cuenta" subtitle="TiendIA Exprés · panel administrativo" storeName={info?.store.name ?? null}>
         <div className="card p-8">
           {loadError ? (
             <div className="space-y-3">

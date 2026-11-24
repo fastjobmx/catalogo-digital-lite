@@ -3,11 +3,11 @@ import { AlertCircle, Check, Loader2, MessageCircle, X } from 'lucide-react'
 import { trialApi, type TrialActivationRequest } from '../../services/api'
 import { PLATFORM_BRAND } from '../../lib/platformBrand'
 
-/** Platform sales contact (Tienda IA Express WhatsApp). */
+/** Platform sales contact (TiendIA Exprés WhatsApp). */
 export const SALES_WHATSAPP = '573506912734'
 export const salesLink = (text: string) => `https://wa.me/${SALES_WHATSAPP}?text=${encodeURIComponent(text)}`
 
-/** The real commercial offer published on the Tienda IA Express site (no prices are published). */
+/** The real commercial offer published on the TiendIA Exprés site (no prices are published). */
 export const PLANS = [
   { key: 'lite', name: 'Catálogo Lite', for: 'Para empezar a mostrar.', includes: ['Catálogo con tu plantilla', 'Productos, categorías y variantes', 'Carrito y pedidos por WhatsApp', 'Panel web de administración'] },
   { key: 'ia', name: 'Catálogo IA', for: 'Para administrar desde el celular.', includes: ['Todo lo de Catálogo Lite', 'Asistente en Telegram con IA', 'Pedidos, inventario y cupones', 'Varias tiendas en una cuenta'], featured: true },

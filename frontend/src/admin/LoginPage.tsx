@@ -58,7 +58,7 @@ export default function LoginPage() {
 
   return (
     <PlatformAuthShell
-      title="Tienda IA Express"
+      title="TiendIA Exprés"
       subtitle="Acceso al panel administrativo"
       storeName={TENANT_SLUG ? store.name : null}
       below={<Link to="/" className="inline-flex items-center gap-2 text-sm font-semibold hover:text-white transition-colors"><ArrowLeft size={16} /> Volver a la tienda</Link>}

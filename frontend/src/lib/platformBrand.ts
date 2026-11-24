@@ -1,8 +1,8 @@
-/** Single source of the platform's public identity (Tienda IA Express). Stores keep their own
+/** Single source of the platform's public identity (TiendIA Exprés). Stores keep their own
  * name, logo and colours; this brand appears only in access, administration and attribution spaces.
  * Technical names (Workers, routes, database, variables) are intentionally unchanged. */
 export const PLATFORM_BRAND = {
-  name: 'Tienda IA Express',
+  name: 'TiendIA Exprés',
   /** Stylised spelling used by the logo artwork and the catalogue attribution. */
   wordmark: 'TiendIA Exprés',
   slogan: 'Tu tienda online, más fácil.',

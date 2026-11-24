@@ -5,7 +5,7 @@
 ## Qué es
 
 - Una tienda online propia, con dirección propia y plantilla con la marca del negocio.
-- Los clientes arman el carrito y envían el pedido completo por WhatsApp (productos, tallas y datos de entrega). El comercio confirma y acuerda el pago con su cliente.
+- Los clientes arman el carrito y envían el pedido completo por WhatsApp (productos, tallas y datos de entrega), o pagan en línea con tarjeta, PSE o Nequi a través de Bold, con la cuenta Bold del propio comercio. Al aprobarse el pago, el pedido queda confirmado, las unidades se apartan y el cliente recibe su comprobante por correo.
 - Un asistente privado con inteligencia artificial en WhatsApp (en horario de oficina) y en Telegram (las 24 horas) para administrar la tienda escribiendo: agregar productos, cambiar precios, cargar existencias y revisar pedidos. Pide confirmación antes de guardar cambios.
 - Estudio Creativo: imágenes, carruseles y videos cortos para redes sociales, generados con los productos, el nombre y el precio reales de la tienda.
 - Fichas de producto con IA desde una foto y mejoras de fotografía de producto con IA, según las cuotas del plan.
@@ -14,6 +14,8 @@
 ## Planes
 
 Tres planes (Emprendedor, Negocio y Mayorista), con pago mensual más un pago inicial o con pago anual sin pago inicial. Precios en pesos colombianos y sin comisión por venta. Precios vigentes: https://tiendiaexpres.com/#planes
+
+El plan se paga en línea con Bold (tarjeta, PSE o Nequi). Contratar y pagar sin prueba gratis: https://app.tiendiaexpres.com/contratar
 
 ## Prueba gratis
 
@@ -25,5 +27,8 @@ Prueba gratis durante 14 días, sin tarjeta de crédito, con hasta 20 productos 
 - Funciones: https://tiendiaexpres.com/#funciones
 - Cómo funciona: https://tiendiaexpres.com/#como-funciona
 - Tiendas reales: https://tiendiaexpres.com/#tiendas
+- Inteligencia artificial: https://tiendiaexpres.com/#ia
 - Preguntas frecuentes: https://tiendiaexpres.com/#preguntas
+- Términos y condiciones: https://tiendiaexpres.com/terminos-y-condiciones
+- Servicios adicionales: https://tiendiaexpres.com/servicios-adicionales
 - Contacto por WhatsApp: https://wa.me/573506912734

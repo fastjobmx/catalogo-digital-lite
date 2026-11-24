@@ -1,9 +1,9 @@
-// Frontend Worker of the Tienda IA Express platform (Workers Static Assets; technical name catalogo-digital-ia).
+// Frontend Worker of the TiendIA Exprés platform (Workers Static Assets; technical name catalogo-digital-ia).
 // - /api/* is forwarded to the backend Worker through a service binding.
 // - HTML pages get the right metadata before any JavaScript runs, so links shared on WhatsApp,
 //   Facebook or search engines show the correct identity:
 //     · each public catalogue keeps its own name, description, logo and images;
-//     · private screens (panel, platform, trial) show Tienda IA Express and are noindex.
+//     · private screens (panel, platform, trial) show TiendIA Exprés and are noindex.
 // - Stores or products that do not exist answer HTTP 404 (noindex), never a "soft 404".
 // - /robots.txt, /sitemap.xml and /sitemaps/* are generated from the public catalogue data.
 // - Optional canonical host (vars CANONICAL_ORIGIN + REDIRECT_TO_CANONICAL): when set, canonical URLs use it
@@ -11,10 +11,10 @@
 // Static files (JS, CSS, images, fonts) are served directly from the asset storage.
 
 const PLATFORM = {
-  name: 'Tienda IA Express',
-  title: 'Tienda IA Express | Acceso al panel administrativo',
-  description: 'Accede al panel de administración de tu tienda digital en Tienda IA Express.',
-  trialTitle: 'Tienda IA Express | Prueba tu catálogo sin registro',
+  name: 'TiendIA Exprés',
+  title: 'TiendIA Exprés | Acceso al panel administrativo',
+  description: 'Accede al panel de administración de tu tienda digital en TiendIA Exprés.',
+  trialTitle: 'TiendIA Exprés | Prueba tu catálogo sin registro',
   trialDescription: 'Vista previa temporal de tu catálogo. No está publicada.',
   signupTitle: 'Prueba gratis 14 días | TiendIA Exprés',
   signupDescription: 'Crea tu tienda online en minutos, sin tarjeta de crédito: catálogo con fotos y tallas, pedidos por WhatsApp y cobros en línea opcionales.',

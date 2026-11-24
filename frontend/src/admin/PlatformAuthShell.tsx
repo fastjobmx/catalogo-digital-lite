@@ -41,7 +41,7 @@ export function usePlatformPageMeta(title = `${PLATFORM_BRAND.name} | Acceso al 
   }, [title])
 }
 
-/** Shared frame of the platform access screens: Tienda IA Express logo, title and, as secondary
+/** Shared frame of the platform access screens: TiendIA Exprés logo, title and, as secondary
  * context only, the store the person is entering. */
 export default function PlatformAuthShell({ title, titleAccent, subtitle, storeName, children, below, aside, pageTitle }: {
   title: string; subtitle?: string; storeName?: string | null; children: ReactNode; below?: ReactNode

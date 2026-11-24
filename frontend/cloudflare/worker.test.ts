@@ -20,7 +20,7 @@ describe('share metadata', () => {
 
   it('private and trial pages use the platform identity and are noindex', () => {
     const login = buildMeta('private', ORIGIN, `${ORIGIN}/t/luz-magica/admin/login`, LUZ, null)
-    expect(login).toMatchObject({ title: 'Tienda IA Express | Acceso al panel administrativo', siteName: 'Tienda IA Express', robots: 'noindex, nofollow', image: `${ORIGIN}/brand/tiendaiaexpress/og.png` })
+    expect(login).toMatchObject({ title: 'TiendIA Exprés | Acceso al panel administrativo', siteName: 'TiendIA Exprés', robots: 'noindex, nofollow', image: `${ORIGIN}/brand/tiendaiaexpress/og.png` })
     expect(buildMeta('trial', ORIGIN, `${ORIGIN}/prueba`, null, null).robots).toBe('noindex, nofollow')
   })
 
@@ -28,13 +28,13 @@ describe('share metadata', () => {
     const signup = buildMeta('private', ORIGIN, `${ORIGIN}/registro`, null, null)
     expect(signup).toMatchObject({ title: 'Prueba gratis 14 días | TiendIA Exprés', robots: 'noindex, nofollow' })
     expect(signup.description).toContain('sin tarjeta de crédito')
-    expect(buildMeta('private', ORIGIN, `${ORIGIN}/admin/registros`, null, null).title).toBe('Tienda IA Express | Acceso al panel administrativo')
+    expect(buildMeta('private', ORIGIN, `${ORIGIN}/admin/registros`, null, null).title).toBe('TiendIA Exprés | Acceso al panel administrativo')
   })
 
   it('each catalogue keeps its own name, description and images; products use their own photo', () => {
     const store = buildMeta('store', ORIGIN, `${ORIGIN}/t/luz-magica/`, LUZ, null)
     expect(store).toMatchObject({ title: 'Luz Mágica', siteName: 'Luz Mágica', description: 'Tocadores Hollywood y espejos.', image: `${ORIGIN}/api/assets/stores/4/store/banner.jpg`, robots: null })
-    expect(JSON.stringify(store)).not.toMatch(/Tienda IA Express|SneakerHub/)
+    expect(JSON.stringify(store)).not.toMatch(/TiendIA Exprés|Tienda IA Express|SneakerHub/)
     const product = buildMeta('store', ORIGIN, `${ORIGIN}/t/luz-magica/product/LM-005`, LUZ, { name: 'Tocador Imperia', price: 1050000, description: 'Tocador Hollywood', imageUrls: ['/api/assets/stores/4/products/luz-005-1.webp'] })
     expect(product.title).toBe('Tocador Imperia | Luz Mágica')
     expect(product.description).toContain('1.050.000')

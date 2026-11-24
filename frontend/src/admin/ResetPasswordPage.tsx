@@ -49,7 +49,7 @@ export default function ResetPasswordPage() {
   }
 
   return (
-    <PlatformAuthShell title="Crea una contraseña nueva" subtitle="Tienda IA Express · panel administrativo" storeName={info?.store.name ?? null}>
+    <PlatformAuthShell title="Crea una contraseña nueva" subtitle="TiendIA Exprés · panel administrativo" storeName={info?.store.name ?? null}>
         <div className="card p-8">
           {loadError ? (
             <p role="alert" className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-btn px-4 py-3">{loadError}</p>

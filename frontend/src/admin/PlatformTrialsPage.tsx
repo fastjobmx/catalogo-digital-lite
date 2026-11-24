@@ -71,7 +71,7 @@ export default function PlatformTrialsPage() {
       <div className="mx-auto max-w-6xl space-y-6">
         <header className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-muted"><img src="/brand/tiendaiaexpress/icon-192.png" alt="" width={20} height={20} className="rounded" /> Tienda IA Express · Plataforma</p>
+            <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-muted"><img src="/brand/tiendaiaexpress/icon-192.png" alt="" width={20} height={20} className="rounded" /> TiendIA Exprés · Plataforma</p>
             <h1 className="text-2xl font-black tracking-tight text-ink">Tiendas de prueba</h1>
           </div>
           <div className="flex gap-2">

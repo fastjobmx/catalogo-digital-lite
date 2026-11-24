@@ -12,6 +12,7 @@ const unit = (code: 'MON' | 'ANN') => ({ '@type': 'QuantitativeValue', value: 1,
 const features = (channels: string) => [
   'Tienda online con dirección propia y plantilla de tu marca',
   'Carrito y pedidos completos por WhatsApp',
+  'Cobros en línea con tarjeta, PSE o Nequi a través de Bold (cuenta propia del comercio)',
   'Productos, categorías, tallas, variantes e inventario',
   'Carga de productos con fotos, Excel, CSV o PDF',
   `Asistente con inteligencia artificial en ${channels} para administrar la tienda`,
@@ -21,6 +22,7 @@ const features = (channels: string) => [
   'Panel web de administración y pedidos con estados',
   'Cupones de descuento',
   'Sin comisión por venta',
+  'Contratación en línea del plan o prueba gratis de 14 días',
 ]
 
 /** Defaults = the official home (src/App.tsx); the V2 home passes its own FAQ and channels. */
@@ -83,7 +85,7 @@ export function structuredData({ faq: questions = faq, channels = 'Telegram' }: 
         '@id': `${url}#pagina`,
         url,
         name: 'TiendIA Exprés | Tienda online con IA y pedidos por WhatsApp',
-        description: 'Crea tu tienda online con IA y recibe pedidos por WhatsApp. Carga productos con fotos, Excel o Telegram y crea publicidad para tus redes. Sin comisión por venta.',
+        description: 'Crea tu tienda online con IA en Colombia: recibe pedidos por WhatsApp y cobra con tarjeta, PSE o Nequi. Prueba gratis 14 días, sin comisión por venta.',
         inLanguage: 'es-CO',
         isPartOf: { '@id': `${url}#sitio` },
         about: { '@id': `${url}#aplicacion` },
@@ -100,7 +102,7 @@ export function structuredData({ faq: questions = faq, channels = 'Telegram' }: 
         inLanguage: 'es-CO',
         url,
         image: `${site.url}/og.png`,
-        description: `Tienda online con inteligencia artificial y pedidos por WhatsApp, administrable desde el panel web o ${channels}, con asistente y Estudio Creativo para publicidad en redes.`,
+        description: `Tienda online con inteligencia artificial, pedidos por WhatsApp y cobros en línea con Bold, administrable desde el panel web o ${channels}, con asistente y Estudio Creativo para publicidad en redes.`,
         featureList: features(channels),
         provider: org,
         offers,

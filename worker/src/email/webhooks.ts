@@ -113,7 +113,7 @@ export async function pollDeliveryStatus(db: D1Database, env: Partial<Env['Bindi
 
 export type DnsCheck = { name: string; status: 'ok' | 'falta' | 'revisar' | 'error'; detail: string }
 
-/** Domain of the visible sender (EMAIL_FROM), e.g. "Tienda IA Express <no-responder@envios.ejemplo.com>". */
+/** Domain of the visible sender (EMAIL_FROM), e.g. "TiendIA Exprés <no-responder@envios.ejemplo.com>". */
 export function senderDomain(from: string | null | undefined): string | null {
   const match = String(from || '').match(/@([a-z0-9.-]+\.[a-z]{2,})>?\s*$/i)
   return match ? match[1]!.toLowerCase() : null

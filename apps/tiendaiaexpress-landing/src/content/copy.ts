@@ -22,6 +22,10 @@ export const faq = [
     a: `Escribes el nombre de tu negocio y tu correo, confirmas el correo con el enlace que te enviamos y entras al panel de tu tienda. Durante ${site.trial.days} días puedes crear hasta ${site.trial.products} productos con fotos, precios y variantes, personalizar tu tienda, compartir el enlace y recibir pedidos por WhatsApp, sin tarjeta de crédito. Si contratas un plan, conservas la misma tienda con tus productos, pedidos y configuración. Las funciones de IA se activan con el plan.`,
   },
   {
+    q: '¿Sirve para vender por WhatsApp en Colombia?',
+    a: 'Sí. Es una tienda online hecha para negocios colombianos que venden por WhatsApp, Instagram y Facebook: tus clientes ven tu catálogo con fotos, precios y tallas, arman el carrito y te envían el pedido completo por WhatsApp, o pagan en línea con tarjeta, PSE o Nequi a través de Bold. Precios en pesos colombianos y sin comisión por venta.',
+  },
+  {
     q: '¿Cuánto cuesta tener mi tienda?',
     a: `Depende del plan. Con pago mensual: Emprendedor ${cop(emprendedor.monthly)} al mes, Negocio ${cop(negocio.monthly)} y Mayorista ${cop(mayorista.monthly)}, más un pago inicial único de ${cop(emprendedor.setup)}, ${cop(negocio.setup)} o ${cop(mayorista.setup)}. Con pago anual: ${cop(emprendedor.annual)}, ${cop(negocio.annual)} o ${cop(mayorista.annual)}, sin pago inicial.`,
   },

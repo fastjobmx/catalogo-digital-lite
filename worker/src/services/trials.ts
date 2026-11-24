@@ -374,7 +374,7 @@ export async function placeTrialOrder(db: D1Database, env: Partial<Env['Bindings
     ...(customerName ? [`Nombre: ${customerName}`] : []),
     ...(note ? [`Nota: ${note}`] : []),
     '',
-    'Pedido hecho en una tienda temporal creada con Tienda IA Express. El pago y la entrega se acuerdan con el vendedor.',
+    'Pedido hecho en una tienda temporal creada con TiendIA Exprés. El pago y la entrega se acuerdan con el vendedor.',
   ].join('\n')
   return { code, total, items: lines, whatsappUrl: `https://wa.me/${content.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(message)}` }
 }

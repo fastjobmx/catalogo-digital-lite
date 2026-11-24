@@ -286,7 +286,7 @@ function TrialStore({ id }: { id: string }) {
         <p className="text-[15px] text-[#03301f]/70">Puedes crear una tienda de prueba nueva en minutos, o escribirnos para crear tu tienda real.</p>
         <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
           <button type="button" className="rounded-full bg-[#03301f] px-6 py-3 font-bold text-[#cdf53f]" onClick={() => navigate('/prueba')}>Crear una tienda de prueba</button>
-          <a href={salesLink('Hola, quiero crear mi tienda con Tienda IA Express.')} target="_blank" rel="noopener noreferrer" className="rounded-full border-2 border-[#03301f] px-6 py-3 font-bold">Hablar con nosotros</a>
+          <a href={salesLink('Hola, quiero crear mi tienda con TiendIA Exprés.')} target="_blank" rel="noopener noreferrer" className="rounded-full border-2 border-[#03301f] px-6 py-3 font-bold">Hablar con nosotros</a>
         </div>
       </div>
     </main>

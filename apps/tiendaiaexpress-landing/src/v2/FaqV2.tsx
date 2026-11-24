@@ -17,6 +17,7 @@ const official = (q: string) => {
 
 export const faqV2: { q: string; a: string }[] = [
   official('¿Cómo funciona la prueba gratis?'),
+  official('¿Sirve para vender por WhatsApp en Colombia?'),
   official('¿Cuánto cuesta tener mi tienda?'),
   {
     q: '¿Mis clientes hablan con el asistente?',

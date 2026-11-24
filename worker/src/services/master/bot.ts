@@ -57,7 +57,7 @@ function menuKeyboard(): Keyboard {
 }
 
 const WELCOME = [
-  '👋 ¡Hola! Soy el <b>bot maestro</b> de Tienda IA Express.',
+  '👋 ¡Hola! Soy el <b>bot maestro</b> de TiendIA Exprés.',
   'Desde aquí creas tiendas, administras a sus propietarios y revisas cómo va la plataforma. Antes de cualquier cambio te mostraré un resumen para que lo confirmes.',
   '',
   '¿Qué hacemos?',
@@ -1014,7 +1014,7 @@ async function answerQuestion(ctx: MasterContext, question: string): Promise<voi
   try {
     const result = await runWithSpend({ db: ctx.db, env: ctx.env, scope: 'platform', storeId: null, feature: 'bot_maestro', opKey: `master:${ctx.updateId}:preguntar` }, () => callGeminiJson(ctx.env, fetch, {
       system: [
-        'Eres el asistente del administrador de una plataforma de tiendas en línea (Tienda IA Express). Respondes en español, con tono amable y en pocas líneas.',
+        'Eres el asistente del administrador de una plataforma de tiendas en línea (TiendIA Exprés). Respondes en español, con tono amable y en pocas líneas.',
         'Usa solo los DATOS DE LA PLATAFORMA y la lista de COMANDOS. Si la respuesta no está ahí, dilo y sugiere el comando o botón que sirve. No inventes tiendas, cifras, precios ni funciones.',
         'No ejecutas cambios: para modificar algo indica el comando exacto; el sistema pedirá confirmación. Los costos de IA son estimados.',
         UNTRUSTED_CONTENT_RULE,
